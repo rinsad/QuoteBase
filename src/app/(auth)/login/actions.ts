@@ -10,6 +10,9 @@ import { getBaseUrl, isLocalSupabase } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
+const DEV_LOGIN_EMAIL = "rinsad@gmail.com";
+const DEV_LOGIN_PASSWORD = "local-dev-rinsad-password";
+
 export type LoginState = {
   message: string;
   status: "idle" | "success" | "error";
@@ -87,25 +90,88 @@ export async function devSignInAsRinsad() {
     throw new Error("Local Supabase is not configured.");
   }
 
-  const { data, error } = await admin.auth.admin.generateLink({
-    type: "magiclink",
-    email: "rinsad@gmail.com",
-    options: {
-      redirectTo: `${getBaseUrl()}/auth/callback?next=/dashboard`,
-    },
-  });
+  const { data: usersData, error: usersError } =
+    await admin.auth.admin.listUsers({
+      page: 1,
+      perPage: 1000,
+    });
 
-  if (error || !data.properties?.hashed_token) {
-    throw new Error(error?.message ?? "Could not create local dev login link.");
+  if (usersError) {
+    throw new Error(usersError.message);
   }
 
-  const { error: verifyError } = await supabase.auth.verifyOtp({
-    type: "magiclink",
-    token_hash: data.properties.hashed_token,
+  let authUser = usersData.users.find(
+    (user) => user.email?.toLowerCase() === DEV_LOGIN_EMAIL,
+  );
+
+  if (!authUser) {
+    const { data, error } = await admin.auth.admin.createUser({
+      email: DEV_LOGIN_EMAIL,
+      password: DEV_LOGIN_PASSWORD,
+      email_confirm: true,
+      user_metadata: {
+        full_name: "Rinsad",
+      },
+    });
+
+    if (error || !data.user) {
+      throw new Error(error?.message ?? "Could not create local dev user.");
+    }
+
+    authUser = data.user;
+  } else {
+    const { data, error } = await admin.auth.admin.updateUserById(authUser.id, {
+      password: DEV_LOGIN_PASSWORD,
+      email_confirm: true,
+      user_metadata: {
+        full_name: "Rinsad",
+      },
+    });
+
+    if (error || !data.user) {
+      throw new Error(error?.message ?? "Could not update local dev user.");
+    }
+
+    authUser = data.user;
+  }
+
+  const { data: invite, error: inviteError } = await admin
+    .from("user_invites")
+    .select("organization_id, email, full_name, role")
+    .eq("email", DEV_LOGIN_EMAIL)
+    .eq("is_active", true)
+    .single<{
+      organization_id: string;
+      email: string;
+      full_name: string;
+      role: "admin" | "account_manager" | "estimator";
+    }>();
+
+  if (inviteError || !invite) {
+    throw new Error(inviteError?.message ?? "Local dev invite is missing.");
+  }
+
+  await admin.from("users").upsert(
+    {
+      organization_id: invite.organization_id,
+      auth_user_id: authUser.id,
+      email: invite.email,
+      full_name: invite.full_name,
+      role: invite.role,
+      is_active: true,
+    },
+    {
+      onConflict: "auth_user_id",
+    },
+  );
+
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: DEV_LOGIN_EMAIL,
+    password: DEV_LOGIN_PASSWORD,
   });
 
-  if (verifyError) {
-    throw new Error(verifyError.message);
+  if (signInError) {
+    throw new Error(signInError.message);
   }
 
   redirect("/dashboard");

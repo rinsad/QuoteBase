@@ -130,6 +130,16 @@ Next likely step:
 - Verified `npm run build` passes.
 - Restarted dev server and verified `/login` still shows `Continue as Rinsad`.
 
+## 2026-05-30 - Replace Dev Login Token Flow
+
+- Replaced the token-hash dev login with a local-only password-backed Supabase Auth flow.
+- The shortcut creates or updates `rinsad@gmail.com` in local Supabase Auth, ensures the matching `public.users` row exists, then signs in with `signInWithPassword`.
+- This avoids repeated local errors from expired/invalid magic-link token hashes after database resets.
+- Guard remains local-only: disabled in production and unavailable unless Supabase URL points to localhost/127.0.0.1.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Restarted dev server.
+
 ## 2026-05-30 - Day 2 Core Business Schema
 
 - Added Day 2 migration for suppliers, materials, material price history, vehicle types, yards, pricing config, sales tax rates, audit log, and distance cache.
