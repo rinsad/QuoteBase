@@ -59,3 +59,27 @@ Blocked until credentials:
 - Supabase project URL and anon key are still needed in `.env.local`.
 - The migration still needs to be run in Supabase.
 - Actual magic-link login cannot be tested until Supabase is configured.
+
+## 2026-05-30 - Local Supabase Setup
+
+- Installed Docker Desktop.
+- Installed Supabase CLI as a project dev dependency.
+- Initialized local Supabase config in `supabase/config.toml`.
+- Moved local Supabase ports to `55020-55029` because Windows reserved the default `5432x` range.
+- Switched local database to Postgres 15 for stable local startup.
+- Started local Supabase:
+  - API: `http://127.0.0.1:55021`
+  - Studio: `http://127.0.0.1:55023`
+  - Mailpit: `http://127.0.0.1:55024`
+  - DB: `postgresql://postgres:postgres@127.0.0.1:55022/postgres`
+- Updated `.env.local` with local Supabase URL and local generated keys.
+- Added auth trigger to create `public.users` from `public.user_invites` when a Supabase Auth user is created.
+- Ran `supabase db reset`; migration applied successfully.
+- Verified seed data: 1 organization, 6 invited users, 17 feature flags.
+- Verified local magic-link flow by requesting login for `john@westernmaterials.net`; Mailpit captured the email and the trigger created John as admin.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+
+Next likely step:
+
+- Open Mailpit, click the captured magic link for John, and verify `/dashboard` displays John as Admin.

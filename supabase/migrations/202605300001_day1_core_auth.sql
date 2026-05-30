@@ -133,6 +133,60 @@ as $$
   limit 1
 $$;
 
+create or replace function public.handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  invite_record public.user_invites%rowtype;
+begin
+  select *
+  into invite_record
+  from public.user_invites
+  where email = lower(new.email)
+    and is_active = true
+  limit 1;
+
+  if invite_record.id is null then
+    raise exception 'Email % is not allowlisted for this application', new.email;
+  end if;
+
+  insert into public.users (
+    organization_id,
+    auth_user_id,
+    email,
+    full_name,
+    role,
+    is_active
+  )
+  values (
+    invite_record.organization_id,
+    new.id,
+    lower(new.email),
+    invite_record.full_name,
+    invite_record.role,
+    true
+  )
+  on conflict (auth_user_id) do update
+  set
+    organization_id = excluded.organization_id,
+    email = excluded.email,
+    full_name = excluded.full_name,
+    role = excluded.role,
+    is_active = true,
+    updated_at = now();
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_auth_user();
+
 alter table public.organizations enable row level security;
 alter table public.users enable row level security;
 alter table public.user_invites enable row level security;
@@ -194,4 +248,3 @@ with check (
   organization_id = public.current_user_organization_id()
   and public.current_user_role() = 'admin'
 );
-
