@@ -100,7 +100,7 @@ export default async function AdminPlantsPage() {
               <p className="text-sm font-medium text-muted-foreground">
                 Read-only view
               </p>
-              <h2 className="text-2xl font-semibold tracking-normal">
+              <h2 className="accent-title text-2xl font-semibold tracking-normal">
                 Materials grouped by supplier
               </h2>
             </div>

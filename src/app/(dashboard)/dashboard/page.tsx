@@ -71,7 +71,7 @@ export default async function DashboardPage() {
             <div className="icon-well text-emerald-700">
               <BadgeCheck className="size-6" />
             </div>
-            <h2 className="mt-6 text-3xl font-semibold tracking-normal">
+            <h2 className="accent-title mt-6 text-3xl font-semibold tracking-normal">
               Welcome, {user.full_name}.
             </h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">

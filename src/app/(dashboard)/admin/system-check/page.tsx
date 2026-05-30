@@ -87,7 +87,9 @@ export default async function SystemCheckPage() {
                 <p className="text-sm font-medium text-muted-foreground">
                   Verification
                 </p>
-                <h2 className="text-xl font-semibold">Day 1 checks</h2>
+                <h2 className="accent-title text-xl font-semibold">
+                  Day 1 checks
+                </h2>
               </div>
             </div>
             <div className="mt-5 space-y-3">

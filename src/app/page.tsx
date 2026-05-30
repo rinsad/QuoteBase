@@ -111,9 +111,11 @@ export default function Home() {
                 <p className="text-sm font-medium text-muted-foreground">
                   Setup Progress
                 </p>
-                <h2 className="mt-1 text-2xl font-semibold">Foundation</h2>
+              <h2 className="accent-title mt-1 text-2xl font-semibold">
+                Foundation
+              </h2>
               </div>
-              <div className="rounded-full bg-emerald-50 p-2 text-emerald-700 ring-1 ring-emerald-100">
+              <div className="icon-well text-emerald-700">
                 <BadgeCheck className="size-5" />
               </div>
             </div>
@@ -135,7 +137,7 @@ export default function Home() {
         <section className="grid gap-6 pb-8 lg:grid-cols-[1.15fr_0.85fr]">
           <div className="glass-panel p-5 sm:p-6">
             <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-blue-50 p-2 text-blue-700 ring-1 ring-blue-100">
+              <div className="icon-well text-blue-700">
                 <Route className="size-5" />
               </div>
               <div>
@@ -157,7 +159,7 @@ export default function Home() {
 
           <aside className="glass-panel p-5 sm:p-6">
             <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-amber-50 p-2 text-amber-700 ring-1 ring-amber-100">
+              <div className="icon-well text-amber-700">
                 <KeyRound className="size-5" />
               </div>
               <div>

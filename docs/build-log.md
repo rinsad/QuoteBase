@@ -170,3 +170,11 @@ Next likely step:
 - Fixed the plants page supplier separator rendering.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-30 - Mac UI Color Pass
+
+- Added a restrained macOS-inspired color system with soft blue, mint, lavender, and amber accents.
+- Updated shared UI utilities so backgrounds, toolbars, links, primary actions, cards, and icon wells no longer feel black-and-white.
+- Added accent heading treatment to key product areas.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

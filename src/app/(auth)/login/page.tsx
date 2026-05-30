@@ -36,7 +36,7 @@ export default async function LoginPage() {
               <p className="text-sm font-medium text-muted-foreground">
                 Western Materials
               </p>
-              <h1 className="mt-4 max-w-xl text-4xl font-semibold tracking-normal text-balance sm:text-5xl">
+              <h1 className="accent-title mt-4 max-w-xl text-4xl font-semibold tracking-normal text-balance sm:text-5xl">
                 Sign in to QuoteBase.
               </h1>
               <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
