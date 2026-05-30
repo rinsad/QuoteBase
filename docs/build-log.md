@@ -27,3 +27,15 @@ Next likely step:
 Next likely step:
 
 - Fill Supabase values in `.env.local`, then start Day 1: schema, RLS, magic-link auth, allowlist, and dashboard.
+
+## 2026-05-30 - UI Polish Pass
+
+- Restyled the foundation console with a smoother Mac-like visual language.
+- Added translucent panels, softer shadows, rounded status chips, and cleaner information hierarchy.
+- Kept the page as an operational project console rather than a marketing landing page.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+
+Next likely step:
+
+- Fill Supabase values in `.env.local`, then start Day 1 schema/auth work.

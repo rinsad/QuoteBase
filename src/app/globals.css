@@ -123,8 +123,19 @@
   }
   body {
     @apply bg-background text-foreground;
+    text-rendering: geometricPrecision;
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply rounded-[24px] border border-white/65 bg-white/70 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur-xl;
+  }
+
+  .glass-tile {
+    @apply rounded-[20px] border border-white/65 bg-white/60 shadow-[0_16px_44px_rgba(15,23,42,0.06)] backdrop-blur-xl transition duration-200 hover:-translate-y-0.5 hover:bg-white/75 hover:shadow-[0_20px_54px_rgba(15,23,42,0.09)];
   }
 }
