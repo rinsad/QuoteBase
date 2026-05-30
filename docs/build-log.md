@@ -121,3 +121,11 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Restarted dev server and verified `/login` shows the dev login button.
+
+## 2026-05-30 - Fix Dev Login OTP Verification
+
+- Fixed local dev login error: `Only the token_hash and type should be provided`.
+- Updated `verifyOtp` call to pass only `type` and `token_hash`.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Restarted dev server and verified `/login` still shows `Continue as Rinsad`.

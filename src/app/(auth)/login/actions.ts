@@ -101,7 +101,6 @@ export async function devSignInAsRinsad() {
 
   const { error: verifyError } = await supabase.auth.verifyOtp({
     type: "magiclink",
-    email: "rinsad@gmail.com",
     token_hash: data.properties.hashed_token,
   });
 
