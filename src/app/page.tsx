@@ -9,6 +9,7 @@ import {
   Route,
   ShieldCheck,
 } from "lucide-react";
+import Link from "next/link";
 
 const setupItems = [
   { label: "Next.js 15 app scaffold", status: "Done" },
@@ -86,6 +87,20 @@ export default function Home() {
               day one: multi-tenant, auditable, configurable, and ready for the
               Western Materials quoting workflow.
             </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/login"
+                className="inline-flex h-11 items-center justify-center rounded-2xl bg-primary px-5 text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/85"
+              >
+                Open login
+              </Link>
+              <Link
+                href="/dashboard"
+                className="inline-flex h-11 items-center justify-center rounded-2xl border border-white/70 bg-white/60 px-5 text-sm font-medium shadow-sm transition hover:bg-white/80"
+              >
+                View dashboard
+              </Link>
+            </div>
 
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
               <Metric label="Phase" value="Day 0" />

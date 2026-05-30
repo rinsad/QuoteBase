@@ -39,3 +39,23 @@ Next likely step:
 Next likely step:
 
 - Fill Supabase values in `.env.local`, then start Day 1 schema/auth work.
+
+## 2026-05-30 - Day 1 Auth Foundation
+
+- Added official Supabase packages: `@supabase/supabase-js` and `@supabase/ssr`.
+- Added Day 1 migration for organizations, users, user invites, feature flags, indexes, helper functions, seed data, and RLS policies.
+- Added Supabase browser/server client helpers and middleware session refresh.
+- Added six-email Western Materials allowlist.
+- Added magic-link login page at `/login`.
+- Added Supabase callback route at `/auth/callback`.
+- Added authenticated dashboard shell at `/dashboard`.
+- Linked the foundation console to login and dashboard.
+- Added `NEXT_PUBLIC_SITE_URL=http://localhost:3006` to local env templates.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+
+Blocked until credentials:
+
+- Supabase project URL and anon key are still needed in `.env.local`.
+- The migration still needs to be run in Supabase.
+- Actual magic-link login cannot be tested until Supabase is configured.
