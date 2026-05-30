@@ -73,7 +73,8 @@ values
   ('00000000-0000-0000-0000-000000000001', 'estimate@westernmaterials.net', 'Gloria', 'account_manager'),
   ('00000000-0000-0000-0000-000000000001', 'bid@westernmaterials.net', 'Kristina', 'account_manager'),
   ('00000000-0000-0000-0000-000000000001', 'dispatch@westernmaterials.net', 'Claudina', 'estimator'),
-  ('00000000-0000-0000-0000-000000000001', 'info@westernmaterials.net', 'Carlos', 'estimator')
+  ('00000000-0000-0000-0000-000000000001', 'info@westernmaterials.net', 'Carlos', 'estimator'),
+  ('00000000-0000-0000-0000-000000000001', 'rinsad@gmail.com', 'Rinsad', 'admin')
 on conflict (email) do update
 set
   full_name = excluded.full_name,

@@ -37,6 +37,7 @@ export default async function LoginPage() {
               <UserEmail email="bid@westernmaterials.net" role="Account Manager" />
               <UserEmail email="dispatch@westernmaterials.net" role="Estimator" />
               <UserEmail email="info@westernmaterials.net" role="Estimator" />
+              <UserEmail email="rinsad@gmail.com" role="Test Admin" />
             </div>
           </aside>
         </div>
@@ -57,4 +58,3 @@ function UserEmail({ email, role }: { email: string; role: string }) {
     </div>
   );
 }
-

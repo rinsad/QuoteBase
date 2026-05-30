@@ -5,6 +5,7 @@ export const WESTERN_MATERIALS_ALLOWED_EMAILS = [
   "bid@westernmaterials.net",
   "dispatch@westernmaterials.net",
   "info@westernmaterials.net",
+  "rinsad@gmail.com",
 ] as const;
 
 export function normalizeEmail(email: string) {
@@ -16,4 +17,3 @@ export function isAllowedWesternMaterialsEmail(email: string) {
     normalizeEmail(email) as (typeof WESTERN_MATERIALS_ALLOWED_EMAILS)[number],
   );
 }
-

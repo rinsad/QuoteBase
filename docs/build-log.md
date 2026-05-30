@@ -93,3 +93,12 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Verified `/login` returns HTTP 200.
+
+## 2026-05-30 - Add Local Test Admin
+
+- Added `rinsad@gmail.com` to the app login allowlist.
+- Added `rinsad@gmail.com` to local Supabase `user_invites` seed as Admin.
+- Updated login page allowed-user list to show the test admin.
+- Ran `supabase db reset` to apply the local seed update.
+- Verified the local invite table now has 7 users.
+- Verified `npm run lint` passes.
