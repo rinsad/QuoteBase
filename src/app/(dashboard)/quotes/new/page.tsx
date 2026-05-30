@@ -1,0 +1,111 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { FilePlus2, ShieldCheck } from "lucide-react";
+
+import { QuoteDraftForm } from "@/app/(dashboard)/quotes/new/quote-draft-form";
+import { getCurrentUser } from "@/lib/auth/current-user";
+import { getNewQuoteContext } from "@/lib/quotes/new-quote";
+
+export default async function NewQuotePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ saved?: string }>;
+}) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const [params, context] = await Promise.all([
+    searchParams,
+    getNewQuoteContext(user),
+  ]);
+
+  return (
+    <main className="app-background">
+      <div className="mx-auto w-full max-w-7xl">
+        <header className="mac-window">
+          <div className="mac-toolbar">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="mac-controls">
+                <span className="mac-control-red" />
+                <span className="mac-control-yellow" />
+                <span className="mac-control-green" />
+              </div>
+              <div className="h-5 w-px bg-border/80" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-muted-foreground">
+                  Quotes
+                </p>
+                <h1 className="truncate text-lg font-semibold">
+                  New Draft Quote
+                </h1>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Link href="/admin/plants" className="mac-link">
+                Materials
+              </Link>
+              <Link href="/dashboard" className="mac-link">
+                Dashboard
+              </Link>
+            </div>
+          </div>
+        </header>
+
+        {params.saved ? (
+          <div className="mt-6 flex items-center gap-3 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-emerald-800 shadow-sm">
+            <ShieldCheck className="size-5 shrink-0" />
+            <p className="text-sm font-medium">
+              Draft quote {params.saved} was saved and logged.
+            </p>
+          </div>
+        ) : null}
+
+        <section className="mt-6 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+          <div className="glass-panel p-6 sm:p-8">
+            <div className="icon-well text-blue-700">
+              <FilePlus2 className="size-6" />
+            </div>
+            <h2 className="accent-title mt-6 text-3xl font-semibold tracking-normal">
+              Create a priced draft.
+            </h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+              This first quote builder saves one material line, calculates
+              pricing from the tenant config, applies the selected tax rate, and
+              writes an audit log entry.
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Metric label="Customers" value={context.customers.length} />
+            <Metric label="Materials" value={context.materials.length} />
+            <Metric label="Tax Areas" value={context.taxRates.length} />
+          </div>
+        </section>
+
+        {!context.quoteCreationEnabled ? (
+          <div className="mt-6 rounded-[20px] border border-amber-100 bg-amber-50/80 px-5 py-4 text-sm font-medium text-amber-800 shadow-sm">
+            Quote creation is currently disabled for this organization.
+          </div>
+        ) : null}
+
+        <section className="mt-6">
+          <QuoteDraftForm context={context} />
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="glass-tile min-h-36 p-5">
+      <p className="text-xs font-medium uppercase text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-4 text-4xl font-semibold">{value}</p>
+    </div>
+  );
+}

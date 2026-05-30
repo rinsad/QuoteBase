@@ -3,6 +3,7 @@ import Link from "next/link";
 import {
   BadgeCheck,
   Building2,
+  FilePlus2,
   Flag,
   KeyRound,
   ShieldCheck,
@@ -44,6 +45,9 @@ export default async function DashboardPage() {
             </div>
             <form action={signOut}>
               <div className="flex flex-wrap items-center justify-end gap-2">
+                <Link href="/quotes/new" className="mac-link">
+                  New quote
+                </Link>
                 {user.role === "admin" ? (
                   <>
                     <Link href="/admin/plants" className="mac-link">
@@ -78,6 +82,10 @@ export default async function DashboardPage() {
               Your profile is loaded from Supabase and scoped to your
               organization.
             </p>
+            <Link href="/quotes/new" className="mac-button-primary mt-6">
+              <FilePlus2 className="size-4" />
+              Create quote
+            </Link>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">

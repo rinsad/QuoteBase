@@ -178,3 +178,17 @@ Next likely step:
 - Added accent heading treatment to key product areas.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-30 - Day 3 Quote Draft Builder
+
+- Added quote draft migration for customers, job sites, quotes, and quote items.
+- Added organization-aware composite foreign keys so quote records cannot point across tenants.
+- Enabled RLS on all new quote tables before seeding local data.
+- Seeded local sample customers and job sites for Western Materials.
+- Added pricing helper that calculates draft totals from `pricing_config`, material cost, selected quantity, and sales tax.
+- Added `/quotes/new` with a Mac-style quote draft form.
+- Added dashboard links into the new quote workflow.
+- Applied the migration with `supabase db reset`.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Restarted the local dev server and verified `/login` returns 200 and `/quotes/new` redirects unauthenticated users to login.
