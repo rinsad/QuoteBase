@@ -129,3 +129,25 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Restarted dev server and verified `/login` still shows `Continue as Rinsad`.
+
+## 2026-05-30 - Day 2 Core Business Schema
+
+- Added Day 2 migration for suppliers, materials, material price history, vehicle types, yards, pricing config, sales tax rates, audit log, and distance cache.
+- Enabled RLS on every new business table.
+- Added org-scoped RLS read policies and role-scoped write policies for admin/account-manager paths.
+- Added immutable audit log policies: users can insert/read own-org audit entries; no update/delete policy exists.
+- Seeded local sample data because the official 28-plant/400-material seed pack is not present in the workspace:
+  - 3 suppliers
+  - 6 materials
+  - 5 vehicle types
+  - 2 yards
+  - 1 pricing config
+  - 3 tax rates
+- Added `logAction()` helper.
+- Added admin data helper for plant/material summaries.
+- Added read-only `/admin/plants` view showing suppliers and materials grouped by plant.
+- Added dashboard link to `/admin/plants`.
+- Ran `supabase db reset`; migrations applied successfully.
+- Verified local database counts.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

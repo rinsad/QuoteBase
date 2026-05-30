@@ -36,12 +36,20 @@ export default async function DashboardPage() {
           <form action={signOut}>
             <div className="flex items-center gap-2">
               {user.role === "admin" ? (
-                <Link
-                  href="/admin/system-check"
-                  className="inline-flex h-8 items-center justify-center rounded-2xl border border-border bg-background px-2.5 text-sm font-medium shadow-sm transition hover:bg-muted"
-                >
-                  System check
-                </Link>
+                <>
+                  <Link
+                    href="/admin/plants"
+                    className="inline-flex h-8 items-center justify-center rounded-2xl border border-border bg-background px-2.5 text-sm font-medium shadow-sm transition hover:bg-muted"
+                  >
+                    Plants
+                  </Link>
+                  <Link
+                    href="/admin/system-check"
+                    className="inline-flex h-8 items-center justify-center rounded-2xl border border-border bg-background px-2.5 text-sm font-medium shadow-sm transition hover:bg-muted"
+                  >
+                    System check
+                  </Link>
+                </>
               ) : null}
               <Button type="submit" variant="outline" className="rounded-2xl">
                 Sign out
