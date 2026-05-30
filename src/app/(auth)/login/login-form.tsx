@@ -3,7 +3,11 @@
 import { useActionState } from "react";
 import { Mail } from "lucide-react";
 
-import { sendMagicLink, type LoginState } from "@/app/(auth)/login/actions";
+import {
+  devSignInAsRinsad,
+  sendMagicLink,
+  type LoginState,
+} from "@/app/(auth)/login/actions";
 import { Button } from "@/components/ui/button";
 
 const initialState: LoginState = {
@@ -48,6 +52,26 @@ export function LoginForm() {
         {isPending ? "Sending..." : "Send magic link"}
       </Button>
 
+      <div className="relative py-1">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-white/70" />
+        </div>
+        <div className="relative flex justify-center">
+          <span className="bg-white/70 px-3 text-xs font-medium text-muted-foreground">
+            local development
+          </span>
+        </div>
+      </div>
+
+      <Button
+        formAction={devSignInAsRinsad}
+        type="submit"
+        variant="outline"
+        className="h-11 w-full rounded-2xl"
+      >
+        Continue as Rinsad
+      </Button>
+
       {state.message ? (
         <p
           className={`rounded-2xl px-4 py-3 text-sm ${
@@ -62,4 +86,3 @@ export function LoginForm() {
     </form>
   );
 }
-

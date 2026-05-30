@@ -112,3 +112,12 @@ Next likely step:
 - Added admin counts for organizations, invited users, app users, and feature flags.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-30 - Local Dev Login Shortcut
+
+- Added a local-only dev login button: `Continue as Rinsad`.
+- The shortcut only runs when Supabase points to localhost/127.0.0.1 and `NODE_ENV` is not production.
+- It still uses Supabase Auth by generating and verifying a magic-link token server-side, but skips manually opening Mailpit.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Restarted dev server and verified `/login` shows the dev login button.

@@ -6,7 +6,8 @@ import {
   isAllowedWesternMaterialsEmail,
   normalizeEmail,
 } from "@/lib/auth/allowlist";
-import { getBaseUrl } from "@/lib/env";
+import { getBaseUrl, isLocalSupabase } from "@/lib/env";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export type LoginState = {
@@ -74,3 +75,39 @@ export async function signOut() {
   redirect("/login");
 }
 
+export async function devSignInAsRinsad() {
+  if (process.env.NODE_ENV === "production" || !isLocalSupabase()) {
+    throw new Error("Dev sign-in is only available with local Supabase.");
+  }
+
+  const admin = createAdminClient();
+  const supabase = await createClient();
+
+  if (!admin || !supabase) {
+    throw new Error("Local Supabase is not configured.");
+  }
+
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: "magiclink",
+    email: "rinsad@gmail.com",
+    options: {
+      redirectTo: `${getBaseUrl()}/auth/callback?next=/dashboard`,
+    },
+  });
+
+  if (error || !data.properties?.hashed_token) {
+    throw new Error(error?.message ?? "Could not create local dev login link.");
+  }
+
+  const { error: verifyError } = await supabase.auth.verifyOtp({
+    type: "magiclink",
+    email: "rinsad@gmail.com",
+    token_hash: data.properties.hashed_token,
+  });
+
+  if (verifyError) {
+    throw new Error(verifyError.message);
+  }
+
+  redirect("/dashboard");
+}
