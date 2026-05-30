@@ -102,3 +102,13 @@ Next likely step:
 - Ran `supabase db reset` to apply the local seed update.
 - Verified the local invite table now has 7 users.
 - Verified `npm run lint` passes.
+
+## 2026-05-30 - Day 1 Verification UI
+
+- Enhanced `/dashboard` to show Supabase/session status, tenant slug, and visible feature flags.
+- Added admin-only `/admin/system-check`.
+- Added server-only service-role client for admin setup counts.
+- Added system checks for Supabase config, active session, admin authorization, feature flag visibility, and invite-table RLS probe.
+- Added admin counts for organizations, invited users, app users, and feature flags.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

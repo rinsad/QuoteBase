@@ -1,0 +1,194 @@
+import type { AppUser } from "@/lib/auth/current-user";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
+
+export type FeatureFlagSummary = {
+  feature_name: string;
+  is_enabled: boolean;
+};
+
+export type DashboardSummary = {
+  featureFlags: FeatureFlagSummary[];
+  sessionStatus: "active" | "missing";
+  supabaseStatus: "configured" | "missing";
+};
+
+export type SystemCheck = {
+  label: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+};
+
+export type SystemCheckSummary = {
+  counts: {
+    organizations: number;
+    invitedUsers: number;
+    appUsers: number;
+    featureFlags: number;
+  };
+  checks: SystemCheck[];
+  featureFlags: FeatureFlagSummary[];
+};
+
+export async function getDashboardSummary(
+  user: AppUser,
+): Promise<DashboardSummary> {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    return {
+      featureFlags: [],
+      sessionStatus: "missing",
+      supabaseStatus: "missing",
+    };
+  }
+
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+
+  const { data: featureFlags } = await supabase
+    .from("feature_flags")
+    .select("feature_name, is_enabled")
+    .eq("organization_id", user.organization_id)
+    .order("feature_name", { ascending: true })
+    .returns<FeatureFlagSummary[]>();
+
+  return {
+    featureFlags: featureFlags ?? [],
+    sessionStatus: authUser ? "active" : "missing",
+    supabaseStatus: "configured",
+  };
+}
+
+export async function getSystemCheckSummary(
+  user: AppUser,
+): Promise<SystemCheckSummary> {
+  const supabase = await createClient();
+  const admin = createAdminClient();
+  const checks: SystemCheck[] = [];
+
+  if (!supabase) {
+    return {
+      counts: {
+        organizations: 0,
+        invitedUsers: 0,
+        appUsers: 0,
+        featureFlags: 0,
+      },
+      checks: [
+        {
+          label: "Supabase environment",
+          status: "fail",
+          detail: "Missing local Supabase environment values.",
+        },
+      ],
+      featureFlags: [],
+    };
+  }
+
+  checks.push({
+    label: "Supabase environment",
+    status: "pass",
+    detail: "Local Supabase URL and anon key are configured.",
+  });
+
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+
+  checks.push({
+    label: "Authenticated session",
+    status: authUser ? "pass" : "fail",
+    detail: authUser
+      ? `Session is active for ${authUser.email ?? user.email}.`
+      : "No Supabase session was found.",
+  });
+
+  checks.push({
+    label: "Admin authorization",
+    status: user.role === "admin" ? "pass" : "fail",
+    detail:
+      user.role === "admin"
+        ? "Current user can access admin-only checks."
+        : "Current user is not an admin.",
+  });
+
+  const { data: visibleFlags } = await supabase
+    .from("feature_flags")
+    .select("feature_name, is_enabled")
+    .eq("organization_id", user.organization_id)
+    .order("feature_name", { ascending: true })
+    .returns<FeatureFlagSummary[]>();
+
+  checks.push({
+    label: "Feature flag visibility",
+    status: visibleFlags?.length ? "pass" : "warn",
+    detail: visibleFlags?.length
+      ? `${visibleFlags.length} feature flags are visible to the current org.`
+      : "No feature flags were visible to this user session.",
+  });
+
+  const { data: hiddenInvites, error: inviteError } = await supabase
+    .from("user_invites")
+    .select("id")
+    .limit(1);
+
+  checks.push({
+    label: "RLS invite-table probe",
+    status: !inviteError && hiddenInvites?.length === 0 ? "pass" : "fail",
+    detail:
+      !inviteError && hiddenInvites?.length === 0
+        ? "Client session cannot read seed invite records."
+        : "Client session could read invite records or hit an unexpected RLS error.",
+  });
+
+  if (!admin) {
+    checks.push({
+      label: "Service role client",
+      status: "warn",
+      detail: "Service role key is missing, so admin counts are unavailable.",
+    });
+
+    return {
+      counts: {
+        organizations: 0,
+        invitedUsers: 0,
+        appUsers: 0,
+        featureFlags: visibleFlags?.length ?? 0,
+      },
+      checks,
+      featureFlags: visibleFlags ?? [],
+    };
+  }
+
+  const [
+    organizations,
+    invitedUsers,
+    appUsers,
+    featureFlags,
+  ] = await Promise.all([
+    admin.from("organizations").select("id", { count: "exact", head: true }),
+    admin.from("user_invites").select("id", { count: "exact", head: true }),
+    admin.from("users").select("id", { count: "exact", head: true }),
+    admin.from("feature_flags").select("id", { count: "exact", head: true }),
+  ]);
+
+  checks.push({
+    label: "Service role client",
+    status: "pass",
+    detail: "Service role can read admin-only setup counts on the server.",
+  });
+
+  return {
+    counts: {
+      organizations: organizations.count ?? 0,
+      invitedUsers: invitedUsers.count ?? 0,
+      appUsers: appUsers.count ?? 0,
+      featureFlags: featureFlags.count ?? 0,
+    },
+    checks,
+    featureFlags: visibleFlags ?? [],
+  };
+}
+
