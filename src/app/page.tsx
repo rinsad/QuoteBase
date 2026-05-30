@@ -13,11 +13,11 @@ import Link from "next/link";
 
 const setupItems = [
   { label: "Next.js 15 app scaffold", status: "Done" },
-  { label: "TypeScript strict mode", status: "Done" },
-  { label: "Tailwind CSS v4", status: "Done" },
-  { label: "shadcn/ui foundation", status: "Done" },
-  { label: "Supabase project values", status: "Needed" },
-  { label: "Day 1 schema migration", status: "Next" },
+  { label: "Supabase local auth", status: "Done" },
+  { label: "Tenant dashboard", status: "Done" },
+  { label: "Day 2 business schema", status: "Done" },
+  { label: "Admin plants console", status: "Done" },
+  { label: "Quote workflow builder", status: "Next" },
 ];
 
 const guardrails = [
@@ -43,34 +43,36 @@ const guardrails = [
   },
 ];
 
-const dayOneTasks = [
-  "Create organizations, users, and feature_flags tables.",
-  "Enable RLS before loading business data.",
-  "Allowlist the six Western Materials users.",
-  "Build login and dashboard role display.",
-  "Verify cross-organization reads fail.",
-  "Log the day in docs/build-log.md.",
+const nextTasks = [
+  "Create the quote intake flow with customer and job-site details.",
+  "Load materials from the organization-scoped pricing catalog.",
+  "Read taxes, fees, and tier rules from pricing configuration.",
+  "Write every quote state change into audit_log.",
+  "Keep admin-only setup tools behind role checks.",
+  "Add focused tests around quote calculations and tenant scoping.",
 ];
 
 export default function Home() {
   return (
-    <main className="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,#ffffff_0,#f6f7f9_38%,#edf1f5_100%)] text-foreground">
+    <main className="app-background overflow-hidden">
       <div className="mx-auto flex w-full max-w-7xl flex-col px-4 py-4 sm:px-6 lg:px-8">
-        <header className="glass-panel sticky top-4 z-10 flex min-h-14 items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1.5">
-              <span className="size-3 rounded-full bg-[#ff5f57]" />
-              <span className="size-3 rounded-full bg-[#ffbd2e]" />
-              <span className="size-3 rounded-full bg-[#28c840]" />
+        <header className="mac-window sticky top-4 z-10">
+          <div className="mac-toolbar">
+            <div className="flex items-center gap-3">
+              <div className="mac-controls">
+                <span className="mac-control-red" />
+                <span className="mac-control-yellow" />
+                <span className="mac-control-green" />
+              </div>
+              <div className="h-5 w-px bg-border" />
+              <p className="text-sm font-medium text-muted-foreground">
+                QuoteBase
+              </p>
             </div>
-            <div className="h-5 w-px bg-border" />
-            <p className="text-sm font-medium text-muted-foreground">
-              QuoteBase
-            </p>
-          </div>
-          <div className="hidden items-center gap-2 rounded-full border border-white/70 bg-white/55 px-3 py-1.5 text-sm shadow-sm sm:flex">
-            <ShieldCheck className="size-4 text-emerald-600" />
-            <span className="font-medium">Memory loaded</span>
+            <div className="hidden items-center gap-2 rounded-full border border-white/70 bg-white/60 px-3 py-1.5 text-sm shadow-sm sm:flex">
+              <ShieldCheck className="size-4 text-emerald-600" />
+              <span className="font-medium">Memory loaded</span>
+            </div>
           </div>
         </header>
 
@@ -88,22 +90,16 @@ export default function Home() {
               Western Materials quoting workflow.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link
-                href="/login"
-                className="inline-flex h-11 items-center justify-center rounded-2xl bg-primary px-5 text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/85"
-              >
+              <Link href="/login" className="mac-button-primary">
                 Open login
               </Link>
-              <Link
-                href="/dashboard"
-                className="inline-flex h-11 items-center justify-center rounded-2xl border border-white/70 bg-white/60 px-5 text-sm font-medium shadow-sm transition hover:bg-white/80"
-              >
+              <Link href="/dashboard" className="mac-link h-11 px-5">
                 View dashboard
               </Link>
             </div>
 
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              <Metric label="Phase" value="Day 0" />
+              <Metric label="Phase" value="Day 2" />
               <Metric label="Stack" value="Next 15" />
               <Metric label="Mode" value="MVP" />
             </div>
@@ -126,7 +122,7 @@ export default function Home() {
               {setupItems.map((item) => (
                 <div
                   key={item.label}
-                  className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-white/70 bg-white/60 px-4 shadow-sm"
+                  className="soft-row flex min-h-12 items-center justify-between gap-3 px-4"
                 >
                   <span className="text-sm font-medium">{item.label}</span>
                   <StatusPill status={item.status} />
@@ -147,13 +143,13 @@ export default function Home() {
                   Next Build Step
                 </p>
                 <h2 className="text-xl font-semibold">
-                  Database schema and magic-link authentication
+                  Quote workflow and pricing guardrails
                 </h2>
               </div>
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              {dayOneTasks.map((task) => (
+              {nextTasks.map((task) => (
                 <ChecklistItem key={task} text={task} />
               ))}
             </div>
@@ -166,13 +162,14 @@ export default function Home() {
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Environment Needed
+                  Local Environment
                 </p>
-                <h2 className="text-xl font-semibold">Supabase keys</h2>
+                <h2 className="text-xl font-semibold">Supabase ready</h2>
               </div>
             </div>
             <p className="mt-4 text-sm leading-6 text-muted-foreground">
-              Add these values to `.env.local` before Day 1 auth work begins.
+              The local stack is configured for auth, migrations, and admin
+              verification.
             </p>
             <div className="mt-5 space-y-2.5">
               <EnvRow name="NEXT_PUBLIC_SUPABASE_URL" />
@@ -204,7 +201,7 @@ export default function Home() {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/70 bg-white/55 px-4 py-3 shadow-sm">
+    <div className="soft-row px-4 py-3">
       <p className="text-xs font-medium uppercase text-muted-foreground">
         {label}
       </p>
@@ -215,7 +212,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function ChecklistItem({ text }: { text: string }) {
   return (
-    <div className="flex gap-3 rounded-xl border border-white/70 bg-white/55 p-4 shadow-sm">
+    <div className="soft-row flex gap-3 p-4">
       <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
       <p className="text-sm leading-6 text-muted-foreground">{text}</p>
     </div>
@@ -224,10 +221,10 @@ function ChecklistItem({ text }: { text: string }) {
 
 function EnvRow({ name }: { name: string }) {
   return (
-    <div className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-white/70 bg-white/60 px-3 shadow-sm">
+    <div className="soft-row flex min-h-11 items-center justify-between gap-3 px-3">
       <code className="min-w-0 truncate text-xs font-medium">{name}</code>
-      <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-100">
-        blank
+      <span className="soft-chip bg-emerald-50 text-emerald-700 ring-emerald-100">
+        set
       </span>
     </div>
   );
@@ -239,11 +236,11 @@ function StatusPill({ status }: { status: string }) {
       ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
       : status === "Next"
         ? "bg-blue-50 text-blue-700 ring-blue-100"
-        : "bg-amber-50 text-amber-700 ring-amber-100";
+      : "bg-amber-50 text-amber-700 ring-amber-100";
 
   return (
     <span
-      className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${className}`}
+      className={`soft-chip ${className}`}
     >
       {status}
     </span>

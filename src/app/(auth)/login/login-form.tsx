@@ -30,7 +30,7 @@ export function LoginForm() {
         >
           Work email
         </label>
-        <div className="mt-2 flex min-h-12 items-center gap-3 rounded-2xl border border-white/70 bg-white/70 px-4 shadow-sm">
+        <div className="soft-input mt-2">
           <Mail className="size-4 text-muted-foreground" />
           <input
             id="email"
@@ -47,7 +47,7 @@ export function LoginForm() {
       <Button
         type="submit"
         disabled={isPending}
-        className="h-11 w-full rounded-2xl"
+        className="h-11 w-full rounded-full"
       >
         {isPending ? "Sending..." : "Send magic link"}
       </Button>
@@ -67,7 +67,7 @@ export function LoginForm() {
         formAction={devSignInAsRinsad}
         type="submit"
         variant="outline"
-        className="h-11 w-full rounded-2xl"
+        className="h-11 w-full rounded-full bg-white/70"
       >
         Continue as Rinsad
       </Button>

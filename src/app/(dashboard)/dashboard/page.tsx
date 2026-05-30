@@ -24,43 +24,51 @@ export default async function DashboardPage() {
   const summary = await getDashboardSummary(user);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#ffffff_0,#f6f7f9_38%,#edf1f5_100%)] px-4 py-6 sm:px-6 lg:px-8">
+    <main className="app-background">
       <div className="mx-auto w-full max-w-6xl">
-        <header className="glass-panel flex min-h-16 items-center justify-between px-4 sm:px-5">
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">
-              QuoteBase
-            </p>
-            <h1 className="text-lg font-semibold">Dashboard</h1>
-          </div>
-          <form action={signOut}>
-            <div className="flex items-center gap-2">
-              {user.role === "admin" ? (
-                <>
-                  <Link
-                    href="/admin/plants"
-                    className="inline-flex h-8 items-center justify-center rounded-2xl border border-border bg-background px-2.5 text-sm font-medium shadow-sm transition hover:bg-muted"
-                  >
-                    Plants
-                  </Link>
-                  <Link
-                    href="/admin/system-check"
-                    className="inline-flex h-8 items-center justify-center rounded-2xl border border-border bg-background px-2.5 text-sm font-medium shadow-sm transition hover:bg-muted"
-                  >
-                    System check
-                  </Link>
-                </>
-              ) : null}
-              <Button type="submit" variant="outline" className="rounded-2xl">
-                Sign out
-              </Button>
+        <header className="mac-window">
+          <div className="mac-toolbar">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="mac-controls">
+                <span className="mac-control-red" />
+                <span className="mac-control-yellow" />
+                <span className="mac-control-green" />
+              </div>
+              <div className="h-5 w-px bg-border/80" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-muted-foreground">
+                  QuoteBase
+                </p>
+                <h1 className="truncate text-lg font-semibold">Dashboard</h1>
+              </div>
             </div>
-          </form>
+            <form action={signOut}>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {user.role === "admin" ? (
+                  <>
+                    <Link href="/admin/plants" className="mac-link">
+                      Plants
+                    </Link>
+                    <Link href="/admin/system-check" className="mac-link">
+                      System check
+                    </Link>
+                  </>
+                ) : null}
+                <Button
+                  type="submit"
+                  variant="outline"
+                  className="rounded-full bg-white/70"
+                >
+                  Sign out
+                </Button>
+              </div>
+            </form>
+          </div>
         </header>
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
           <div className="glass-panel p-6 sm:p-8">
-            <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-700 ring-1 ring-emerald-100 w-fit">
+            <div className="icon-well text-emerald-700">
               <BadgeCheck className="size-6" />
             </div>
             <h2 className="mt-6 text-3xl font-semibold tracking-normal">
@@ -94,7 +102,7 @@ export default async function DashboardPage() {
         <section className="mt-6 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
           <div className="glass-panel p-5 sm:p-6">
             <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-blue-50 p-2 text-blue-700 ring-1 ring-blue-100">
+              <div className="icon-well text-blue-700">
                 <KeyRound className="size-5" />
               </div>
               <div>
@@ -125,7 +133,7 @@ export default async function DashboardPage() {
 
           <div className="glass-panel p-5 sm:p-6">
             <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-emerald-50 p-2 text-emerald-700 ring-1 ring-emerald-100">
+              <div className="icon-well text-emerald-700">
                 <Flag className="size-5" />
               </div>
               <div>
@@ -141,13 +149,13 @@ export default async function DashboardPage() {
               {summary.featureFlags.map((flag) => (
                 <div
                   key={flag.feature_name}
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-white/70 bg-white/60 px-4 py-3 shadow-sm"
+                  className="soft-row flex items-center justify-between gap-3 px-4 py-3"
                 >
                   <span className="min-w-0 truncate text-sm font-medium">
                     {formatFeatureName(flag.feature_name)}
                   </span>
                   <span
-                    className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
+                    className={`soft-chip shrink-0 ${
                       flag.is_enabled
                         ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
                         : "bg-slate-100 text-slate-600 ring-slate-200"
@@ -209,10 +217,10 @@ function StatusRow({
   good: boolean;
 }) {
   return (
-    <div className="flex min-h-12 items-center justify-between gap-3 rounded-2xl border border-white/70 bg-white/60 px-4 shadow-sm">
+    <div className="soft-row flex min-h-12 items-center justify-between gap-3 px-4">
       <span className="text-sm font-medium text-muted-foreground">{label}</span>
       <span
-        className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
+        className={`soft-chip ${
           good
             ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
             : "bg-amber-50 text-amber-700 ring-amber-100"

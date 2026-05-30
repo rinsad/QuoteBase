@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { ReactNode } from "react";
 import {
   Building2,
   ClipboardList,
@@ -37,18 +38,30 @@ export default async function AdminPlantsPage() {
   const summary = await getAdminPlantsSummary(user.organization_id);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#ffffff_0,#f6f7f9_38%,#edf1f5_100%)] px-4 py-6 sm:px-6 lg:px-8">
+    <main className="app-background">
       <div className="mx-auto w-full max-w-7xl">
-        <header className="glass-panel flex min-h-16 items-center justify-between px-4 sm:px-5">
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">
-              Admin
-            </p>
-            <h1 className="text-lg font-semibold">Plants & Materials</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <HeaderLink href="/admin/system-check">System check</HeaderLink>
-            <HeaderLink href="/dashboard">Dashboard</HeaderLink>
+        <header className="mac-window">
+          <div className="mac-toolbar">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="mac-controls">
+                <span className="mac-control-red" />
+                <span className="mac-control-yellow" />
+                <span className="mac-control-green" />
+              </div>
+              <div className="h-5 w-px bg-border/80" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-muted-foreground">
+                  Admin
+                </p>
+                <h1 className="truncate text-lg font-semibold">
+                  Plants & Materials
+                </h1>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <HeaderLink href="/admin/system-check">System check</HeaderLink>
+              <HeaderLink href="/dashboard">Dashboard</HeaderLink>
+            </div>
           </div>
         </header>
 
@@ -101,13 +114,13 @@ export default async function AdminPlantsPage() {
             {summary.suppliers.map((supplier) => (
               <article
                 key={supplier.id}
-                className="overflow-hidden rounded-3xl border border-white/70 bg-white/60 shadow-sm"
+                className="overflow-hidden rounded-[22px] border border-white/70 bg-white/60 shadow-[0_12px_34px_rgba(15,23,42,0.055)]"
               >
                 <div className="grid gap-4 border-b border-white/70 px-5 py-4 md:grid-cols-[1fr_auto] md:items-center">
                   <div>
                     <h3 className="text-lg font-semibold">{supplier.name}</h3>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {supplier.parent_company ?? "Independent supplier"} ·{" "}
+                      {supplier.parent_company ?? "Independent supplier"} -{" "}
                       {formatAddress(supplier.address)}
                     </p>
                   </div>
@@ -127,7 +140,7 @@ export default async function AdminPlantsPage() {
                     supplier.materials.map((material) => (
                       <div
                         key={material.id}
-                        className="grid gap-3 rounded-2xl bg-white/70 px-4 py-3 text-sm shadow-sm sm:grid-cols-[1fr_auto_auto_auto] sm:items-center"
+                        className="soft-row grid gap-3 px-4 py-3 text-sm sm:grid-cols-[1fr_auto_auto_auto] sm:items-center"
                       >
                         <div>
                           <p className="font-semibold">{material.name}</p>
@@ -151,7 +164,7 @@ export default async function AdminPlantsPage() {
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-2xl bg-white/70 px-4 py-5 text-sm text-muted-foreground shadow-sm">
+                    <div className="soft-row px-4 py-5 text-sm text-muted-foreground">
                       No materials loaded for this supplier yet.
                     </div>
                   )}
@@ -165,12 +178,9 @@ export default async function AdminPlantsPage() {
   );
 }
 
-function HeaderLink({ href, children }: { href: string; children: React.ReactNode }) {
+function HeaderLink({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <Link
-      href={href}
-      className="inline-flex h-8 items-center justify-center rounded-2xl border border-border bg-background px-2.5 text-sm font-medium shadow-sm transition hover:bg-muted"
-    >
+    <Link href={href} className="mac-link">
       {children}
     </Link>
   );
@@ -219,4 +229,3 @@ function formatAddress(address: Record<string, unknown>) {
 
   return [city, state].filter(Boolean).join(", ") || "Address pending";
 }
-

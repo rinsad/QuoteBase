@@ -28,21 +28,30 @@ export default async function SystemCheckPage() {
   const summary = await getSystemCheckSummary(user);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#ffffff_0,#f6f7f9_38%,#edf1f5_100%)] px-4 py-6 sm:px-6 lg:px-8">
+    <main className="app-background">
       <div className="mx-auto w-full max-w-6xl">
-        <header className="glass-panel flex min-h-16 items-center justify-between px-4 sm:px-5">
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">
-              Admin
-            </p>
-            <h1 className="text-lg font-semibold">System Check</h1>
+        <header className="mac-window">
+          <div className="mac-toolbar">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="mac-controls">
+                <span className="mac-control-red" />
+                <span className="mac-control-yellow" />
+                <span className="mac-control-green" />
+              </div>
+              <div className="h-5 w-px bg-border/80" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-muted-foreground">
+                  Admin
+                </p>
+                <h1 className="truncate text-lg font-semibold">
+                  System Check
+                </h1>
+              </div>
+            </div>
+            <Link href="/dashboard" className="mac-link">
+              Dashboard
+            </Link>
           </div>
-          <Link
-            href="/dashboard"
-            className="inline-flex h-8 items-center justify-center rounded-2xl border border-border bg-background px-2.5 text-sm font-medium shadow-sm transition hover:bg-muted"
-          >
-            Dashboard
-          </Link>
         </header>
 
         <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -71,7 +80,7 @@ export default async function SystemCheckPage() {
         <section className="mt-6 grid gap-6 lg:grid-cols-[1fr_0.9fr]">
           <div className="glass-panel p-5 sm:p-6">
             <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-emerald-50 p-2 text-emerald-700 ring-1 ring-emerald-100">
+              <div className="icon-well text-emerald-700">
                 <ClipboardCheck className="size-5" />
               </div>
               <div>
@@ -90,7 +99,7 @@ export default async function SystemCheckPage() {
 
           <aside className="glass-panel p-5 sm:p-6">
             <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-blue-50 p-2 text-blue-700 ring-1 ring-blue-100">
+              <div className="icon-well text-blue-700">
                 <Database className="size-5" />
               </div>
               <div>
@@ -117,7 +126,7 @@ export default async function SystemCheckPage() {
 
         <section className="mt-6 glass-panel p-5 sm:p-6">
           <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-slate-100 p-2 text-slate-700 ring-1 ring-slate-200">
+            <div className="icon-well text-slate-700">
               <Flag className="size-5" />
             </div>
             <div>
@@ -131,13 +140,13 @@ export default async function SystemCheckPage() {
             {summary.featureFlags.map((flag) => (
               <div
                 key={flag.feature_name}
-                className="flex items-center justify-between gap-3 rounded-2xl border border-white/70 bg-white/60 px-4 py-3 shadow-sm"
+                className="soft-row flex items-center justify-between gap-3 px-4 py-3"
               >
                 <span className="min-w-0 truncate text-sm font-medium">
                   {formatLabel(flag.feature_name)}
                 </span>
                 <span
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
+                  className={`soft-chip shrink-0 ${
                     flag.is_enabled
                       ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
                       : "bg-slate-100 text-slate-600 ring-slate-200"
@@ -184,13 +193,13 @@ function CheckRow({ check }: { check: SystemCheck }) {
         : "bg-rose-50 text-rose-700 ring-rose-100";
 
   return (
-    <div className="rounded-2xl border border-white/70 bg-white/60 p-4 shadow-sm">
+    <div className="soft-row p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Icon className="size-4 text-foreground" />
           <h3 className="text-sm font-semibold">{check.label}</h3>
         </div>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${tone}`}>
+        <span className={`soft-chip ${tone}`}>
           {check.status}
         </span>
       </div>
@@ -211,7 +220,7 @@ function InfoRow({
   mono?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-white/70 bg-white/60 px-4 py-3 shadow-sm">
+    <div className="soft-row px-4 py-3">
       <p className="text-xs font-medium uppercase text-muted-foreground">
         {label}
       </p>

@@ -7,9 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: Arial, Helvetica, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Arial, Helvetica, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  --font-heading: Arial, Helvetica, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Arial, Helvetica, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -124,6 +124,8 @@
   body {
     @apply bg-background text-foreground;
     text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+    background: #f5f7fa;
   }
   html {
     @apply font-sans;
@@ -131,11 +133,73 @@
 }
 
 @layer components {
+  .app-background {
+    @apply min-h-screen bg-[linear-gradient(135deg,#fbfcfd_0%,#f4f7fa_46%,#e8eef5_100%)] px-4 py-6 text-foreground sm:px-6 lg:px-8;
+  }
+
   .glass-panel {
-    @apply rounded-[24px] border border-white/65 bg-white/70 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur-xl;
+    @apply rounded-[24px] border border-white/70 bg-white/70 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur-2xl;
   }
 
   .glass-tile {
-    @apply rounded-[20px] border border-white/65 bg-white/60 shadow-[0_16px_44px_rgba(15,23,42,0.06)] backdrop-blur-xl transition duration-200 hover:-translate-y-0.5 hover:bg-white/75 hover:shadow-[0_20px_54px_rgba(15,23,42,0.09)];
+    @apply rounded-[18px] border border-white/70 bg-white/60 shadow-[0_14px_38px_rgba(15,23,42,0.055)] backdrop-blur-xl transition duration-200 hover:-translate-y-0.5 hover:bg-white/80 hover:shadow-[0_18px_48px_rgba(15,23,42,0.085)];
+  }
+
+  .mac-window {
+    @apply overflow-hidden rounded-[26px] border border-white/70 bg-white/70 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur-2xl;
+  }
+
+  .mac-toolbar {
+    @apply flex min-h-14 items-center justify-between gap-4 border-b border-white/70 bg-white/50 px-4 sm:px-5;
+  }
+
+  .mac-controls {
+    @apply flex shrink-0 items-center gap-2;
+  }
+
+  .mac-control-red,
+  .mac-control-yellow,
+  .mac-control-green {
+    @apply size-3 rounded-full ring-1 ring-black/10;
+  }
+
+  .mac-control-red {
+    @apply bg-[#ff5f57];
+  }
+
+  .mac-control-yellow {
+    @apply bg-[#ffbd2e];
+  }
+
+  .mac-control-green {
+    @apply bg-[#28c840];
+  }
+
+  .mac-link {
+    @apply inline-flex h-9 items-center justify-center rounded-full border border-white/75 bg-white/60 px-3.5 text-sm font-medium shadow-[0_8px_22px_rgba(15,23,42,0.06)] transition hover:bg-white/90 hover:shadow-[0_10px_28px_rgba(15,23,42,0.09)];
+  }
+
+  .mac-button-primary {
+    @apply inline-flex h-11 items-center justify-center rounded-full bg-neutral-950 px-5 text-sm font-semibold text-white shadow-[0_12px_28px_rgba(15,23,42,0.18)] transition hover:bg-neutral-800;
+  }
+
+  .mac-section {
+    @apply rounded-[22px] border border-white/70 bg-white/60 shadow-[0_16px_48px_rgba(15,23,42,0.06)] backdrop-blur-xl;
+  }
+
+  .soft-row {
+    @apply rounded-[16px] border border-white/70 bg-white/60 shadow-[0_8px_24px_rgba(15,23,42,0.045)];
+  }
+
+  .soft-input {
+    @apply flex min-h-12 items-center gap-3 rounded-[16px] border border-white/75 bg-white/70 px-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_8px_20px_rgba(15,23,42,0.045)];
+  }
+
+  .soft-chip {
+    @apply inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1;
+  }
+
+  .icon-well {
+    @apply flex size-10 items-center justify-center rounded-[14px] border border-white/70 bg-white/60 shadow-sm;
   }
 }

@@ -161,3 +161,12 @@ Next likely step:
 - Verified local database counts.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-30 - Mac-Style UI Polish
+
+- Added shared Mac-style UI utilities for app backgrounds, glass windows, toolbar controls, soft rows, chips, inputs, and links.
+- Updated the landing console, login, dashboard, system check, and plants/materials screens to use the same smoother Apple-inspired visual language.
+- Refreshed stale landing-page status copy so it reflects the current Day 2 build state.
+- Fixed the plants page supplier separator rendering.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
