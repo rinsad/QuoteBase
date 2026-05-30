@@ -83,3 +83,13 @@ Blocked until credentials:
 Next likely step:
 
 - Open Mailpit, click the captured magic link for John, and verify `/dashboard` displays John as Admin.
+
+## 2026-05-30 - Fix Login Runtime Error
+
+- Fixed browser runtime error on `/login`: `__webpack_modules__[moduleId] is not a function`.
+- Root cause was a version mismatch from the initial temporary scaffold: app was pinned to Next.js 15, but React/React DOM were still on `19.2.4` from the Next.js 16 scaffold.
+- Pinned `react` and `react-dom` to `19.1.0`.
+- Cleared `.next` cache and restarted the dev server.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Verified `/login` returns HTTP 200.
