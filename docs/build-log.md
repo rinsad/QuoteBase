@@ -220,3 +220,12 @@ Next likely step:
 - Logged `quote.item_added` audit entries with before/after totals.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Draft Quote Line Removal
+
+- Added draft-only quote item removal from `/quotes/[id]`.
+- Soft-disables removed line items instead of deleting them.
+- Recalculates quote totals after removal and restores the line if the quote total update cannot safely complete.
+- Logs `quote.item_removed` audit entries with removed item details and before/after totals.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

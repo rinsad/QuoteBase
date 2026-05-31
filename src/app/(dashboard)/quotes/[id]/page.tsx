@@ -17,6 +17,7 @@ import {
   addQuoteItem,
   approveQuote,
   rejectQuote,
+  removeQuoteItem,
   submitQuoteForApproval,
 } from "@/app/(dashboard)/quotes/[id]/actions";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,7 @@ export default async function QuoteDetailPage({
   const rejectAction = rejectQuote.bind(null, quote.id);
   const addItemAction = addQuoteItem.bind(null, quote.id);
   const canSubmit = quote.status === "draft";
+  const canEditItems = quote.status === "draft";
   const canApprove =
     quote.status === "pending_approval" &&
     (user.role === "admin" || user.role === "account_manager");
@@ -209,7 +211,12 @@ export default async function QuoteDetailPage({
             />
             <div className="mt-5 space-y-3">
               {quote.items.map((item) => (
-                <QuoteItemRow key={item.id} item={item} />
+                <QuoteItemRow
+                  key={item.id}
+                  canRemove={canEditItems}
+                  item={item}
+                  quoteId={quote.id}
+                />
               ))}
             </div>
             {quoteContext ? (
@@ -371,7 +378,17 @@ function SectionHeading({
   );
 }
 
-function QuoteItemRow({ item }: { item: QuoteDetailItem }) {
+function QuoteItemRow({
+  item,
+  quoteId,
+  canRemove,
+}: {
+  item: QuoteDetailItem;
+  quoteId: string;
+  canRemove: boolean;
+}) {
+  const removeAction = removeQuoteItem.bind(null, quoteId, item.id);
+
   return (
     <div className="soft-row grid gap-4 px-4 py-4 md:grid-cols-[1fr_auto] md:items-center">
       <div>
@@ -394,6 +411,17 @@ function QuoteItemRow({ item }: { item: QuoteDetailItem }) {
           Material {formatCurrency(item.material_subtotal)} | Trucking{" "}
           {formatCurrency(item.trucking_subtotal)}
         </p>
+        {canRemove ? (
+          <form action={removeAction} className="mt-3">
+            <Button
+              type="submit"
+              variant="outline"
+              className="h-8 rounded-full bg-white/70 text-xs text-rose-700 hover:bg-rose-50"
+            >
+              Remove line
+            </Button>
+          </form>
+        ) : null}
       </div>
     </div>
   );

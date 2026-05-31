@@ -49,6 +49,13 @@ type QuoteTotalsRecord = {
   line_total: number;
 };
 
+type QuoteItemRecord = {
+  id: string;
+  material_id: string;
+  quantity: number;
+  line_total: number;
+};
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -240,6 +247,117 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       item_id: item.id,
       material_id: material.id,
       quantity,
+      total: totals.total,
+    },
+  });
+
+  revalidatePath("/quotes");
+  revalidatePath(`/quotes/${quote.id}`);
+  redirect(`/quotes/${quote.id}`);
+}
+
+export async function removeQuoteItem(quoteId: string, itemId: string) {
+  if (!UUID_PATTERN.test(quoteId) || !UUID_PATTERN.test(itemId)) {
+    throw new Error("Invalid quote or item id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
+
+  const [quoteResult, itemResult] = await Promise.all([
+    supabase
+      .from("quotes")
+      .select("id, quote_number, status, notes, total")
+      .eq("organization_id", user.organization_id)
+      .eq("id", quoteId)
+      .eq("is_active", true)
+      .single<QuoteStatusRecord>(),
+    supabase
+      .from("quote_items")
+      .select("id, material_id, quantity, line_total")
+      .eq("organization_id", user.organization_id)
+      .eq("quote_id", quoteId)
+      .eq("id", itemId)
+      .eq("is_active", true)
+      .single<QuoteItemRecord>(),
+  ]);
+
+  if (!quoteResult.data || !itemResult.data) {
+    throw new Error("Quote or quote item not found.");
+  }
+
+  const quote = quoteResult.data;
+  const item = itemResult.data;
+
+  if (quote.status !== "draft") {
+    throw new Error("Only draft quotes can be edited.");
+  }
+
+  const { data: disabledItem, error: disableError } = await supabase
+    .from("quote_items")
+    .update({ is_active: false })
+    .eq("organization_id", user.organization_id)
+    .eq("quote_id", quote.id)
+    .eq("id", item.id)
+    .eq("is_active", true)
+    .select("id")
+    .single<{ id: string }>();
+
+  if (disableError || !disabledItem) {
+    throw new Error(disableError?.message ?? "Could not remove the quote item.");
+  }
+
+  const totals = await getQuoteTotals(quote.id, user.organization_id);
+  const { data: updatedQuote, error: updateError } = await supabase
+    .from("quotes")
+    .update({
+      material_subtotal: totals.materialSubtotal,
+      trucking_subtotal: totals.truckingSubtotal,
+      fees_subtotal: totals.feesSubtotal,
+      tax_total: totals.taxTotal,
+      total: totals.total,
+    })
+    .eq("organization_id", user.organization_id)
+    .eq("id", quote.id)
+    .eq("status", "draft")
+    .eq("is_active", true)
+    .select("id")
+    .single<{ id: string }>();
+
+  if (updateError || !updatedQuote) {
+    await supabase
+      .from("quote_items")
+      .update({ is_active: true })
+      .eq("organization_id", user.organization_id)
+      .eq("id", item.id);
+
+    throw new Error(
+      updateError?.message ?? "Could not update the draft quote total.",
+    );
+  }
+
+  await logAction({
+    user,
+    action: "quote.item_removed",
+    targetTable: "quotes",
+    targetId: quote.id,
+    before: {
+      item_id: item.id,
+      material_id: item.material_id,
+      quantity: Number(item.quantity),
+      line_total: Number(item.line_total),
+      total: Number(quote.total),
+    },
+    after: {
       total: totals.total,
     },
   });
