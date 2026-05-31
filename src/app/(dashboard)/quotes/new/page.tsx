@@ -1,26 +1,19 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { FilePlus2, ShieldCheck } from "lucide-react";
+import { FilePlus2 } from "lucide-react";
 
 import { QuoteDraftForm } from "@/app/(dashboard)/quotes/new/quote-draft-form";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getNewQuoteContext } from "@/lib/quotes/new-quote";
 
-export default async function NewQuotePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ saved?: string }>;
-}) {
+export default async function NewQuotePage() {
   const user = await getCurrentUser();
 
   if (!user) {
     redirect("/login");
   }
 
-  const [params, context] = await Promise.all([
-    searchParams,
-    getNewQuoteContext(user),
-  ]);
+  const context = await getNewQuoteContext(user);
 
   return (
     <main className="app-background">
@@ -47,21 +40,15 @@ export default async function NewQuotePage({
               <Link href="/admin/plants" className="mac-link">
                 Materials
               </Link>
+              <Link href="/quotes" className="mac-link">
+                Quotes
+              </Link>
               <Link href="/dashboard" className="mac-link">
                 Dashboard
               </Link>
             </div>
           </div>
         </header>
-
-        {params.saved ? (
-          <div className="mt-6 flex items-center gap-3 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-emerald-800 shadow-sm">
-            <ShieldCheck className="size-5 shrink-0" />
-            <p className="text-sm font-medium">
-              Draft quote {params.saved} was saved and logged.
-            </p>
-          </div>
-        ) : null}
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
           <div className="glass-panel p-6 sm:p-8">

@@ -1,0 +1,372 @@
+import type { AppUser } from "@/lib/auth/current-user";
+import { createClient } from "@/lib/supabase/server";
+
+export type QuoteStatus =
+  | "draft"
+  | "pending_approval"
+  | "approved"
+  | "rejected"
+  | "expired";
+
+export type QuoteListItem = {
+  id: string;
+  quote_number: string;
+  status: QuoteStatus;
+  total: number;
+  created_at: string;
+  customer_name: string;
+  job_site_name: string;
+  job_site_city: string;
+  requested_by_name: string;
+};
+
+export type QuoteListSummary = {
+  quotes: QuoteListItem[];
+  counts: {
+    total: number;
+    drafts: number;
+    pendingApproval: number;
+    approved: number;
+  };
+};
+
+export type QuoteDetail = {
+  id: string;
+  quote_number: string;
+  status: QuoteStatus;
+  material_subtotal: number;
+  trucking_subtotal: number;
+  fees_subtotal: number;
+  tax_total: number;
+  total: number;
+  notes: string | null;
+  created_at: string;
+  customer: {
+    name: string;
+    contact_name: string | null;
+    email: string | null;
+    phone: string | null;
+  };
+  job_site: {
+    name: string;
+    city: string;
+    county: string;
+    state: string;
+    address: Record<string, unknown>;
+  };
+  requested_by: {
+    full_name: string;
+    email: string;
+  };
+  tax_rate: {
+    city: string;
+    state: string;
+    rate: number;
+  } | null;
+  items: QuoteDetailItem[];
+  auditEntries: QuoteAuditEntry[];
+};
+
+export type QuoteDetailItem = {
+  id: string;
+  supplier_name: string;
+  material_name: string;
+  material_tier: string;
+  quantity: number;
+  unit: string;
+  unit_cost: number;
+  markup_pct: number;
+  material_unit_price: number;
+  material_subtotal: number;
+  trucking_rate_per_unit: number;
+  trucking_subtotal: number;
+  fees_subtotal: number;
+  line_total: number;
+};
+
+export type QuoteAuditEntry = {
+  id: string;
+  action: string;
+  created_at: string;
+  user_name: string | null;
+};
+
+type QuoteListRecord = {
+  id: string;
+  quote_number: string;
+  status: QuoteStatus;
+  total: number;
+  created_at: string;
+  customers: { name: string } | { name: string }[] | null;
+  job_sites:
+    | { name: string; city: string; state: string }
+    | { name: string; city: string; state: string }[]
+    | null;
+  users: { full_name: string } | { full_name: string }[] | null;
+};
+
+type QuoteDetailRecord = {
+  id: string;
+  quote_number: string;
+  status: QuoteStatus;
+  material_subtotal: number;
+  trucking_subtotal: number;
+  fees_subtotal: number;
+  tax_total: number;
+  total: number;
+  notes: string | null;
+  created_at: string;
+  customers:
+    | {
+        name: string;
+        contact_name: string | null;
+        email: string | null;
+        phone: string | null;
+      }
+    | {
+        name: string;
+        contact_name: string | null;
+        email: string | null;
+        phone: string | null;
+      }[]
+    | null;
+  job_sites:
+    | {
+        name: string;
+        city: string;
+        county: string;
+        state: string;
+        address: Record<string, unknown>;
+      }
+    | {
+        name: string;
+        city: string;
+        county: string;
+        state: string;
+        address: Record<string, unknown>;
+      }[]
+    | null;
+  users:
+    | { full_name: string; email: string }
+    | { full_name: string; email: string }[]
+    | null;
+  sales_tax_rates:
+    | { city: string; state: string; rate: number }
+    | { city: string; state: string; rate: number }[]
+    | null;
+  quote_items: QuoteItemRecord[] | null;
+};
+
+type QuoteItemRecord = {
+  id: string;
+  quantity: number;
+  unit: string;
+  unit_cost: number;
+  markup_pct: number;
+  material_unit_price: number;
+  material_subtotal: number;
+  trucking_rate_per_unit: number;
+  trucking_subtotal: number;
+  fees_subtotal: number;
+  line_total: number;
+  suppliers: { name: string } | { name: string }[] | null;
+  materials:
+    | { name: string; tier: string }
+    | { name: string; tier: string }[]
+    | null;
+};
+
+type AuditRecord = {
+  id: string;
+  action: string;
+  created_at: string;
+  users: { full_name: string } | { full_name: string }[] | null;
+};
+
+export async function getQuoteList(
+  user: AppUser,
+): Promise<QuoteListSummary> {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    return emptyList();
+  }
+
+  const [quotesResult, totalCount, draftCount, pendingCount, approvedCount] =
+    await Promise.all([
+      supabase
+        .from("quotes")
+        .select(
+          "id, quote_number, status, total, created_at, customers(name), job_sites(name, city, state), users(full_name)",
+        )
+        .eq("organization_id", user.organization_id)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(50)
+        .returns<QuoteListRecord[]>(),
+      supabase
+        .from("quotes")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", user.organization_id)
+        .eq("is_active", true),
+      supabase
+        .from("quotes")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", user.organization_id)
+        .eq("is_active", true)
+        .eq("status", "draft"),
+      supabase
+        .from("quotes")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", user.organization_id)
+        .eq("is_active", true)
+        .eq("status", "pending_approval"),
+      supabase
+        .from("quotes")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", user.organization_id)
+        .eq("is_active", true)
+        .eq("status", "approved"),
+    ]);
+
+  return {
+    quotes:
+      quotesResult.data?.map((quote) => {
+        const customer = relationOne(quote.customers);
+        const site = relationOne(quote.job_sites);
+        const requestedBy = relationOne(quote.users);
+
+        return {
+          id: quote.id,
+          quote_number: quote.quote_number,
+          status: quote.status,
+          total: Number(quote.total),
+          created_at: quote.created_at,
+          customer_name: customer?.name ?? "Unknown customer",
+          job_site_name: site?.name ?? "Unknown site",
+          job_site_city: [site?.city, site?.state].filter(Boolean).join(", "),
+          requested_by_name: requestedBy?.full_name ?? "Unknown user",
+        };
+      }) ?? [],
+    counts: {
+      total: totalCount.count ?? 0,
+      drafts: draftCount.count ?? 0,
+      pendingApproval: pendingCount.count ?? 0,
+      approved: approvedCount.count ?? 0,
+    },
+  };
+}
+
+export async function getQuoteDetail(
+  user: AppUser,
+  quoteId: string,
+): Promise<QuoteDetail | null> {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    return null;
+  }
+
+  const [quoteResult, auditResult] = await Promise.all([
+    supabase
+      .from("quotes")
+      .select(
+        "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), sales_tax_rates(city, state, rate), quote_items(id, quantity, unit, unit_cost, markup_pct, material_unit_price, material_subtotal, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, suppliers(name), materials(name, tier))",
+      )
+      .eq("organization_id", user.organization_id)
+      .eq("id", quoteId)
+      .eq("is_active", true)
+      .single<QuoteDetailRecord>(),
+    supabase
+      .from("audit_log")
+      .select("id, action, created_at, users(full_name)")
+      .eq("organization_id", user.organization_id)
+      .eq("target_table", "quotes")
+      .eq("target_id", quoteId)
+      .order("created_at", { ascending: false })
+      .limit(10)
+      .returns<AuditRecord[]>(),
+  ]);
+
+  if (!quoteResult.data) {
+    return null;
+  }
+
+  const quote = quoteResult.data;
+  const customer = relationOne(quote.customers);
+  const site = relationOne(quote.job_sites);
+  const requestedBy = relationOne(quote.users);
+  const taxRate = relationOne(quote.sales_tax_rates);
+
+  if (!customer || !site || !requestedBy) {
+    return null;
+  }
+
+  return {
+    id: quote.id,
+    quote_number: quote.quote_number,
+    status: quote.status,
+    material_subtotal: Number(quote.material_subtotal),
+    trucking_subtotal: Number(quote.trucking_subtotal),
+    fees_subtotal: Number(quote.fees_subtotal),
+    tax_total: Number(quote.tax_total),
+    total: Number(quote.total),
+    notes: quote.notes,
+    created_at: quote.created_at,
+    customer,
+    job_site: site,
+    requested_by: requestedBy,
+    tax_rate: taxRate
+      ? {
+          city: taxRate.city,
+          state: taxRate.state,
+          rate: Number(taxRate.rate),
+        }
+      : null,
+    items:
+      quote.quote_items?.map((item) => {
+        const supplier = relationOne(item.suppliers);
+        const material = relationOne(item.materials);
+
+        return {
+          id: item.id,
+          supplier_name: supplier?.name ?? "Unknown supplier",
+          material_name: material?.name ?? "Unknown material",
+          material_tier: material?.tier ?? "Unknown",
+          quantity: Number(item.quantity),
+          unit: item.unit,
+          unit_cost: Number(item.unit_cost),
+          markup_pct: Number(item.markup_pct),
+          material_unit_price: Number(item.material_unit_price),
+          material_subtotal: Number(item.material_subtotal),
+          trucking_rate_per_unit: Number(item.trucking_rate_per_unit),
+          trucking_subtotal: Number(item.trucking_subtotal),
+          fees_subtotal: Number(item.fees_subtotal),
+          line_total: Number(item.line_total),
+        };
+      }) ?? [],
+    auditEntries:
+      auditResult.data?.map((entry) => ({
+        id: entry.id,
+        action: entry.action,
+        created_at: entry.created_at,
+        user_name: relationOne(entry.users)?.full_name ?? null,
+      })) ?? [],
+  };
+}
+
+function relationOne<T>(value: T | T[] | null): T | null {
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+function emptyList(): QuoteListSummary {
+  return {
+    quotes: [],
+    counts: {
+      total: 0,
+      drafts: 0,
+      pendingApproval: 0,
+      approved: 0,
+    },
+  };
+}

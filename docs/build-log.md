@@ -192,3 +192,12 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Restarted the local dev server and verified `/login` returns 200 and `/quotes/new` redirects unauthenticated users to login.
+
+## 2026-05-31 - Quote Review Screens
+
+- Added tenant-scoped quote list at `/quotes` with totals for all, draft, pending, and approved quotes.
+- Added quote detail page at `/quotes/[id]` with customer, job-site, owner, tax, line item, totals, notes, and audit timeline sections.
+- Updated draft creation to redirect to the saved quote detail page.
+- Added dashboard and quote-form navigation links into the quote desk.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

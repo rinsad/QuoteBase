@@ -277,7 +277,9 @@ export async function createQuoteDraft(
     },
   });
 
-  redirect(`/quotes/new?saved=${encodeURIComponent(quote.quote_number)}`);
+  redirect(
+    `/quotes/${quote.id}?created=${encodeURIComponent(quote.quote_number)}`,
+  );
 }
 
 function parseQuoteForm(formData: FormData):

@@ -48,6 +48,9 @@ export default async function DashboardPage() {
                 <Link href="/quotes/new" className="mac-link">
                   New quote
                 </Link>
+                <Link href="/quotes" className="mac-link">
+                  Quotes
+                </Link>
                 {user.role === "admin" ? (
                   <>
                     <Link href="/admin/plants" className="mac-link">
