@@ -238,3 +238,11 @@ Next likely step:
 - Logs `quote.item_quantity_updated` audit entries with before/after line and quote totals.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Quote Print View
+
+- Added authenticated print/PDF-ready quote view at `/quotes/[id]/print`.
+- Added customer-facing quote layout with customer, job-site, line item, totals, notes, and prepared-by details.
+- Added browser print button and quote detail navigation link.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

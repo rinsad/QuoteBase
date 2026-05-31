@@ -89,6 +89,9 @@ export default async function QuoteDetailPage({
               <Link href="/quotes" className="mac-link">
                 Quotes
               </Link>
+              <Link href={`/quotes/${quote.id}/print`} className="mac-link">
+                Print
+              </Link>
               <Link href="/dashboard" className="mac-link">
                 Dashboard
               </Link>
