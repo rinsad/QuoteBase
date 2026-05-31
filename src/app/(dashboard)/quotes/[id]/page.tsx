@@ -2,13 +2,22 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import {
   Building2,
+  CheckCircle2,
   ClipboardList,
   DollarSign,
   FileText,
   MapPin,
+  Send,
+  XCircle,
   UserRound,
 } from "lucide-react";
 
+import {
+  approveQuote,
+  rejectQuote,
+  submitQuoteForApproval,
+} from "@/app/(dashboard)/quotes/[id]/actions";
+import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import {
   getQuoteDetail,
@@ -35,6 +44,14 @@ export default async function QuoteDetailPage({
   if (!quote) {
     notFound();
   }
+
+  const submitAction = submitQuoteForApproval.bind(null, quote.id);
+  const approveAction = approveQuote.bind(null, quote.id);
+  const rejectAction = rejectQuote.bind(null, quote.id);
+  const canSubmit = quote.status === "draft";
+  const canApprove =
+    quote.status === "pending_approval" &&
+    (user.role === "admin" || user.role === "account_manager");
 
   return (
     <main className="app-background">
@@ -88,9 +105,49 @@ export default async function QuoteDetailPage({
               {quote.requested_by.full_name}.
             </p>
             {quote.notes ? (
-              <p className="mt-5 rounded-[16px] bg-white/70 px-4 py-3 text-sm leading-6 text-muted-foreground">
+              <p className="mt-5 whitespace-pre-line rounded-[16px] bg-white/70 px-4 py-3 text-sm leading-6 text-muted-foreground">
                 {quote.notes}
               </p>
+            ) : null}
+            {canSubmit || canApprove ? (
+              <div className="mt-6 space-y-3">
+                {canSubmit ? (
+                  <form action={submitAction}>
+                    <Button type="submit" className="h-11 w-full rounded-full">
+                      <Send className="size-4" />
+                      Submit for approval
+                    </Button>
+                  </form>
+                ) : null}
+                {canApprove ? (
+                  <div className="grid gap-3">
+                    <form action={approveAction}>
+                      <Button
+                        type="submit"
+                        className="h-11 w-full rounded-full bg-emerald-600 text-white hover:bg-emerald-700"
+                      >
+                        <CheckCircle2 className="size-4" />
+                        Approve quote
+                      </Button>
+                    </form>
+                    <form action={rejectAction} className="space-y-3">
+                      <textarea
+                        name="rejection_reason"
+                        className="soft-control min-h-24 w-full resize-none py-3"
+                        placeholder="Reason for rejection"
+                      />
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        className="h-11 w-full rounded-full bg-rose-50 text-rose-700 hover:bg-rose-100"
+                      >
+                        <XCircle className="size-4" />
+                        Reject quote
+                      </Button>
+                    </form>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
 

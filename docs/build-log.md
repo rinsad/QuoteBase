@@ -201,3 +201,13 @@ Next likely step:
 - Added dashboard and quote-form navigation links into the quote desk.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Quote Approval Workflow
+
+- Added server actions to submit draft quotes for approval, approve pending quotes, and reject pending quotes.
+- Enforced role checks: estimators can submit drafts; admins and account managers can approve or reject.
+- Re-read quotes by `organization_id`, `id`, active status, and expected status before every transition.
+- Added audit log entries with before/after status values for every quote transition.
+- Added status-aware controls to `/quotes/[id]`, including rejection notes.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes after stopping the dev server and clearing the stale `.next` cache.
