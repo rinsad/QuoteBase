@@ -48,9 +48,14 @@ export default async function SystemCheckPage() {
                 </h1>
               </div>
             </div>
-            <Link href="/dashboard" className="mac-link">
-              Dashboard
-            </Link>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Link href="/admin/feature-flags" className="mac-link">
+                Features
+              </Link>
+              <Link href="/dashboard" className="mac-link">
+                Dashboard
+              </Link>
+            </div>
           </div>
         </header>
 

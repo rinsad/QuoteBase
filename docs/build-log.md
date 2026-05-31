@@ -285,3 +285,11 @@ Next likely step:
 - Logs `material.price_updated` audit entries and revalidates quote/material admin views.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Feature Flag Admin
+
+- Added admin-only `/admin/feature-flags` for tenant-scoped feature toggles.
+- Added audited feature flag update action with organization-scoped reads/writes and JSON config validation.
+- Linked feature flag admin from dashboard and admin tool headers.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
