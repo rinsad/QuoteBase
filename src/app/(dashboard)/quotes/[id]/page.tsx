@@ -19,6 +19,7 @@ import {
   rejectQuote,
   removeQuoteItem,
   submitQuoteForApproval,
+  updateQuoteItemQuantity,
 } from "@/app/(dashboard)/quotes/[id]/actions";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -388,6 +389,11 @@ function QuoteItemRow({
   canRemove: boolean;
 }) {
   const removeAction = removeQuoteItem.bind(null, quoteId, item.id);
+  const updateQuantityAction = updateQuoteItemQuantity.bind(
+    null,
+    quoteId,
+    item.id,
+  );
 
   return (
     <div className="soft-row grid gap-4 px-4 py-4 md:grid-cols-[1fr_auto] md:items-center">
@@ -412,15 +418,36 @@ function QuoteItemRow({
           {formatCurrency(item.trucking_subtotal)}
         </p>
         {canRemove ? (
-          <form action={removeAction} className="mt-3">
-            <Button
-              type="submit"
-              variant="outline"
-              className="h-8 rounded-full bg-white/70 text-xs text-rose-700 hover:bg-rose-50"
-            >
-              Remove line
-            </Button>
-          </form>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <form action={updateQuantityAction} className="flex gap-2">
+              <input
+                name="quantity"
+                type="number"
+                min="0.01"
+                step="0.01"
+                defaultValue={item.quantity}
+                className="soft-control h-8 min-h-8 w-24 px-3 text-xs"
+                aria-label={`Quantity for ${item.material_name}`}
+                required
+              />
+              <Button
+                type="submit"
+                variant="outline"
+                className="h-8 rounded-full bg-white/70 text-xs"
+              >
+                Update
+              </Button>
+            </form>
+            <form action={removeAction}>
+              <Button
+                type="submit"
+                variant="outline"
+                className="h-8 rounded-full bg-white/70 text-xs text-rose-700 hover:bg-rose-50"
+              >
+                Remove line
+              </Button>
+            </form>
+          </div>
         ) : null}
       </div>
     </div>

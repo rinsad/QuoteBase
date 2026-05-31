@@ -56,6 +56,21 @@ type QuoteItemRecord = {
   line_total: number;
 };
 
+type EditableQuoteItemRecord = QuoteItemRecord & {
+  unit: string;
+  unit_cost: number;
+  markup_pct: number;
+  material_unit_price: number;
+  material_subtotal: number;
+  trucking_rate_per_unit: number;
+  trucking_subtotal: number;
+  fees_subtotal: number;
+  materials:
+    | { tier: "R1" | "R2" | "R3" | "R4" }
+    | { tier: "R1" | "R2" | "R3" | "R4" }[]
+    | null;
+};
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -367,6 +382,181 @@ export async function removeQuoteItem(quoteId: string, itemId: string) {
   redirect(`/quotes/${quote.id}`);
 }
 
+export async function updateQuoteItemQuantity(
+  quoteId: string,
+  itemId: string,
+  formData: FormData,
+) {
+  if (!UUID_PATTERN.test(quoteId) || !UUID_PATTERN.test(itemId)) {
+    throw new Error("Invalid quote or item id.");
+  }
+
+  const quantity = Number(getString(formData, "quantity"));
+
+  if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 100000) {
+    throw new Error("Quantity must be greater than zero.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
+
+  const [quoteResult, itemResult, pricingConfigResult] = await Promise.all([
+    supabase
+      .from("quotes")
+      .select("id, quote_number, status, notes, total, tax_rate_id")
+      .eq("organization_id", user.organization_id)
+      .eq("id", quoteId)
+      .eq("is_active", true)
+      .single<EditableQuoteRecord>(),
+    supabase
+      .from("quote_items")
+      .select(
+        "id, material_id, quantity, unit, unit_cost, markup_pct, material_unit_price, material_subtotal, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, materials(tier)",
+      )
+      .eq("organization_id", user.organization_id)
+      .eq("quote_id", quoteId)
+      .eq("id", itemId)
+      .eq("is_active", true)
+      .single<EditableQuoteItemRecord>(),
+    supabase
+      .from("pricing_config")
+      .select(
+        "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, fuel_surcharge_per_load, environmental_fee_per_load, overhead_per_ton",
+      )
+      .eq("organization_id", user.organization_id)
+      .single<PricingConfig>(),
+  ]);
+
+  if (!quoteResult.data || !itemResult.data || !pricingConfigResult.data) {
+    throw new Error("Quote, item, or pricing configuration is missing.");
+  }
+
+  const quote = quoteResult.data;
+  const item = itemResult.data;
+  const material = relationOne(item.materials);
+
+  if (quote.status !== "draft") {
+    throw new Error("Only draft quotes can be edited.");
+  }
+
+  if (!quote.tax_rate_id || !material) {
+    throw new Error("This quote item is missing tax or material data.");
+  }
+
+  const { data: taxRate } = await supabase
+    .from("sales_tax_rates")
+    .select("id, rate")
+    .eq("organization_id", user.organization_id)
+    .eq("id", quote.tax_rate_id)
+    .single<TaxRateRecord>();
+
+  if (!taxRate) {
+    throw new Error("This quote's tax rate is no longer available.");
+  }
+
+  const calculation = calculateQuoteDraft({
+    costPerUnit: Number(item.unit_cost),
+    quantity,
+    tier: material.tier,
+    unit: item.unit,
+    taxRate: Number(taxRate.rate),
+    pricingConfig: normalizePricingConfig(pricingConfigResult.data),
+  });
+
+  const beforeItem = {
+    quantity: Number(item.quantity),
+    markup_pct: Number(item.markup_pct),
+    material_unit_price: Number(item.material_unit_price),
+    material_subtotal: Number(item.material_subtotal),
+    trucking_rate_per_unit: Number(item.trucking_rate_per_unit),
+    trucking_subtotal: Number(item.trucking_subtotal),
+    fees_subtotal: Number(item.fees_subtotal),
+    line_total: Number(item.line_total),
+  };
+  const { data: updatedItem, error: itemError } = await supabase
+    .from("quote_items")
+    .update({
+      quantity,
+      markup_pct: calculation.markupPct,
+      material_unit_price: calculation.materialUnitPrice,
+      material_subtotal: calculation.materialSubtotal,
+      trucking_rate_per_unit: calculation.truckingRatePerUnit,
+      trucking_subtotal: calculation.truckingSubtotal,
+      fees_subtotal: calculation.feesSubtotal,
+      line_total: calculation.total,
+    })
+    .eq("organization_id", user.organization_id)
+    .eq("quote_id", quote.id)
+    .eq("id", item.id)
+    .eq("is_active", true)
+    .select("id")
+    .single<{ id: string }>();
+
+  if (itemError || !updatedItem) {
+    throw new Error(itemError?.message ?? "Could not update the quote item.");
+  }
+
+  const totals = await getQuoteTotals(quote.id, user.organization_id);
+  const { data: updatedQuote, error: updateError } = await supabase
+    .from("quotes")
+    .update({
+      material_subtotal: totals.materialSubtotal,
+      trucking_subtotal: totals.truckingSubtotal,
+      fees_subtotal: totals.feesSubtotal,
+      tax_total: totals.taxTotal,
+      total: totals.total,
+    })
+    .eq("organization_id", user.organization_id)
+    .eq("id", quote.id)
+    .eq("status", "draft")
+    .eq("is_active", true)
+    .select("id")
+    .single<{ id: string }>();
+
+  if (updateError || !updatedQuote) {
+    await supabase
+      .from("quote_items")
+      .update(beforeItem)
+      .eq("organization_id", user.organization_id)
+      .eq("id", item.id);
+
+    throw new Error(
+      updateError?.message ?? "Could not update the draft quote total.",
+    );
+  }
+
+  await logAction({
+    user,
+    action: "quote.item_quantity_updated",
+    targetTable: "quotes",
+    targetId: quote.id,
+    before: {
+      item_id: item.id,
+      ...beforeItem,
+      total: Number(quote.total),
+    },
+    after: {
+      item_id: item.id,
+      quantity,
+      line_total: calculation.total,
+      total: totals.total,
+    },
+  });
+
+  revalidatePath("/quotes");
+  revalidatePath(`/quotes/${quote.id}`);
+  redirect(`/quotes/${quote.id}`);
+}
+
 async function transitionQuoteStatus({
   quoteId,
   from,
@@ -541,4 +731,8 @@ function requiredUuid(formData: FormData, key: string): string {
 
 function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function relationOne<T>(value: T | T[] | null): T | null {
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }

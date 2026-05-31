@@ -229,3 +229,12 @@ Next likely step:
 - Logs `quote.item_removed` audit entries with removed item details and before/after totals.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Draft Quote Quantity Editing
+
+- Added draft-only quantity editing for existing quote line items.
+- Recalculates line pricing and quote totals from pricing config after quantity changes.
+- Restores prior line item values if the quote total update cannot safely complete.
+- Logs `quote.item_quantity_updated` audit entries with before/after line and quote totals.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
