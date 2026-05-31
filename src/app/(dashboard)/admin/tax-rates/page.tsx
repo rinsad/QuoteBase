@@ -48,6 +48,9 @@ export default async function AdminTaxRatesPage({
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <Link href="/admin/material-prices" className="mac-link">
+                Material prices
+              </Link>
               <Link href="/admin/pricing" className="mac-link">
                 Pricing
               </Link>

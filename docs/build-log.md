@@ -275,3 +275,13 @@ Next likely step:
 - Linked tax admin from dashboard, pricing admin, and plants/materials admin.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Material Price Management
+
+- Added `/admin/material-prices` for admins and account managers to update active material costs.
+- Added organization-scoped material catalog cards, current supplier cost display, and recent price history.
+- Added price update action that validates role, material ownership, date, and price before updating `materials`.
+- Inserts `material_price_history` for each price change and restores the prior material price if history capture fails.
+- Logs `material.price_updated` audit entries and revalidates quote/material admin views.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
