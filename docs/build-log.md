@@ -303,3 +303,12 @@ Next likely step:
 - Linked user management from dashboard and admin tool headers.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Quote Sent Workflow
+
+- Added migration to expand quote statuses with sent/viewed/accepted/declined lifecycle states.
+- Added `quote.sent` server action for approved quotes with admin/account-manager role checks and audit logging.
+- Added quote detail controls to mark an approved quote sent with a delivery note.
+- Added sent status support and sent quote count to the quote desk.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

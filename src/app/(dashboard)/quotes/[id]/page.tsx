@@ -16,6 +16,7 @@ import {
 import {
   addQuoteItem,
   approveQuote,
+  markQuoteSent,
   rejectQuote,
   removeQuoteItem,
   submitQuoteForApproval,
@@ -54,11 +55,15 @@ export default async function QuoteDetailPage({
   const submitAction = submitQuoteForApproval.bind(null, quote.id);
   const approveAction = approveQuote.bind(null, quote.id);
   const rejectAction = rejectQuote.bind(null, quote.id);
+  const sendAction = markQuoteSent.bind(null, quote.id);
   const addItemAction = addQuoteItem.bind(null, quote.id);
   const canSubmit = quote.status === "draft";
   const canEditItems = quote.status === "draft";
   const canApprove =
     quote.status === "pending_approval" &&
+    (user.role === "admin" || user.role === "account_manager");
+  const canSend =
+    quote.status === "approved" &&
     (user.role === "admin" || user.role === "account_manager");
 
   return (
@@ -120,7 +125,7 @@ export default async function QuoteDetailPage({
                 {quote.notes}
               </p>
             ) : null}
-            {canSubmit || canApprove ? (
+            {canSubmit || canApprove || canSend ? (
               <div className="mt-6 space-y-3">
                 {canSubmit ? (
                   <form action={submitAction}>
@@ -157,6 +162,19 @@ export default async function QuoteDetailPage({
                       </Button>
                     </form>
                   </div>
+                ) : null}
+                {canSend ? (
+                  <form action={sendAction} className="space-y-3">
+                    <textarea
+                      name="send_note"
+                      className="soft-control min-h-24 w-full resize-none py-3"
+                      placeholder="Delivery note, email thread, or customer contact"
+                    />
+                    <Button type="submit" className="h-11 w-full rounded-full">
+                      <Send className="size-4" />
+                      Mark quote sent
+                    </Button>
+                  </form>
                 ) : null}
               </div>
             ) : null}
@@ -482,6 +500,10 @@ function StatusPill({ status }: { status: QuoteStatus }) {
     pending_approval: "bg-amber-50 text-amber-700 ring-amber-100",
     approved: "bg-emerald-50 text-emerald-700 ring-emerald-100",
     rejected: "bg-rose-50 text-rose-700 ring-rose-100",
+    sent: "bg-cyan-50 text-cyan-700 ring-cyan-100",
+    viewed: "bg-indigo-50 text-indigo-700 ring-indigo-100",
+    accepted: "bg-lime-50 text-lime-700 ring-lime-100",
+    declined: "bg-orange-50 text-orange-700 ring-orange-100",
     expired: "bg-slate-100 text-slate-600 ring-slate-200",
   } satisfies Record<QuoteStatus, string>;
 

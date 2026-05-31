@@ -14,6 +14,10 @@ type QuoteStatus =
   | "pending_approval"
   | "approved"
   | "rejected"
+  | "sent"
+  | "viewed"
+  | "accepted"
+  | "declined"
   | "expired";
 
 type QuoteStatusRecord = {
@@ -105,6 +109,20 @@ export async function rejectQuote(quoteId: string, formData: FormData) {
     action: "quote.rejected",
     allowedRoles: ["admin", "account_manager"],
     note: reason ? `Rejected: ${reason}` : "Rejected without a reason.",
+  });
+}
+
+export async function markQuoteSent(quoteId: string, formData: FormData) {
+  const noteValue = formData.get("send_note");
+  const note = typeof noteValue === "string" ? noteValue.trim() : "";
+
+  await transitionQuoteStatus({
+    quoteId,
+    from: "approved",
+    to: "sent",
+    action: "quote.sent",
+    allowedRoles: ["admin", "account_manager"],
+    note: note ? `Sent: ${note}` : "Marked as sent to customer.",
   });
 }
 

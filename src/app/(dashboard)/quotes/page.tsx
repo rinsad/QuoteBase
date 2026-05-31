@@ -59,11 +59,12 @@ export default async function QuotesPage() {
             </p>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <Metric label="Total" value={summary.counts.total} />
             <Metric label="Drafts" value={summary.counts.drafts} />
             <Metric label="Pending" value={summary.counts.pendingApproval} />
             <Metric label="Approved" value={summary.counts.approved} />
+            <Metric label="Sent" value={summary.counts.sent} />
           </div>
         </section>
 
@@ -147,6 +148,10 @@ function StatusPill({ status }: { status: QuoteStatus }) {
     pending_approval: "bg-amber-50 text-amber-700 ring-amber-100",
     approved: "bg-emerald-50 text-emerald-700 ring-emerald-100",
     rejected: "bg-rose-50 text-rose-700 ring-rose-100",
+    sent: "bg-cyan-50 text-cyan-700 ring-cyan-100",
+    viewed: "bg-indigo-50 text-indigo-700 ring-indigo-100",
+    accepted: "bg-lime-50 text-lime-700 ring-lime-100",
+    declined: "bg-orange-50 text-orange-700 ring-orange-100",
     expired: "bg-slate-100 text-slate-600 ring-slate-200",
   } satisfies Record<QuoteStatus, string>;
 

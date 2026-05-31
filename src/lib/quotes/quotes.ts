@@ -6,6 +6,10 @@ export type QuoteStatus =
   | "pending_approval"
   | "approved"
   | "rejected"
+  | "sent"
+  | "viewed"
+  | "accepted"
+  | "declined"
   | "expired";
 
 export type QuoteListItem = {
@@ -27,6 +31,7 @@ export type QuoteListSummary = {
     drafts: number;
     pendingApproval: number;
     approved: number;
+    sent: number;
   };
 };
 
@@ -192,7 +197,7 @@ export async function getQuoteList(
     return emptyList();
   }
 
-  const [quotesResult, totalCount, draftCount, pendingCount, approvedCount] =
+  const [quotesResult, totalCount, draftCount, pendingCount, approvedCount, sentCount] =
     await Promise.all([
       supabase
         .from("quotes")
@@ -227,6 +232,12 @@ export async function getQuoteList(
         .eq("organization_id", user.organization_id)
         .eq("is_active", true)
         .eq("status", "approved"),
+      supabase
+        .from("quotes")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", user.organization_id)
+        .eq("is_active", true)
+        .eq("status", "sent"),
     ]);
 
   return {
@@ -253,6 +264,7 @@ export async function getQuoteList(
       drafts: draftCount.count ?? 0,
       pendingApproval: pendingCount.count ?? 0,
       approved: approvedCount.count ?? 0,
+      sent: sentCount.count ?? 0,
     },
   };
 }
@@ -367,6 +379,7 @@ function emptyList(): QuoteListSummary {
       drafts: 0,
       pendingApproval: 0,
       approved: 0,
+      sent: 0,
     },
   };
 }
