@@ -59,6 +59,7 @@ export default async function AdminPlantsPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <HeaderLink href="/admin/pricing">Pricing</HeaderLink>
               <HeaderLink href="/admin/system-check">System check</HeaderLink>
               <HeaderLink href="/dashboard">Dashboard</HeaderLink>
             </div>

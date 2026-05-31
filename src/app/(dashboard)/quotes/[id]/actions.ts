@@ -154,7 +154,7 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     supabase
       .from("pricing_config")
       .select(
-        "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, fuel_surcharge_per_load, environmental_fee_per_load, overhead_per_ton",
+        "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton",
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
@@ -430,7 +430,7 @@ export async function updateQuoteItemQuantity(
     supabase
       .from("pricing_config")
       .select(
-        "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, fuel_surcharge_per_load, environmental_fee_per_load, overhead_per_ton",
+        "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton",
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),

@@ -256,3 +256,13 @@ Next likely step:
 - Added dashboard navigation to the customer desk.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Admin Pricing Configuration
+
+- Added admin-only `/admin/pricing` for DB-backed pricing configuration.
+- Added form controls for tier markup ranges, trucking rates, minimums, fees, surcharge percentage, and overhead per ton.
+- Added server action with admin role enforcement, range validation, organization-scoped update, and audit logging.
+- Linked pricing admin from dashboard and plants/materials admin.
+- Extended pricing config normalization to include minimums and surcharge fields.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

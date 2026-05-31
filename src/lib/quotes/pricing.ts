@@ -17,6 +17,9 @@ export type PricingConfig = {
   default_truck_rate: string;
   fuel_surcharge_per_load: number;
   environmental_fee_per_load: number;
+  material_minimum?: number;
+  trucking_minimum?: number;
+  cc_surcharge_pct?: number;
   overhead_per_ton: number;
 };
 
