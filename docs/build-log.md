@@ -246,3 +246,13 @@ Next likely step:
 - Added browser print button and quote detail navigation link.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Customer & Job Site Desk
+
+- Added `/customers` for tenant-scoped customer and job-site management.
+- Added customer creation/upsert action with audit logging.
+- Added job-site creation/upsert action that validates the selected customer belongs to the current organization.
+- Added customer/job-site counts, lists, and create forms using the existing Mac-style UI.
+- Added dashboard navigation to the customer desk.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
