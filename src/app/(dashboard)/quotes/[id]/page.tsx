@@ -7,18 +7,21 @@ import {
   DollarSign,
   FileText,
   MapPin,
+  PackagePlus,
   Send,
   XCircle,
   UserRound,
 } from "lucide-react";
 
 import {
+  addQuoteItem,
   approveQuote,
   rejectQuote,
   submitQuoteForApproval,
 } from "@/app/(dashboard)/quotes/[id]/actions";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { getNewQuoteContext } from "@/lib/quotes/new-quote";
 import {
   getQuoteDetail,
   type QuoteDetailItem,
@@ -45,9 +48,11 @@ export default async function QuoteDetailPage({
     notFound();
   }
 
+  const quoteContext = quote.status === "draft" ? await getNewQuoteContext(user) : null;
   const submitAction = submitQuoteForApproval.bind(null, quote.id);
   const approveAction = approveQuote.bind(null, quote.id);
   const rejectAction = rejectQuote.bind(null, quote.id);
+  const addItemAction = addQuoteItem.bind(null, quote.id);
   const canSubmit = quote.status === "draft";
   const canApprove =
     quote.status === "pending_approval" &&
@@ -207,6 +212,61 @@ export default async function QuoteDetailPage({
                 <QuoteItemRow key={item.id} item={item} />
               ))}
             </div>
+            {quoteContext ? (
+              <form
+                action={addItemAction}
+                className="mt-5 rounded-[20px] border border-sky-100 bg-sky-50/60 p-4"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="icon-well text-blue-700">
+                    <PackagePlus className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Draft editor
+                    </p>
+                    <h3 className="text-lg font-semibold">Add material line</h3>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_140px_auto] sm:items-end">
+                  <label className="block">
+                    <span className="text-sm font-medium text-muted-foreground">
+                      Material
+                    </span>
+                    <select
+                      name="material_id"
+                      className="soft-control mt-2 w-full"
+                      required
+                    >
+                      <option value="">Select material...</option>
+                      {quoteContext.materials.map((material) => (
+                        <option key={material.id} value={material.id}>
+                          {material.supplier_name} - {material.name} (
+                          {material.tier})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-muted-foreground">
+                      Quantity
+                    </span>
+                    <input
+                      name="quantity"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      className="soft-control mt-2 w-full"
+                      required
+                    />
+                  </label>
+                  <Button type="submit" className="h-12 rounded-full">
+                    <PackagePlus className="size-4" />
+                    Add line
+                  </Button>
+                </div>
+              </form>
+            ) : null}
           </div>
 
           <aside className="space-y-6">

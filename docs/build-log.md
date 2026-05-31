@@ -211,3 +211,12 @@ Next likely step:
 - Added status-aware controls to `/quotes/[id]`, including rejection notes.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes after stopping the dev server and clearing the stale `.next` cache.
+
+## 2026-05-31 - Draft Quote Line Editing
+
+- Added a draft-only material line editor to `/quotes/[id]`.
+- Added server action to append quote items after re-reading the quote by `organization_id`, `id`, active status, and draft status.
+- Recalculated quote material, trucking, fee, tax, and total values after each new line.
+- Logged `quote.item_added` audit entries with before/after totals.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

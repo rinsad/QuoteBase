@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
+import { normalizePricingConfig } from "@/lib/quotes/new-quote";
+import { calculateQuoteDraft, type PricingConfig } from "@/lib/quotes/pricing";
 import { createClient } from "@/lib/supabase/server";
 
 type QuoteStatus =
@@ -20,6 +22,31 @@ type QuoteStatusRecord = {
   status: QuoteStatus;
   notes: string | null;
   total: number;
+};
+
+type EditableQuoteRecord = QuoteStatusRecord & {
+  tax_rate_id: string | null;
+};
+
+type MaterialRecord = {
+  id: string;
+  supplier_id: string;
+  name: string;
+  tier: "R1" | "R2" | "R3" | "R4";
+  unit: string;
+  cost_per_unit: number;
+};
+
+type TaxRateRecord = {
+  id: string;
+  rate: number;
+};
+
+type QuoteTotalsRecord = {
+  material_subtotal: number;
+  trucking_subtotal: number;
+  fees_subtotal: number;
+  line_total: number;
 };
 
 const UUID_PATTERN =
@@ -57,6 +84,169 @@ export async function rejectQuote(quoteId: string, formData: FormData) {
     allowedRoles: ["admin", "account_manager"],
     note: reason ? `Rejected: ${reason}` : "Rejected without a reason.",
   });
+}
+
+export async function addQuoteItem(quoteId: string, formData: FormData) {
+  if (!UUID_PATTERN.test(quoteId)) {
+    throw new Error("Invalid quote id.");
+  }
+
+  const materialId = requiredUuid(formData, "material_id");
+  const quantity = Number(getString(formData, "quantity"));
+
+  if (!materialId) {
+    throw new Error("Select a material.");
+  }
+
+  if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 100000) {
+    throw new Error("Quantity must be greater than zero.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
+
+  const [quoteResult, materialResult, pricingConfigResult] = await Promise.all([
+    supabase
+      .from("quotes")
+      .select("id, quote_number, status, notes, total, tax_rate_id")
+      .eq("organization_id", user.organization_id)
+      .eq("id", quoteId)
+      .eq("is_active", true)
+      .single<EditableQuoteRecord>(),
+    supabase
+      .from("materials")
+      .select("id, supplier_id, name, tier, unit, cost_per_unit")
+      .eq("organization_id", user.organization_id)
+      .eq("id", materialId)
+      .eq("is_active", true)
+      .single<MaterialRecord>(),
+    supabase
+      .from("pricing_config")
+      .select(
+        "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, fuel_surcharge_per_load, environmental_fee_per_load, overhead_per_ton",
+      )
+      .eq("organization_id", user.organization_id)
+      .single<PricingConfig>(),
+  ]);
+
+  if (!quoteResult.data || !materialResult.data || !pricingConfigResult.data) {
+    throw new Error("Quote, material, or pricing configuration is missing.");
+  }
+
+  const quote = quoteResult.data;
+
+  if (quote.status !== "draft") {
+    throw new Error("Only draft quotes can be edited.");
+  }
+
+  if (!quote.tax_rate_id) {
+    throw new Error("This quote is missing a tax rate.");
+  }
+
+  const { data: taxRate } = await supabase
+    .from("sales_tax_rates")
+    .select("id, rate")
+    .eq("organization_id", user.organization_id)
+    .eq("id", quote.tax_rate_id)
+    .single<TaxRateRecord>();
+
+  if (!taxRate) {
+    throw new Error("This quote's tax rate is no longer available.");
+  }
+
+  const material = materialResult.data;
+  const calculation = calculateQuoteDraft({
+    costPerUnit: Number(material.cost_per_unit),
+    quantity,
+    tier: material.tier,
+    unit: material.unit,
+    taxRate: Number(taxRate.rate),
+    pricingConfig: normalizePricingConfig(pricingConfigResult.data),
+  });
+
+  const { data: item, error: itemError } = await supabase
+    .from("quote_items")
+    .insert({
+      organization_id: user.organization_id,
+      quote_id: quote.id,
+      supplier_id: material.supplier_id,
+      material_id: material.id,
+      quantity,
+      unit: material.unit,
+      unit_cost: Number(material.cost_per_unit),
+      markup_pct: calculation.markupPct,
+      material_unit_price: calculation.materialUnitPrice,
+      material_subtotal: calculation.materialSubtotal,
+      trucking_rate_per_unit: calculation.truckingRatePerUnit,
+      trucking_subtotal: calculation.truckingSubtotal,
+      fees_subtotal: calculation.feesSubtotal,
+      line_total: calculation.total,
+      is_active: true,
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  if (itemError || !item) {
+    throw new Error(itemError?.message ?? "Could not add the quote item.");
+  }
+
+  const totals = await getQuoteTotals(quote.id, user.organization_id);
+  const { data: updatedQuote, error: updateError } = await supabase
+    .from("quotes")
+    .update({
+      material_subtotal: totals.materialSubtotal,
+      trucking_subtotal: totals.truckingSubtotal,
+      fees_subtotal: totals.feesSubtotal,
+      tax_total: totals.taxTotal,
+      total: totals.total,
+    })
+    .eq("organization_id", user.organization_id)
+    .eq("id", quote.id)
+    .eq("status", "draft")
+    .eq("is_active", true)
+    .select("id")
+    .single<{ id: string }>();
+
+  if (updateError || !updatedQuote) {
+    await supabase
+      .from("quote_items")
+      .update({ is_active: false })
+      .eq("organization_id", user.organization_id)
+      .eq("id", item.id);
+
+    throw new Error(
+      updateError?.message ?? "Could not update the draft quote total.",
+    );
+  }
+
+  await logAction({
+    user,
+    action: "quote.item_added",
+    targetTable: "quotes",
+    targetId: quote.id,
+    before: {
+      total: Number(quote.total),
+    },
+    after: {
+      item_id: item.id,
+      material_id: material.id,
+      quantity,
+      total: totals.total,
+    },
+  });
+
+  revalidatePath("/quotes");
+  revalidatePath(`/quotes/${quote.id}`);
+  redirect(`/quotes/${quote.id}`);
 }
 
 async function transitionQuoteStatus({
@@ -161,4 +351,76 @@ function formatStatus(status: string): string {
     .split("_")
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+async function getQuoteTotals(
+  quoteId: string,
+  organizationId: string,
+): Promise<{
+  materialSubtotal: number;
+  truckingSubtotal: number;
+  feesSubtotal: number;
+  taxTotal: number;
+  total: number;
+}> {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
+
+  const { data: items, error } = await supabase
+    .from("quote_items")
+    .select("material_subtotal, trucking_subtotal, fees_subtotal, line_total")
+    .eq("organization_id", organizationId)
+    .eq("quote_id", quoteId)
+    .eq("is_active", true)
+    .returns<QuoteTotalsRecord[]>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const totals = (items ?? []).reduce(
+    (sum, item) => ({
+      materialSubtotal: sum.materialSubtotal + Number(item.material_subtotal),
+      truckingSubtotal: sum.truckingSubtotal + Number(item.trucking_subtotal),
+      feesSubtotal: sum.feesSubtotal + Number(item.fees_subtotal),
+      total: sum.total + Number(item.line_total),
+    }),
+    {
+      materialSubtotal: 0,
+      truckingSubtotal: 0,
+      feesSubtotal: 0,
+      total: 0,
+    },
+  );
+
+  return {
+    ...totals,
+    taxTotal:
+      roundMoney(
+        totals.total -
+          totals.materialSubtotal -
+          totals.truckingSubtotal -
+          totals.feesSubtotal,
+      ),
+    total: roundMoney(totals.total),
+  };
+}
+
+function getString(formData: FormData, key: string): string {
+  const value = formData.get(key);
+
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function requiredUuid(formData: FormData, key: string): string {
+  const value = getString(formData, key);
+
+  return UUID_PATTERN.test(value) ? value : "";
+}
+
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
