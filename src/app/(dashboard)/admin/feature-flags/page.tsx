@@ -58,6 +58,9 @@ export default async function AdminFeatureFlagsPage({
               <Link href="/admin/system-check" className="mac-link">
                 System check
               </Link>
+              <Link href="/admin/users" className="mac-link">
+                Users
+              </Link>
               <Link href="/dashboard" className="mac-link">
                 Dashboard
               </Link>

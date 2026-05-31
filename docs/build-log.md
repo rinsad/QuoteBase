@@ -293,3 +293,13 @@ Next likely step:
 - Linked feature flag admin from dashboard and admin tool headers.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Admin User Management
+
+- Added admin-only `/admin/users` for app users and invite allowlist management.
+- Added invite upsert action using the service-role client after admin role verification.
+- Added app user update action for full name, role, and active status with self-deactivation protection.
+- Logs `user_invite.saved` and `user.updated` audit entries for state changes.
+- Linked user management from dashboard and admin tool headers.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

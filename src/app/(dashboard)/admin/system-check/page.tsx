@@ -52,6 +52,9 @@ export default async function SystemCheckPage() {
               <Link href="/admin/feature-flags" className="mac-link">
                 Features
               </Link>
+              <Link href="/admin/users" className="mac-link">
+                Users
+              </Link>
               <Link href="/dashboard" className="mac-link">
                 Dashboard
               </Link>
