@@ -320,3 +320,11 @@ Next likely step:
 - Reuses organization-scoped quote transition logic and audit logging.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Admin Audit Log Viewer
+
+- Added admin-only `/admin/audit-log` to inspect the latest organization-scoped audit entries.
+- Shows action, target, actor, and timestamp without exposing before/after payload internals in the UI.
+- Linked the audit log from dashboard and admin tool headers.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

@@ -64,6 +64,7 @@ export default async function AdminPlantsPage() {
               <HeaderLink href="/admin/tax-rates">Taxes</HeaderLink>
               <HeaderLink href="/admin/feature-flags">Features</HeaderLink>
               <HeaderLink href="/admin/users">Users</HeaderLink>
+              <HeaderLink href="/admin/audit-log">Audit</HeaderLink>
               <HeaderLink href="/admin/system-check">System check</HeaderLink>
               <HeaderLink href="/dashboard">Dashboard</HeaderLink>
             </div>

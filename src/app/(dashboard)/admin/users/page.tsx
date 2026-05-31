@@ -55,6 +55,9 @@ export default async function AdminUsersPage({
               <Link href="/admin/system-check" className="mac-link">
                 System check
               </Link>
+              <Link href="/admin/audit-log" className="mac-link">
+                Audit
+              </Link>
               <Link href="/dashboard" className="mac-link">
                 Dashboard
               </Link>

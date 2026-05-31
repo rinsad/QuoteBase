@@ -76,6 +76,9 @@ export default async function DashboardPage() {
                     <Link href="/admin/users" className="mac-link">
                       Users
                     </Link>
+                    <Link href="/admin/audit-log" className="mac-link">
+                      Audit
+                    </Link>
                     <Link href="/admin/system-check" className="mac-link">
                       System check
                     </Link>
