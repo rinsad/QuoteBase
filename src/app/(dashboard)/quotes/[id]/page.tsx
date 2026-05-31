@@ -16,6 +16,8 @@ import {
 import {
   addQuoteItem,
   approveQuote,
+  markQuoteAccepted,
+  markQuoteDeclined,
   markQuoteSent,
   rejectQuote,
   removeQuoteItem,
@@ -56,6 +58,8 @@ export default async function QuoteDetailPage({
   const approveAction = approveQuote.bind(null, quote.id);
   const rejectAction = rejectQuote.bind(null, quote.id);
   const sendAction = markQuoteSent.bind(null, quote.id);
+  const acceptedAction = markQuoteAccepted.bind(null, quote.id);
+  const declinedAction = markQuoteDeclined.bind(null, quote.id);
   const addItemAction = addQuoteItem.bind(null, quote.id);
   const canSubmit = quote.status === "draft";
   const canEditItems = quote.status === "draft";
@@ -64,6 +68,9 @@ export default async function QuoteDetailPage({
     (user.role === "admin" || user.role === "account_manager");
   const canSend =
     quote.status === "approved" &&
+    (user.role === "admin" || user.role === "account_manager");
+  const canRecordCustomerResponse =
+    quote.status === "sent" &&
     (user.role === "admin" || user.role === "account_manager");
 
   return (
@@ -125,7 +132,7 @@ export default async function QuoteDetailPage({
                 {quote.notes}
               </p>
             ) : null}
-            {canSubmit || canApprove || canSend ? (
+            {canSubmit || canApprove || canSend || canRecordCustomerResponse ? (
               <div className="mt-6 space-y-3">
                 {canSubmit ? (
                   <form action={submitAction}>
@@ -175,6 +182,39 @@ export default async function QuoteDetailPage({
                       Mark quote sent
                     </Button>
                   </form>
+                ) : null}
+                {canRecordCustomerResponse ? (
+                  <div className="grid gap-3">
+                    <form action={acceptedAction} className="space-y-3">
+                      <textarea
+                        name="customer_response_note"
+                        className="soft-control min-h-24 w-full resize-none py-3"
+                        placeholder="Acceptance note"
+                      />
+                      <Button
+                        type="submit"
+                        className="h-11 w-full rounded-full bg-emerald-600 text-white hover:bg-emerald-700"
+                      >
+                        <CheckCircle2 className="size-4" />
+                        Mark accepted
+                      </Button>
+                    </form>
+                    <form action={declinedAction} className="space-y-3">
+                      <textarea
+                        name="customer_response_note"
+                        className="soft-control min-h-24 w-full resize-none py-3"
+                        placeholder="Decline note"
+                      />
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        className="h-11 w-full rounded-full bg-rose-50 text-rose-700 hover:bg-rose-100"
+                      >
+                        <XCircle className="size-4" />
+                        Mark declined
+                      </Button>
+                    </form>
+                  </div>
                 ) : null}
               </div>
             ) : null}

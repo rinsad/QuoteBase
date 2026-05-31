@@ -312,3 +312,11 @@ Next likely step:
 - Added sent status support and sent quote count to the quote desk.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Quote Customer Response Workflow
+
+- Added manual `quote.accepted` and `quote.declined` transitions for sent quotes.
+- Added quote detail controls for admins/account managers to record acceptance or decline notes.
+- Reuses organization-scoped quote transition logic and audit logging.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

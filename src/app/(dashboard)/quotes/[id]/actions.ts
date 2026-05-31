@@ -126,6 +126,34 @@ export async function markQuoteSent(quoteId: string, formData: FormData) {
   });
 }
 
+export async function markQuoteAccepted(quoteId: string, formData: FormData) {
+  const noteValue = formData.get("customer_response_note");
+  const note = typeof noteValue === "string" ? noteValue.trim() : "";
+
+  await transitionQuoteStatus({
+    quoteId,
+    from: "sent",
+    to: "accepted",
+    action: "quote.accepted",
+    allowedRoles: ["admin", "account_manager"],
+    note: note ? `Accepted: ${note}` : "Marked accepted by customer.",
+  });
+}
+
+export async function markQuoteDeclined(quoteId: string, formData: FormData) {
+  const noteValue = formData.get("customer_response_note");
+  const note = typeof noteValue === "string" ? noteValue.trim() : "";
+
+  await transitionQuoteStatus({
+    quoteId,
+    from: "sent",
+    to: "declined",
+    action: "quote.declined",
+    allowedRoles: ["admin", "account_manager"],
+    note: note ? `Declined: ${note}` : "Marked declined by customer.",
+  });
+}
+
 export async function addQuoteItem(quoteId: string, formData: FormData) {
   if (!UUID_PATTERN.test(quoteId)) {
     throw new Error("Invalid quote id.");
