@@ -328,3 +328,9 @@ Next likely step:
 - Linked the audit log from dashboard and admin tool headers.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-01 - Local Migration Applied
+
+- Applied pending Supabase migration `202605310001_quote_sent_status.sql` to the local database.
+- Local quote status constraint now allows sent/viewed/accepted/declined lifecycle states.
+- Did not start the Next.js dev server.
