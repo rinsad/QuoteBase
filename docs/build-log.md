@@ -266,3 +266,12 @@ Next likely step:
 - Extended pricing config normalization to include minimums and surcharge fields.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-05-31 - Admin Tax Rate Configuration
+
+- Added admin-only `/admin/tax-rates` for tenant-scoped sales tax areas.
+- Added create/update server action with admin role enforcement, organization-scoped reads/writes, percentage validation, and audit logging.
+- Stores sales tax as a decimal while presenting percentage inputs and labels in the UI.
+- Linked tax admin from dashboard, pricing admin, and plants/materials admin.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
