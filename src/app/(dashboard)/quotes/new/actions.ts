@@ -5,8 +5,15 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
-import { calculateQuoteDraft, type PricingConfig } from "@/lib/quotes/pricing";
-import { normalizePricingConfig } from "@/lib/quotes/new-quote";
+import {
+  calculateQuoteDraft,
+  type PricingConfig,
+  type VehicleCapacity,
+} from "@/lib/quotes/pricing";
+import {
+  normalizePricingConfig,
+  normalizeVehicleTypes,
+} from "@/lib/quotes/new-quote";
 import { createClient } from "@/lib/supabase/server";
 
 export type CreateQuoteState = {
@@ -91,6 +98,7 @@ export async function createQuoteDraft(
     materialResult,
     taxRateResult,
     pricingConfigResult,
+    vehicleTypesResult,
     existingCustomerResult,
     existingJobSiteResult,
   ] = await Promise.all([
@@ -114,6 +122,13 @@ export async function createQuoteDraft(
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
+    supabase
+      .from("vehicle_types")
+      .select("id, name, capacity_tons, capacity_cy")
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .order("capacity_tons", { ascending: false })
+      .returns<VehicleCapacity[]>(),
     parsed.customerId
       ? supabase
           .from("customers")
@@ -185,6 +200,7 @@ export async function createQuoteDraft(
   }
 
   const pricingConfig = normalizePricingConfig(pricingConfigResult.data);
+  const vehicleTypes = normalizeVehicleTypes(vehicleTypesResult.data ?? []);
   const material = materialResult.data;
   const taxRate = taxRateResult.data;
   const calculation = calculateQuoteDraft({
@@ -194,6 +210,7 @@ export async function createQuoteDraft(
     unit: material.unit,
     taxRate: Number(taxRate.rate),
     pricingConfig,
+    vehicleTypes,
   });
   const quoteNumber = createQuoteNumber();
 
@@ -236,6 +253,8 @@ export async function createQuoteDraft(
     markup_pct: calculation.markupPct,
     material_unit_price: calculation.materialUnitPrice,
     material_subtotal: calculation.materialSubtotal,
+    vehicle_type_id: calculation.vehicleTypeId,
+    load_count: calculation.loadCount,
     trucking_rate_per_unit: calculation.truckingRatePerUnit,
     trucking_subtotal: calculation.truckingSubtotal,
     fees_subtotal: calculation.feesSubtotal,

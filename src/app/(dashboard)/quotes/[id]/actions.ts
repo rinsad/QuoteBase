@@ -5,8 +5,15 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
-import { normalizePricingConfig } from "@/lib/quotes/new-quote";
-import { calculateQuoteDraft, type PricingConfig } from "@/lib/quotes/pricing";
+import {
+  normalizePricingConfig,
+  normalizeVehicleTypes,
+} from "@/lib/quotes/new-quote";
+import {
+  calculateQuoteDraft,
+  type PricingConfig,
+  type VehicleCapacity,
+} from "@/lib/quotes/pricing";
 import { createClient } from "@/lib/supabase/server";
 
 type QuoteStatus =
@@ -66,6 +73,8 @@ type EditableQuoteItemRecord = QuoteItemRecord & {
   markup_pct: number;
   material_unit_price: number;
   material_subtotal: number;
+  vehicle_type_id: string | null;
+  load_count: number;
   trucking_rate_per_unit: number;
   trucking_subtotal: number;
   fees_subtotal: number;
@@ -182,7 +191,12 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     throw new Error("Supabase is not configured for this workspace.");
   }
 
-  const [quoteResult, materialResult, pricingConfigResult] = await Promise.all([
+  const [
+    quoteResult,
+    materialResult,
+    pricingConfigResult,
+    vehicleTypesResult,
+  ] = await Promise.all([
     supabase
       .from("quotes")
       .select("id, quote_number, status, notes, total, tax_rate_id")
@@ -204,6 +218,13 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
+    supabase
+      .from("vehicle_types")
+      .select("id, name, capacity_tons, capacity_cy")
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .order("capacity_tons", { ascending: false })
+      .returns<VehicleCapacity[]>(),
   ]);
 
   if (!quoteResult.data || !materialResult.data || !pricingConfigResult.data) {
@@ -239,6 +260,7 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     unit: material.unit,
     taxRate: Number(taxRate.rate),
     pricingConfig: normalizePricingConfig(pricingConfigResult.data),
+    vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
   });
 
   const { data: item, error: itemError } = await supabase
@@ -254,6 +276,8 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       markup_pct: calculation.markupPct,
       material_unit_price: calculation.materialUnitPrice,
       material_subtotal: calculation.materialSubtotal,
+      vehicle_type_id: calculation.vehicleTypeId,
+      load_count: calculation.loadCount,
       trucking_rate_per_unit: calculation.truckingRatePerUnit,
       trucking_subtotal: calculation.truckingSubtotal,
       fees_subtotal: calculation.feesSubtotal,
@@ -308,6 +332,8 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       item_id: item.id,
       material_id: material.id,
       quantity,
+      vehicle_type_id: calculation.vehicleTypeId,
+      load_count: calculation.loadCount,
       total: totals.total,
     },
   });
@@ -455,7 +481,12 @@ export async function updateQuoteItemQuantity(
     throw new Error("Supabase is not configured for this workspace.");
   }
 
-  const [quoteResult, itemResult, pricingConfigResult] = await Promise.all([
+  const [
+    quoteResult,
+    itemResult,
+    pricingConfigResult,
+    vehicleTypesResult,
+  ] = await Promise.all([
     supabase
       .from("quotes")
       .select("id, quote_number, status, notes, total, tax_rate_id")
@@ -466,7 +497,7 @@ export async function updateQuoteItemQuantity(
     supabase
       .from("quote_items")
       .select(
-        "id, material_id, quantity, unit, unit_cost, markup_pct, material_unit_price, material_subtotal, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, materials(tier)",
+        "id, material_id, quantity, unit, unit_cost, markup_pct, material_unit_price, material_subtotal, vehicle_type_id, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, materials(tier)",
       )
       .eq("organization_id", user.organization_id)
       .eq("quote_id", quoteId)
@@ -480,6 +511,13 @@ export async function updateQuoteItemQuantity(
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
+    supabase
+      .from("vehicle_types")
+      .select("id, name, capacity_tons, capacity_cy")
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .order("capacity_tons", { ascending: false })
+      .returns<VehicleCapacity[]>(),
   ]);
 
   if (!quoteResult.data || !itemResult.data || !pricingConfigResult.data) {
@@ -516,6 +554,7 @@ export async function updateQuoteItemQuantity(
     unit: item.unit,
     taxRate: Number(taxRate.rate),
     pricingConfig: normalizePricingConfig(pricingConfigResult.data),
+    vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
   });
 
   const beforeItem = {
@@ -523,6 +562,8 @@ export async function updateQuoteItemQuantity(
     markup_pct: Number(item.markup_pct),
     material_unit_price: Number(item.material_unit_price),
     material_subtotal: Number(item.material_subtotal),
+    vehicle_type_id: item.vehicle_type_id,
+    load_count: Number(item.load_count),
     trucking_rate_per_unit: Number(item.trucking_rate_per_unit),
     trucking_subtotal: Number(item.trucking_subtotal),
     fees_subtotal: Number(item.fees_subtotal),
@@ -535,6 +576,8 @@ export async function updateQuoteItemQuantity(
       markup_pct: calculation.markupPct,
       material_unit_price: calculation.materialUnitPrice,
       material_subtotal: calculation.materialSubtotal,
+      vehicle_type_id: calculation.vehicleTypeId,
+      load_count: calculation.loadCount,
       trucking_rate_per_unit: calculation.truckingRatePerUnit,
       trucking_subtotal: calculation.truckingSubtotal,
       fees_subtotal: calculation.feesSubtotal,
@@ -593,6 +636,8 @@ export async function updateQuoteItemQuantity(
     after: {
       item_id: item.id,
       quantity,
+      vehicle_type_id: calculation.vehicleTypeId,
+      load_count: calculation.loadCount,
       line_total: calculation.total,
       total: totals.total,
     },

@@ -152,6 +152,10 @@ function PrintItemRow({ item }: { item: QuoteDetailItem }) {
         <p className="mt-1 text-xs text-slate-500">
           {item.supplier_name} - {item.material_tier}
         </p>
+        <p className="mt-1 text-xs text-slate-500">
+          {item.load_count.toFixed(0)} load{item.load_count === 1 ? "" : "s"}
+          {item.vehicle_name ? ` via ${item.vehicle_name}` : ""}
+        </p>
       </div>
       <span className="text-right">{item.quantity.toLocaleString()}</span>
       <span className="text-right">{item.unit}</span>

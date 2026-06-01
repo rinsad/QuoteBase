@@ -23,6 +23,13 @@ export type PricingConfig = {
   overhead_per_ton: number;
 };
 
+export type VehicleCapacity = {
+  id: string;
+  name: string;
+  capacity_tons: number;
+  capacity_cy: number | null;
+};
+
 export type QuoteDraftCalculationInput = {
   costPerUnit: number;
   quantity: number;
@@ -30,12 +37,16 @@ export type QuoteDraftCalculationInput = {
   unit: string;
   taxRate: number;
   pricingConfig: PricingConfig;
+  vehicleTypes?: VehicleCapacity[];
 };
 
 export type QuoteDraftCalculation = {
   markupPct: number;
   materialUnitPrice: number;
   materialSubtotal: number;
+  vehicleTypeId: string | null;
+  vehicleName: string | null;
+  loadCount: number;
   truckingRatePerUnit: number;
   truckingSubtotal: number;
   feesSubtotal: number;
@@ -50,16 +61,27 @@ export function calculateQuoteDraft({
   unit,
   taxRate,
   pricingConfig,
+  vehicleTypes = [],
 }: QuoteDraftCalculationInput): QuoteDraftCalculation {
   const markupPct = getTierMarkupPct(tier, pricingConfig);
-  const truckingRatePerUnit = getDefaultTruckRate(pricingConfig);
+  const truckRatePerLoad = getDefaultTruckRate(pricingConfig);
   const overheadPerUnit = unit === "ton" ? pricingConfig.overhead_per_ton : 0;
   const materialUnitPrice = costPerUnit * (1 + markupPct / 100) + overheadPerUnit;
-  const materialSubtotal = materialUnitPrice * quantity;
-  const truckingSubtotal = truckingRatePerUnit * quantity;
+  const materialSubtotal = Math.max(
+    materialUnitPrice * quantity,
+    pricingConfig.material_minimum ?? 0,
+  );
+  const vehiclePlan = chooseVehiclePlan({ quantity, unit, vehicleTypes });
+  const rawTruckingSubtotal = truckRatePerLoad * vehiclePlan.loadCount;
+  const truckingSubtotal = Math.max(
+    rawTruckingSubtotal,
+    pricingConfig.trucking_minimum ?? 0,
+  );
+  const truckingRatePerUnit = quantity > 0 ? truckingSubtotal / quantity : 0;
   const feesSubtotal =
-    pricingConfig.fuel_surcharge_per_load +
-    pricingConfig.environmental_fee_per_load;
+    (pricingConfig.fuel_surcharge_per_load +
+      pricingConfig.environmental_fee_per_load) *
+    vehiclePlan.loadCount;
   const taxableSubtotal = materialSubtotal + truckingSubtotal + feesSubtotal;
   const taxTotal = taxableSubtotal * taxRate;
 
@@ -67,6 +89,9 @@ export function calculateQuoteDraft({
     markupPct: roundMoney(markupPct),
     materialUnitPrice: roundMoney(materialUnitPrice),
     materialSubtotal: roundMoney(materialSubtotal),
+    vehicleTypeId: vehiclePlan.vehicleTypeId,
+    vehicleName: vehiclePlan.vehicleName,
+    loadCount: roundQuantity(vehiclePlan.loadCount),
     truckingRatePerUnit: roundMoney(truckingRatePerUnit),
     truckingSubtotal: roundMoney(truckingSubtotal),
     feesSubtotal: roundMoney(feesSubtotal),
@@ -103,6 +128,58 @@ function getDefaultTruckRate(pricingConfig: PricingConfig): number {
   return rates[pricingConfig.default_truck_rate] ?? pricingConfig.truck_target_rate;
 }
 
+function chooseVehiclePlan({
+  quantity,
+  unit,
+  vehicleTypes,
+}: {
+  quantity: number;
+  unit: string;
+  vehicleTypes: VehicleCapacity[];
+}): {
+  vehicleTypeId: string | null;
+  vehicleName: string | null;
+  loadCount: number;
+} {
+  if (unit === "load") {
+    return {
+      vehicleTypeId: null,
+      vehicleName: null,
+      loadCount: Math.max(1, Math.ceil(quantity)),
+    };
+  }
+
+  const compatibleVehicles = vehicleTypes
+    .map((vehicle) => ({
+      ...vehicle,
+      capacity:
+        unit === "cy"
+          ? Number(vehicle.capacity_cy ?? 0)
+          : Number(vehicle.capacity_tons),
+    }))
+    .filter((vehicle) => vehicle.capacity > 0)
+    .sort((a, b) => b.capacity - a.capacity);
+  const selected = compatibleVehicles[0];
+
+  if (!selected) {
+    return {
+      vehicleTypeId: null,
+      vehicleName: null,
+      loadCount: 1,
+    };
+  }
+
+  return {
+    vehicleTypeId: selected.id,
+    vehicleName: selected.name,
+    loadCount: Math.max(1, Math.ceil(quantity / selected.capacity)),
+  };
+}
+
 function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function roundQuantity(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }

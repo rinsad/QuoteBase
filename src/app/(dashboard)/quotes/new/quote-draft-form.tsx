@@ -198,6 +198,14 @@ export function QuoteDraftForm({ context }: { context: NewQuoteContext }) {
                 value={formatCurrency(context.sampleCalculation.truckingSubtotal)}
               />
               <SummaryRow
+                label="Example loads"
+                value={`${context.sampleCalculation.loadCount.toFixed(0)}${
+                  context.sampleCalculation.vehicleName
+                    ? ` via ${context.sampleCalculation.vehicleName}`
+                    : ""
+                }`}
+              />
+              <SummaryRow
                 label="Example fees"
                 value={formatCurrency(context.sampleCalculation.feesSubtotal)}
               />

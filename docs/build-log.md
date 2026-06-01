@@ -334,3 +334,14 @@ Next likely step:
 - Applied pending Supabase migration `202605310001_quote_sent_status.sql` to the local database.
 - Local quote status constraint now allows sent/viewed/accepted/declined lifecycle states.
 - Did not start the Next.js dev server.
+
+## 2026-06-01 - Vehicle Load Pricing
+
+- Added quote item vehicle/load fields with migration `202606010001_quote_item_vehicle_loads.sql`.
+- Pricing calculations now choose an active vehicle type, calculate load count, apply DB-backed material/trucking minimums, and multiply per-load fees.
+- Quote creation, draft line addition, and quantity edits now store vehicle type and load count on quote items.
+- Quote builder, quote detail, and print view show vehicle/load planning context.
+- Applied the migration to the local Supabase database.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Kept the Next.js dev server stopped.

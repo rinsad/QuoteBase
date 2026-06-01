@@ -59,16 +59,17 @@ export default async function NewQuotePage() {
               Create a priced draft.
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-              This first quote builder saves one material line, calculates
-              pricing from the tenant config, applies the selected tax rate, and
+              This quote builder saves one material line, calculates pricing
+              from tenant config, applies tax, chooses a vehicle/load plan, and
               writes an audit log entry.
             </p>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="Customers" value={context.customers.length} />
             <Metric label="Materials" value={context.materials.length} />
             <Metric label="Tax Areas" value={context.taxRates.length} />
+            <Metric label="Vehicles" value={context.vehicleTypes.length} />
           </div>
         </section>
 

@@ -3,6 +3,7 @@ import {
   calculateQuoteDraft,
   type MaterialTier,
   type PricingConfig,
+  type VehicleCapacity,
 } from "@/lib/quotes/pricing";
 import { createClient } from "@/lib/supabase/server";
 
@@ -39,12 +40,15 @@ export type QuoteTaxRateOption = {
   rate: number;
 };
 
+export type QuoteVehicleOption = VehicleCapacity;
+
 export type NewQuoteContext = {
   quoteCreationEnabled: boolean;
   customers: QuoteCustomerOption[];
   jobSites: QuoteJobSiteOption[];
   materials: QuoteMaterialOption[];
   taxRates: QuoteTaxRateOption[];
+  vehicleTypes: QuoteVehicleOption[];
   sampleCalculation: ReturnType<typeof calculateQuoteDraft> | null;
 };
 
@@ -67,6 +71,7 @@ export async function getNewQuoteContext(
     jobSitesResult,
     materialsResult,
     taxRatesResult,
+    vehicleTypesResult,
     pricingConfigResult,
   ] = await Promise.all([
     supabase
@@ -103,6 +108,13 @@ export async function getNewQuoteContext(
       .order("city", { ascending: true })
       .returns<QuoteTaxRateOption[]>(),
     supabase
+      .from("vehicle_types")
+      .select("id, name, capacity_tons, capacity_cy")
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .order("capacity_tons", { ascending: false })
+      .returns<VehicleCapacity[]>(),
+    supabase
       .from("pricing_config")
       .select(
         "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton",
@@ -122,6 +134,7 @@ export async function getNewQuoteContext(
           unit: firstMaterial.unit,
           taxRate: Number(firstTaxRate.rate),
           pricingConfig: normalizePricingConfig(pricingConfigResult.data),
+          vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
         })
       : null;
 
@@ -150,6 +163,7 @@ export async function getNewQuoteContext(
         ...taxRate,
         rate: Number(taxRate.rate),
       })) ?? [],
+    vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
     sampleCalculation,
   };
 }
@@ -195,6 +209,19 @@ function emptyContext(): NewQuoteContext {
     jobSites: [],
     materials: [],
     taxRates: [],
+    vehicleTypes: [],
     sampleCalculation: null,
   };
+}
+
+export function normalizeVehicleTypes(
+  vehicleTypes: VehicleCapacity[],
+): VehicleCapacity[] {
+  return vehicleTypes.map((vehicle) => ({
+    id: vehicle.id,
+    name: vehicle.name,
+    capacity_tons: Number(vehicle.capacity_tons),
+    capacity_cy:
+      vehicle.capacity_cy === null ? null : Number(vehicle.capacity_cy),
+  }));
 }
