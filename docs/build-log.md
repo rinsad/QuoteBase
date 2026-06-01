@@ -345,3 +345,12 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Kept the Next.js dev server stopped.
+
+## 2026-06-01 - Yard Location Admin
+
+- Added admin-only `/admin/yards` for dispatch origin management.
+- Added yard create/update action with admin role enforcement, organization-scoped writes, coordinate validation, soft active status, and audit logging.
+- Linked yard management from dashboard and admin tool headers.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Kept the Next.js dev server stopped.

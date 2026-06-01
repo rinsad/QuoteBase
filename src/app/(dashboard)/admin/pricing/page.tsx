@@ -58,6 +58,9 @@ export default async function AdminPricingPage({
               <Link href="/admin/material-prices" className="mac-link">
                 Material prices
               </Link>
+              <Link href="/admin/yards" className="mac-link">
+                Yards
+              </Link>
               <Link href="/admin/tax-rates" className="mac-link">
                 Taxes
               </Link>
