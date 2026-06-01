@@ -215,6 +215,7 @@ export async function createQuoteDraft(
   const taxRate = taxRateResult.data;
   const routeDistance = await estimateAndCacheDistance(
     supabase,
+    user.organization_id,
     {
       latitude:
         supplierCoordinates?.latitude === null ||

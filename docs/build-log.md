@@ -392,3 +392,13 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Kept the Next.js dev server stopped.
+
+## 2026-06-01 - Tenant-Scoped Distance Cache
+
+- Added migration `202606010003_tenant_scope_distances.sql` to add `organization_id` to `distances`.
+- Replaced global distance RLS with organization-scoped select/insert/update policies.
+- Updated the distance cache helper to upsert by organization and route coordinates.
+- Applied the migration to the local Supabase database.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Kept the Next.js dev server stopped.

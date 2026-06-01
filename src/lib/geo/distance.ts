@@ -15,6 +15,7 @@ const AVERAGE_TRUCK_SPEED_MPH = 35;
 
 export async function estimateAndCacheDistance(
   supabase: SupabaseClient,
+  organizationId: string,
   origin: Coordinate,
   destination: Coordinate,
 ): Promise<DistanceEstimate | null> {
@@ -36,6 +37,7 @@ export async function estimateAndCacheDistance(
 
   await supabase.from("distances").upsert(
     {
+      organization_id: organizationId,
       origin_lat: origin.latitude,
       origin_lng: origin.longitude,
       dest_lat: destination.latitude,
@@ -45,7 +47,7 @@ export async function estimateAndCacheDistance(
       last_fetched_at: new Date().toISOString(),
     },
     {
-      onConflict: "origin_lat,origin_lng,dest_lat,dest_lng",
+      onConflict: "organization_id,origin_lat,origin_lng,dest_lat,dest_lng",
     },
   );
 
