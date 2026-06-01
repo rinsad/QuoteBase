@@ -129,6 +129,29 @@ export async function getSystemCheckSummary(
       : "No feature flags were visible to this user session.",
   });
 
+  const googleMapsEnabled =
+    visibleFlags?.some(
+      (flag) =>
+        flag.feature_name === "google_maps_distance_api" && flag.is_enabled,
+    ) ?? false;
+  const googleMapsConfigured = Boolean(process.env.GOOGLE_MAPS_API_KEY);
+
+  checks.push({
+    label: "Google Maps distance API",
+    status:
+      googleMapsEnabled && !googleMapsConfigured
+        ? "warn"
+        : googleMapsEnabled
+          ? "pass"
+          : "warn",
+    detail:
+      googleMapsEnabled && googleMapsConfigured
+        ? "Distance Matrix is enabled and the server has a Google Maps API key."
+        : googleMapsEnabled
+          ? "Distance Matrix is enabled, but GOOGLE_MAPS_API_KEY is missing; distance estimates will use the local fallback."
+          : "Distance Matrix is disabled for this organization; distance estimates will use the local fallback.",
+  });
+
   const { data: hiddenInvites, error: inviteError } = await supabase
     .from("user_invites")
     .select("id")
@@ -191,4 +214,3 @@ export async function getSystemCheckSummary(
     featureFlags: visibleFlags ?? [],
   };
 }
-

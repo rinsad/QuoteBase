@@ -423,3 +423,13 @@ Next likely step:
 - Adjusted the Mac toolbar shell so dropdown menus are not clipped.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-01 - Google Maps Distance Integration Foundation
+
+- Upgraded the distance helper to read fresh organization-scoped cached route distances before making new calculations.
+- Added Google Maps Distance Matrix support when the `google_maps_distance_api` feature flag is enabled and `GOOGLE_MAPS_API_KEY` is configured.
+- Kept the local haversine estimate as the fallback for local development or failed/missing Google Maps responses.
+- Added distance source metadata (`cache`, `google_maps`, or `estimate`) to quote creation and quote item audit events.
+- Added an admin system check for Google Maps Distance Matrix configuration.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

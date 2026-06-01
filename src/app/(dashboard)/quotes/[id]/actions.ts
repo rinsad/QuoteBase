@@ -353,8 +353,11 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       plant_selection_reason: recommendation.selectionReason,
       route_distance_miles:
         recommendation.routeDistance?.distanceMiles ?? null,
+      route_distance_source: recommendation.routeDistance?.source ?? null,
       deadhead_distance_miles:
         recommendation.deadheadDistance?.distanceMiles ?? null,
+      deadhead_distance_source:
+        recommendation.deadheadDistance?.source ?? null,
       vehicle_type_id: calculation.vehicleTypeId,
       load_count: calculation.loadCount,
       total: totals.total,

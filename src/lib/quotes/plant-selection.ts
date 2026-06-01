@@ -73,7 +73,7 @@ export async function selectBestPlantForQuote({
   pricingConfig: PricingConfig;
   vehicleTypes: VehicleCapacity[];
 }): Promise<PlantRecommendation> {
-  const [materialsResult, yardsResult] = await Promise.all([
+  const [materialsResult, yardsResult, mapsFlagResult] = await Promise.all([
     supabase
       .from("materials")
       .select(
@@ -91,7 +91,14 @@ export async function selectBestPlantForQuote({
       .eq("organization_id", organizationId)
       .eq("is_active", true)
       .returns<YardRecord[]>(),
+    supabase
+      .from("feature_flags")
+      .select("is_enabled")
+      .eq("organization_id", organizationId)
+      .eq("feature_name", "google_maps_distance_api")
+      .single<{ is_enabled: boolean }>(),
   ]);
+  const googleMapsEnabled = mapsFlagResult.data?.is_enabled ?? false;
 
   const candidates = materialsResult.data?.length
     ? materialsResult.data
@@ -108,6 +115,7 @@ export async function selectBestPlantForQuote({
         pricingConfig,
         vehicleTypes,
         yards: yardsResult.data ?? [],
+        useGoogleMaps: googleMapsEnabled,
       }),
     ),
   );
@@ -125,6 +133,7 @@ async function buildRecommendation({
   pricingConfig,
   vehicleTypes,
   yards,
+  useGoogleMaps,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -135,6 +144,7 @@ async function buildRecommendation({
   pricingConfig: PricingConfig;
   vehicleTypes: VehicleCapacity[];
   yards: YardRecord[];
+  useGoogleMaps: boolean;
 }): Promise<PlantRecommendation> {
   const supplier = relationOne(material.suppliers);
   const supplierCoordinates = {
@@ -152,12 +162,14 @@ async function buildRecommendation({
     organizationId,
     supplierCoordinates,
     jobSite,
+    { useGoogleMaps },
   );
   const deadheadDistance = await getNearestYardDistance({
     supabase,
     organizationId,
     supplierCoordinates,
     yards,
+    useGoogleMaps,
   });
   const calculation = calculateQuoteDraft({
     costPerUnit: Number(material.cost_per_unit),
@@ -184,11 +196,13 @@ async function getNearestYardDistance({
   organizationId,
   supplierCoordinates,
   yards,
+  useGoogleMaps,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
   supplierCoordinates: JobSiteCoordinates;
   yards: YardRecord[];
+  useGoogleMaps: boolean;
 }): Promise<DistanceEstimate | null> {
   const distances = await Promise.all(
     yards.map((yard) =>
@@ -200,6 +214,7 @@ async function getNearestYardDistance({
           longitude: yard.longitude === null ? null : Number(yard.longitude),
         },
         supplierCoordinates,
+        { useGoogleMaps },
       ),
     ),
   );

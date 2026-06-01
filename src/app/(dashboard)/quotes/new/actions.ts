@@ -307,8 +307,11 @@ export async function createQuoteDraft(
         recommendation.routeDistance?.distanceMiles ?? null,
       route_duration_seconds:
         recommendation.routeDistance?.durationSeconds ?? null,
+      route_distance_source: recommendation.routeDistance?.source ?? null,
       deadhead_distance_miles:
         recommendation.deadheadDistance?.distanceMiles ?? null,
+      deadhead_distance_source:
+        recommendation.deadheadDistance?.source ?? null,
     },
   });
 
