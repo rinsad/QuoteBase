@@ -152,6 +152,28 @@ export async function getSystemCheckSummary(
           : "Distance Matrix is disabled for this organization; distance estimates will use the local fallback.",
   });
 
+  const slackEnabled =
+    visibleFlags?.some(
+      (flag) => flag.feature_name === "slack_notifications" && flag.is_enabled,
+    ) ?? false;
+  const slackConfigured = Boolean(process.env.SLACK_WEBHOOK_URL);
+
+  checks.push({
+    label: "Slack notifications",
+    status:
+      slackEnabled && !slackConfigured
+        ? "warn"
+        : slackEnabled
+          ? "pass"
+          : "warn",
+    detail:
+      slackEnabled && slackConfigured
+        ? "Slack quote workflow notifications are enabled and the server has a webhook URL."
+        : slackEnabled
+          ? "Slack notifications are enabled, but SLACK_WEBHOOK_URL is missing; quote workflow notifications will be skipped."
+          : "Slack notifications are disabled for this organization.",
+  });
+
   const { data: hiddenInvites, error: inviteError } = await supabase
     .from("user_invites")
     .select("id")

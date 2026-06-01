@@ -433,3 +433,13 @@ Next likely step:
 - Added an admin system check for Google Maps Distance Matrix configuration.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-01 - Slack Quote Workflow Notifications
+
+- Added a server-side Slack notification helper for quote status transitions.
+- Gated Slack delivery behind the `slack_notifications` feature flag and `SLACK_WEBHOOK_URL`.
+- Wired notifications after successful quote updates and audit log writes for submit, approve, reject, sent, accepted, and declined transitions.
+- Kept notifications non-blocking so missing or failed Slack delivery does not break quote workflow actions.
+- Added an admin system check for Slack notification configuration.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

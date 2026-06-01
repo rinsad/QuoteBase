@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
+import { notifySlackQuoteStatusChange } from "@/lib/notifications/slack";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -757,6 +758,14 @@ async function transitionQuoteStatus({
       notes,
       total: Number(quote.total),
     },
+  });
+  await notifySlackQuoteStatusChange({
+    supabase,
+    user,
+    quote,
+    action,
+    from,
+    to,
   });
 
   revalidatePath("/quotes");
