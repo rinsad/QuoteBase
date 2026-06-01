@@ -64,6 +64,9 @@ export default async function DashboardPage() {
                     <Link href="/admin/plants" className="mac-link">
                       Plants
                     </Link>
+                    <Link href="/admin/suppliers" className="mac-link">
+                      Suppliers
+                    </Link>
                     <Link href="/admin/yards" className="mac-link">
                       Yards
                     </Link>

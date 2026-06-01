@@ -354,3 +354,13 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Kept the Next.js dev server stopped.
+
+## 2026-06-01 - Supplier Location Admin
+
+- Added admin-only `/admin/suppliers` for supplier/plant location management.
+- Added supplier create/update action with admin role enforcement, organization-scoped writes, coordinate validation, contact fields, notes, active status, and audit logging.
+- Linked supplier management from dashboard, plants/materials, pricing, yards, and material-price admin views.
+- Extended the plants overview to show supplier latitude/longitude readiness.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Kept the Next.js dev server stopped.

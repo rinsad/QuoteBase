@@ -59,6 +59,7 @@ export default async function AdminPlantsPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <HeaderLink href="/admin/suppliers">Suppliers</HeaderLink>
               <HeaderLink href="/admin/material-prices">Material prices</HeaderLink>
               <HeaderLink href="/admin/yards">Yards</HeaderLink>
               <HeaderLink href="/admin/pricing">Pricing</HeaderLink>
@@ -129,6 +130,10 @@ export default async function AdminPlantsPage() {
                     <p className="mt-1 text-sm text-muted-foreground">
                       {supplier.parent_company ?? "Independent supplier"} -{" "}
                       {formatAddress(supplier.address)}
+                    </p>
+                    <p className="mt-1 font-mono text-xs text-muted-foreground">
+                      {supplier.latitude ?? "lat pending"},{" "}
+                      {supplier.longitude ?? "lng pending"}
                     </p>
                   </div>
                   <span

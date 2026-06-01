@@ -5,6 +5,8 @@ export type AdminSupplier = {
   name: string;
   parent_company: string | null;
   address: Record<string, unknown>;
+  latitude: number | null;
+  longitude: number | null;
   is_active: boolean;
   materials: {
     id: string;
@@ -63,7 +65,7 @@ export async function getAdminPlantsSummary(
     admin
       .from("suppliers")
       .select(
-        "id, name, parent_company, address, is_active, materials(id, name, tier, unit, cost_per_unit, is_active)",
+        "id, name, parent_company, address, latitude, longitude, is_active, materials(id, name, tier, unit, cost_per_unit, is_active)",
       )
       .eq("organization_id", organizationId)
       .order("name", { ascending: true })
@@ -98,6 +100,9 @@ export async function getAdminPlantsSummary(
     suppliers:
       suppliersResult.data?.map((supplier) => ({
         ...supplier,
+        latitude: supplier.latitude === null ? null : Number(supplier.latitude),
+        longitude:
+          supplier.longitude === null ? null : Number(supplier.longitude),
         materials: supplier.materials ?? [],
       })) ?? [],
     counts: {
@@ -110,4 +115,3 @@ export async function getAdminPlantsSummary(
     },
   };
 }
-

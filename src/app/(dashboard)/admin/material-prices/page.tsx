@@ -52,6 +52,9 @@ export default async function AdminMaterialPricesPage({
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <Link href="/admin/suppliers" className="mac-link">
+                Suppliers
+              </Link>
               <Link href="/admin/pricing" className="mac-link">
                 Pricing
               </Link>

@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { MapPin, Navigation, Save } from "lucide-react";
+import { Building2, MapPinned, Save } from "lucide-react";
 
-import { saveYard } from "@/app/(dashboard)/admin/yards/actions";
+import { saveSupplier } from "@/app/(dashboard)/admin/suppliers/actions";
 import { Button } from "@/components/ui/button";
-import { getAdminYards, type AdminYard } from "@/lib/admin/yards";
+import {
+  getAdminSuppliers,
+  type AdminSupplierLocation,
+} from "@/lib/admin/suppliers";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
-export default async function AdminYardsPage({
+export default async function AdminSuppliersPage({
   searchParams,
 }: {
   searchParams: Promise<{ edit?: string; saved?: string }>;
@@ -22,15 +25,15 @@ export default async function AdminYardsPage({
     redirect("/dashboard");
   }
 
-  const [params, yards] = await Promise.all([
+  const [params, suppliers] = await Promise.all([
     searchParams,
-    getAdminYards(user.organization_id),
+    getAdminSuppliers(user.organization_id),
   ]);
-  const editing = yards.find((yard) => yard.id === params.edit);
+  const editing = suppliers.find((supplier) => supplier.id === params.edit);
 
   return (
     <main className="app-background">
-      <div className="mx-auto w-full max-w-6xl">
+      <div className="mx-auto w-full max-w-7xl">
         <header className="mac-window">
           <div className="mac-toolbar">
             <div className="flex min-w-0 items-center gap-3">
@@ -44,18 +47,18 @@ export default async function AdminYardsPage({
                 <p className="truncate text-sm font-medium text-muted-foreground">
                   Admin
                 </p>
-                <h1 className="truncate text-lg font-semibold">Yards</h1>
+                <h1 className="truncate text-lg font-semibold">Suppliers</h1>
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/admin/suppliers" className="mac-link">
-                Suppliers
-              </Link>
               <Link href="/admin/plants" className="mac-link">
                 Materials
               </Link>
-              <Link href="/admin/pricing" className="mac-link">
-                Pricing
+              <Link href="/admin/yards" className="mac-link">
+                Yards
+              </Link>
+              <Link href="/admin/material-prices" className="mac-link">
+                Material prices
               </Link>
               <Link href="/dashboard" className="mac-link">
                 Dashboard
@@ -66,34 +69,41 @@ export default async function AdminYardsPage({
 
         {params.saved ? (
           <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
-            Yard saved.
+            Supplier saved.
           </div>
         ) : null}
 
-        <section className="mt-6 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-          <form action={saveYard} className="glass-panel p-5 sm:p-6">
+        <section className="mt-6 grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+          <form action={saveSupplier} className="glass-panel p-5 sm:p-6">
             <div className="flex items-center gap-3">
               <div className="icon-well text-blue-700">
-                <Navigation className="size-6" />
+                <Building2 className="size-6" />
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  {editing ? "Edit Yard" : "New Yard"}
+                  {editing ? "Edit Supplier" : "New Supplier"}
                 </p>
                 <h2 className="accent-title text-2xl font-semibold tracking-normal">
-                  Dispatch origin
+                  Plant location
                 </h2>
               </div>
             </div>
 
-            <input type="hidden" name="yard_id" value={editing?.id ?? ""} />
+            <input type="hidden" name="supplier_id" value={editing?.id ?? ""} />
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <TextField name="name" label="Name" defaultValue={editing?.name ?? ""} />
               <TextField
+                name="parent_company"
+                label="Parent company"
+                defaultValue={editing?.parent_company ?? ""}
+                required={false}
+              />
+              <TextField
                 name="street"
                 label="Street"
                 defaultValue={addressValue(editing, "street")}
+                required={false}
               />
               <TextField
                 name="city"
@@ -110,6 +120,7 @@ export default async function AdminYardsPage({
                 name="postal_code"
                 label="ZIP"
                 defaultValue={addressValue(editing, "postal_code")}
+                required={false}
               />
               <NumberField
                 name="latitude"
@@ -120,6 +131,24 @@ export default async function AdminYardsPage({
                 name="longitude"
                 label="Longitude"
                 defaultValue={editing?.longitude?.toString() ?? ""}
+              />
+              <TextField
+                name="hours"
+                label="Hours"
+                defaultValue={editing?.hours ?? ""}
+                required={false}
+              />
+              <TextField
+                name="primary_contact_name"
+                label="Contact name"
+                defaultValue={editing?.primary_contact_name ?? ""}
+                required={false}
+              />
+              <TextField
+                name="primary_contact_phone"
+                label="Contact phone"
+                defaultValue={editing?.primary_contact_phone ?? ""}
+                required={false}
               />
               <label className="flex h-11 items-center gap-2 rounded-full bg-white/70 px-3 text-sm font-medium ring-1 ring-white/80 sm:self-end">
                 <input
@@ -132,10 +161,22 @@ export default async function AdminYardsPage({
               </label>
             </div>
 
+            <label className="mt-4 block">
+              <span className="text-sm font-medium text-muted-foreground">
+                Notes
+              </span>
+              <textarea
+                name="notes"
+                rows={4}
+                defaultValue={editing?.notes ?? ""}
+                className="soft-control mt-2 w-full resize-none"
+              />
+            </label>
+
             <div className="mt-6 flex justify-end">
               <Button type="submit" className="h-11 rounded-full">
                 <Save className="size-4" />
-                Save yard
+                Save supplier
               </Button>
             </div>
           </form>
@@ -143,45 +184,48 @@ export default async function AdminYardsPage({
           <section className="glass-panel p-5 sm:p-6">
             <div className="flex items-center gap-3">
               <div className="icon-well text-blue-700">
-                <MapPin className="size-6" />
+                <MapPinned className="size-6" />
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Origins
+                  Plants
                 </p>
                 <h2 className="accent-title text-2xl font-semibold tracking-normal">
-                  {yards.length} yards
+                  {suppliers.length} suppliers
                 </h2>
               </div>
             </div>
 
-            <div className="mt-6 space-y-3">
-              {yards.map((yard) => (
+            <div className="mt-6 grid gap-3 xl:grid-cols-2">
+              {suppliers.map((supplier) => (
                 <Link
-                  key={yard.id}
-                  href={`/admin/yards?edit=${yard.id}`}
+                  key={supplier.id}
+                  href={`/admin/suppliers?edit=${supplier.id}`}
                   className="soft-row block px-4 py-4 transition hover:bg-white/80"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="truncate font-semibold">{yard.name}</h3>
+                      <h3 className="truncate font-semibold">{supplier.name}</h3>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {formatAddress(yard.address)}
+                        {supplier.parent_company ?? "Independent supplier"}
                       </p>
                     </div>
                     <span
                       className={`soft-chip shrink-0 ${
-                        yard.is_active
+                        supplier.is_active
                           ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
                           : "bg-slate-100 text-slate-600 ring-slate-200"
                       }`}
                     >
-                      {yard.is_active ? "Active" : "Inactive"}
+                      {supplier.is_active ? "Active" : "Inactive"}
                     </span>
                   </div>
-                  <p className="mt-3 font-mono text-xs text-muted-foreground">
-                    {yard.latitude ?? "lat pending"},{" "}
-                    {yard.longitude ?? "lng pending"}
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    {formatAddress(supplier.address)}
+                  </p>
+                  <p className="mt-2 font-mono text-xs text-muted-foreground">
+                    {supplier.latitude ?? "lat pending"},{" "}
+                    {supplier.longitude ?? "lng pending"}
                   </p>
                 </Link>
               ))}
@@ -198,11 +242,13 @@ function TextField({
   label,
   defaultValue,
   maxLength,
+  required = true,
 }: {
   name: string;
   label: string;
   defaultValue: string;
   maxLength?: number;
+  required?: boolean;
 }) {
   return (
     <label className="block">
@@ -213,7 +259,7 @@ function TextField({
         defaultValue={defaultValue}
         maxLength={maxLength}
         className="soft-control mt-2 w-full"
-        required={name !== "street" && name !== "postal_code"}
+        required={required}
       />
     </label>
   );
@@ -242,8 +288,11 @@ function NumberField({
   );
 }
 
-function addressValue(yard: AdminYard | undefined, key: string) {
-  const value = yard?.address[key];
+function addressValue(
+  supplier: AdminSupplierLocation | undefined,
+  key: string,
+) {
+  const value = supplier?.address[key];
 
   return typeof value === "string" ? value : "";
 }
