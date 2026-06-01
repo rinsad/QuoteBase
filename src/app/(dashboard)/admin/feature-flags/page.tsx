@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Flag, Save, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
 
 import { updateFeatureFlag } from "@/app/(dashboard)/admin/feature-flags/actions";
+import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { getAdminFeatureFlags } from "@/lib/admin/feature-flags";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -48,26 +48,7 @@ export default async function AdminFeatureFlagsPage({
                 </h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/admin/material-prices" className="mac-link">
-                Material prices
-              </Link>
-              <Link href="/admin/pricing" className="mac-link">
-                Pricing
-              </Link>
-              <Link href="/admin/system-check" className="mac-link">
-                System check
-              </Link>
-              <Link href="/admin/users" className="mac-link">
-                Users
-              </Link>
-              <Link href="/admin/audit-log" className="mac-link">
-                Audit
-              </Link>
-              <Link href="/dashboard" className="mac-link">
-                Dashboard
-              </Link>
-            </div>
+            <AdminNav />
           </div>
         </header>
 

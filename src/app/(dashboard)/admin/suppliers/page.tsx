@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Building2, MapPinned, Save } from "lucide-react";
 
 import { saveSupplier } from "@/app/(dashboard)/admin/suppliers/actions";
+import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import {
   getAdminSuppliers,
@@ -50,23 +51,7 @@ export default async function AdminSuppliersPage({
                 <h1 className="truncate text-lg font-semibold">Suppliers</h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/admin/plants" className="mac-link">
-                Materials
-              </Link>
-              <Link href="/admin/yards" className="mac-link">
-                Yards
-              </Link>
-              <Link href="/admin/vehicle-types" className="mac-link">
-                Vehicles
-              </Link>
-              <Link href="/admin/material-prices" className="mac-link">
-                Material prices
-              </Link>
-              <Link href="/dashboard" className="mac-link">
-                Dashboard
-              </Link>
-            </div>
+            <AdminNav />
           </div>
         </header>
 

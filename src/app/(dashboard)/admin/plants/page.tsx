@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import type { ReactNode } from "react";
 import {
   Building2,
   ClipboardList,
@@ -11,6 +9,7 @@ import {
   Truck,
 } from "lucide-react";
 
+import { AdminNav } from "@/components/app-nav";
 import { getAdminPlantsSummary } from "@/lib/admin/plants";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
@@ -58,19 +57,7 @@ export default async function AdminPlantsPage() {
                 </h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <HeaderLink href="/admin/suppliers">Suppliers</HeaderLink>
-              <HeaderLink href="/admin/material-prices">Material prices</HeaderLink>
-              <HeaderLink href="/admin/yards">Yards</HeaderLink>
-              <HeaderLink href="/admin/vehicle-types">Vehicles</HeaderLink>
-              <HeaderLink href="/admin/pricing">Pricing</HeaderLink>
-              <HeaderLink href="/admin/tax-rates">Taxes</HeaderLink>
-              <HeaderLink href="/admin/feature-flags">Features</HeaderLink>
-              <HeaderLink href="/admin/users">Users</HeaderLink>
-              <HeaderLink href="/admin/audit-log">Audit</HeaderLink>
-              <HeaderLink href="/admin/system-check">System check</HeaderLink>
-              <HeaderLink href="/dashboard">Dashboard</HeaderLink>
-            </div>
+            <AdminNav />
           </div>
         </header>
 
@@ -188,14 +175,6 @@ export default async function AdminPlantsPage() {
         </section>
       </div>
     </main>
-  );
-}
-
-function HeaderLink({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <Link href={href} className="mac-link">
-      {children}
-    </Link>
   );
 }
 

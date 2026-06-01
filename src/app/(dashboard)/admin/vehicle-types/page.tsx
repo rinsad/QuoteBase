@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Save, Truck } from "lucide-react";
 
 import { saveVehicleType } from "@/app/(dashboard)/admin/vehicle-types/actions";
+import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import {
   getAdminVehicleTypes,
@@ -52,17 +53,7 @@ export default async function AdminVehicleTypesPage({
                 </h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/admin/pricing" className="mac-link">
-                Pricing
-              </Link>
-              <Link href="/admin/plants" className="mac-link">
-                Materials
-              </Link>
-              <Link href="/dashboard" className="mac-link">
-                Dashboard
-              </Link>
-            </div>
+            <AdminNav />
           </div>
         </header>
 

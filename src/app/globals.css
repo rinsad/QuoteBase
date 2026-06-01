@@ -146,11 +146,15 @@
   }
 
   .mac-window {
-    @apply overflow-hidden rounded-[26px] border border-white/70 bg-white/72 shadow-[0_24px_80px_rgba(59,91,152,0.13)] backdrop-blur-2xl;
+    @apply overflow-visible rounded-[26px] border border-white/70 bg-white/72 shadow-[0_24px_80px_rgba(59,91,152,0.13)] backdrop-blur-2xl;
   }
 
   .mac-toolbar {
     @apply flex min-h-14 items-center justify-between gap-4 border-b border-white/70 bg-[linear-gradient(90deg,rgba(255,255,255,0.82),rgba(235,247,255,0.62),rgba(255,255,255,0.56))] px-4 sm:px-5;
+  }
+
+  .toolbar-nav {
+    @apply flex flex-wrap items-center justify-end gap-2;
   }
 
   .mac-controls {
@@ -177,6 +181,43 @@
 
   .mac-link {
     @apply inline-flex h-9 items-center justify-center rounded-full border border-sky-100/80 bg-white/70 px-3.5 text-sm font-medium text-slate-700 shadow-[0_8px_22px_rgba(59,91,152,0.07)] transition hover:border-sky-200 hover:bg-sky-50/80 hover:text-sky-800 hover:shadow-[0_10px_28px_rgba(59,130,246,0.12)];
+  }
+
+  .nav-menu {
+    @apply relative;
+  }
+
+  .nav-summary {
+    @apply inline-flex h-9 cursor-pointer list-none items-center justify-center rounded-full border border-sky-100/80 bg-white/70 px-3.5 text-sm font-medium text-slate-700 shadow-[0_8px_22px_rgba(59,91,152,0.07)] transition hover:border-sky-200 hover:bg-sky-50/80 hover:text-sky-800;
+  }
+
+  .nav-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .nav-summary::after {
+    content: "";
+    @apply ml-2 size-1.5 rotate-45 border-b border-r border-slate-500 transition;
+  }
+
+  .nav-menu[open] .nav-summary::after {
+    @apply rotate-[225deg];
+  }
+
+  .nav-panel {
+    @apply absolute right-0 z-20 mt-2 grid w-[min(88vw,520px)] gap-4 rounded-[20px] border border-white/80 bg-white/95 p-4 shadow-[0_24px_70px_rgba(15,23,42,0.18)] backdrop-blur-2xl sm:grid-cols-3;
+  }
+
+  .nav-group-title {
+    @apply px-2 text-xs font-semibold uppercase text-muted-foreground;
+  }
+
+  .nav-group-links {
+    @apply mt-2 grid gap-1;
+  }
+
+  .nav-panel-link {
+    @apply rounded-[12px] px-2.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-sky-50 hover:text-sky-800;
   }
 
   .mac-button-primary {

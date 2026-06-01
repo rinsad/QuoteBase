@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { BadgeDollarSign, Clock3, PackageOpen, Save } from "lucide-react";
 
 import { updateMaterialPrice } from "@/app/(dashboard)/admin/material-prices/actions";
+import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { getAdminMaterialPrices } from "@/lib/admin/material-prices";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -51,35 +52,7 @@ export default async function AdminMaterialPricesPage({
                 </h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/admin/suppliers" className="mac-link">
-                Suppliers
-              </Link>
-              <Link href="/admin/pricing" className="mac-link">
-                Pricing
-              </Link>
-              <Link href="/admin/yards" className="mac-link">
-                Yards
-              </Link>
-              <Link href="/admin/vehicle-types" className="mac-link">
-                Vehicles
-              </Link>
-              <Link href="/admin/tax-rates" className="mac-link">
-                Taxes
-              </Link>
-              <Link href="/admin/feature-flags" className="mac-link">
-                Features
-              </Link>
-              <Link href="/admin/users" className="mac-link">
-                Users
-              </Link>
-              <Link href="/admin/plants" className="mac-link">
-                Materials
-              </Link>
-              <Link href="/dashboard" className="mac-link">
-                Dashboard
-              </Link>
-            </div>
+            <AdminNav />
           </div>
         </header>
 

@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Save, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
 
 import { saveUserInvite, updateAppUser } from "@/app/(dashboard)/admin/users/actions";
+import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { getAdminUsers, type AdminAppUser } from "@/lib/admin/users";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -48,20 +48,7 @@ export default async function AdminUsersPage({
                 <h1 className="truncate text-lg font-semibold">Users</h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/admin/feature-flags" className="mac-link">
-                Features
-              </Link>
-              <Link href="/admin/system-check" className="mac-link">
-                System check
-              </Link>
-              <Link href="/admin/audit-log" className="mac-link">
-                Audit
-              </Link>
-              <Link href="/dashboard" className="mac-link">
-                Dashboard
-              </Link>
-            </div>
+            <AdminNav />
           </div>
         </header>
 

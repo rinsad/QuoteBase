@@ -413,3 +413,13 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Kept the Next.js dev server stopped.
+
+## 2026-06-01 - Grouped Navigation Cleanup
+
+- Added reusable workspace, quote, and admin navigation components.
+- Replaced cluttered admin link rows with a compact grouped Admin menu.
+- Grouped admin tools into Operations, Pricing, and Workspace sections.
+- Updated dashboard, customer, quote, and admin headers to use the shared navigation components.
+- Adjusted the Mac toolbar shell so dropdown menus are not clipped.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

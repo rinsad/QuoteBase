@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { FilePlus2 } from "lucide-react";
 
 import { QuoteDraftForm } from "@/app/(dashboard)/quotes/new/quote-draft-form";
+import { QuoteNav } from "@/components/app-nav";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getNewQuoteContext } from "@/lib/quotes/new-quote";
 
@@ -36,17 +36,7 @@ export default async function NewQuotePage() {
                 </h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/admin/plants" className="mac-link">
-                Materials
-              </Link>
-              <Link href="/quotes" className="mac-link">
-                Quotes
-              </Link>
-              <Link href="/dashboard" className="mac-link">
-                Dashboard
-              </Link>
-            </div>
+            <QuoteNav />
           </div>
         </header>
 

@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ClipboardList, ShieldCheck } from "lucide-react";
 
+import { AdminNav } from "@/components/app-nav";
 import { getAdminAuditLog } from "@/lib/admin/audit-log";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
@@ -37,17 +37,7 @@ export default async function AdminAuditLogPage() {
                 <h1 className="truncate text-lg font-semibold">Audit Log</h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/admin/users" className="mac-link">
-                Users
-              </Link>
-              <Link href="/admin/feature-flags" className="mac-link">
-                Features
-              </Link>
-              <Link href="/dashboard" className="mac-link">
-                Dashboard
-              </Link>
-            </div>
+            <AdminNav />
           </div>
         </header>
 

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { FilePlus2, ListChecks } from "lucide-react";
+import { ListChecks } from "lucide-react";
 
+import { QuoteNav } from "@/components/app-nav";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getQuoteList, type QuoteStatus } from "@/lib/quotes/quotes";
 
@@ -33,15 +34,7 @@ export default async function QuotesPage() {
                 <h1 className="truncate text-lg font-semibold">Quote Desk</h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/quotes/new" className="mac-button-primary h-9">
-                <FilePlus2 className="size-4" />
-                New quote
-              </Link>
-              <Link href="/dashboard" className="mac-link">
-                Dashboard
-              </Link>
-            </div>
+            <QuoteNav />
           </div>
         </header>
 

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import {
   Building2,
@@ -25,6 +24,7 @@ import {
   updateQuoteItemQuantity,
 } from "@/app/(dashboard)/quotes/[id]/actions";
 import { Button } from "@/components/ui/button";
+import { QuoteNav } from "@/components/app-nav";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getNewQuoteContext } from "@/lib/quotes/new-quote";
 import {
@@ -94,20 +94,7 @@ export default async function QuoteDetailPage({
                 </h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/quotes/new" className="mac-link">
-                New quote
-              </Link>
-              <Link href="/quotes" className="mac-link">
-                Quotes
-              </Link>
-              <Link href={`/quotes/${quote.id}/print`} className="mac-link">
-                Print
-              </Link>
-              <Link href="/dashboard" className="mac-link">
-                Dashboard
-              </Link>
-            </div>
+            <QuoteNav quoteId={quote.id} includePrint />
           </div>
         </header>
 

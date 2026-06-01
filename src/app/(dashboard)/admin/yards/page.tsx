@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { MapPin, Navigation, Save } from "lucide-react";
 
 import { saveYard } from "@/app/(dashboard)/admin/yards/actions";
+import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { getAdminYards, type AdminYard } from "@/lib/admin/yards";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -47,23 +48,7 @@ export default async function AdminYardsPage({
                 <h1 className="truncate text-lg font-semibold">Yards</h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/admin/suppliers" className="mac-link">
-                Suppliers
-              </Link>
-              <Link href="/admin/plants" className="mac-link">
-                Materials
-              </Link>
-              <Link href="/admin/pricing" className="mac-link">
-                Pricing
-              </Link>
-              <Link href="/admin/vehicle-types" className="mac-link">
-                Vehicles
-              </Link>
-              <Link href="/dashboard" className="mac-link">
-                Dashboard
-              </Link>
-            </div>
+            <AdminNav />
           </div>
         </header>
 

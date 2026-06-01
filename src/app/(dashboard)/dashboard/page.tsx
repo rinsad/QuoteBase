@@ -12,6 +12,7 @@ import {
 
 import { signOut } from "@/app/(auth)/login/actions";
 import { Button } from "@/components/ui/button";
+import { WorkspaceNav } from "@/components/app-nav";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getDashboardSummary } from "@/lib/system/checks";
 
@@ -45,54 +46,7 @@ export default async function DashboardPage() {
             </div>
             <form action={signOut}>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <Link href="/quotes/new" className="mac-link">
-                  New quote
-                </Link>
-                <Link href="/quotes" className="mac-link">
-                  Quotes
-                </Link>
-                <Link href="/customers" className="mac-link">
-                  Customers
-                </Link>
-                {user.role === "admin" || user.role === "account_manager" ? (
-                  <Link href="/admin/material-prices" className="mac-link">
-                    Material prices
-                  </Link>
-                ) : null}
-                {user.role === "admin" ? (
-                  <>
-                    <Link href="/admin/plants" className="mac-link">
-                      Plants
-                    </Link>
-                    <Link href="/admin/suppliers" className="mac-link">
-                      Suppliers
-                    </Link>
-                    <Link href="/admin/yards" className="mac-link">
-                      Yards
-                    </Link>
-                    <Link href="/admin/vehicle-types" className="mac-link">
-                      Vehicles
-                    </Link>
-                    <Link href="/admin/pricing" className="mac-link">
-                      Pricing
-                    </Link>
-                    <Link href="/admin/tax-rates" className="mac-link">
-                      Taxes
-                    </Link>
-                    <Link href="/admin/feature-flags" className="mac-link">
-                      Features
-                    </Link>
-                    <Link href="/admin/users" className="mac-link">
-                      Users
-                    </Link>
-                    <Link href="/admin/audit-log" className="mac-link">
-                      Audit
-                    </Link>
-                    <Link href="/admin/system-check" className="mac-link">
-                      System check
-                    </Link>
-                  </>
-                ) : null}
+                <WorkspaceNav role={user.role} />
                 <Button
                   type="submit"
                   variant="outline"

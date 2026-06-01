@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Building2, MapPin, Plus, UsersRound } from "lucide-react";
 
@@ -6,6 +5,7 @@ import {
   createCustomer,
   createJobSite,
 } from "@/app/(dashboard)/customers/actions";
+import { WorkspaceNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import {
@@ -44,17 +44,7 @@ export default async function CustomersPage() {
                 </h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Link href="/quotes/new" className="mac-link">
-                New quote
-              </Link>
-              <Link href="/quotes" className="mac-link">
-                Quotes
-              </Link>
-              <Link href="/dashboard" className="mac-link">
-                Dashboard
-              </Link>
-            </div>
+            <WorkspaceNav role={user.role} />
           </div>
         </header>
 
