@@ -127,6 +127,22 @@ export function QuoteDraftForm({ context }: { context: NewQuoteContext }) {
                 maxLength={2}
               />
             </Field>
+            <Field label="Latitude">
+              <input
+                name="site_latitude"
+                type="number"
+                step="0.0000001"
+                className="soft-control w-full"
+              />
+            </Field>
+            <Field label="Longitude">
+              <input
+                name="site_longitude"
+                type="number"
+                step="0.0000001"
+                className="soft-control w-full"
+              />
+            </Field>
           </div>
         </section>
       </div>

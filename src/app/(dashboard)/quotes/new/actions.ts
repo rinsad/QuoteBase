@@ -6,6 +6,10 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
 import {
+  estimateAndCacheDistance,
+  type Coordinate,
+} from "@/lib/geo/distance";
+import {
   calculateQuoteDraft,
   type PricingConfig,
   type VehicleCapacity,
@@ -33,6 +37,8 @@ type JobSiteRecord = {
   city: string;
   county: string;
   state: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 type MaterialRecord = {
@@ -42,6 +48,7 @@ type MaterialRecord = {
   tier: "R1" | "R2" | "R3" | "R4";
   unit: string;
   cost_per_unit: number;
+  suppliers: Coordinate | Coordinate[] | null;
 };
 
 type TaxRateRecord = {
@@ -104,7 +111,7 @@ export async function createQuoteDraft(
   ] = await Promise.all([
     supabase
       .from("materials")
-      .select("id, supplier_id, name, tier, unit, cost_per_unit")
+      .select("id, supplier_id, name, tier, unit, cost_per_unit, suppliers(latitude, longitude)")
       .eq("organization_id", user.organization_id)
       .eq("id", parsed.materialId)
       .eq("is_active", true)
@@ -141,7 +148,7 @@ export async function createQuoteDraft(
     parsed.jobSiteId
       ? supabase
           .from("job_sites")
-          .select("id, customer_id, name, city, county, state")
+          .select("id, customer_id, name, city, county, state, latitude, longitude")
           .eq("organization_id", user.organization_id)
           .eq("id", parsed.jobSiteId)
           .eq("is_active", true)
@@ -183,6 +190,8 @@ export async function createQuoteDraft(
     siteCity: parsed.siteCity,
     siteCounty: parsed.siteCounty,
     siteState: parsed.siteState,
+    siteLatitude: parsed.siteLatitude,
+    siteLongitude: parsed.siteLongitude,
   });
 
   if (!jobSite) {
@@ -202,7 +211,27 @@ export async function createQuoteDraft(
   const pricingConfig = normalizePricingConfig(pricingConfigResult.data);
   const vehicleTypes = normalizeVehicleTypes(vehicleTypesResult.data ?? []);
   const material = materialResult.data;
+  const supplierCoordinates = relationOne(material.suppliers);
   const taxRate = taxRateResult.data;
+  const routeDistance = await estimateAndCacheDistance(
+    supabase,
+    {
+      latitude:
+        supplierCoordinates?.latitude === null ||
+        supplierCoordinates?.latitude === undefined
+          ? null
+          : Number(supplierCoordinates.latitude),
+      longitude:
+        supplierCoordinates?.longitude === null ||
+        supplierCoordinates?.longitude === undefined
+          ? null
+          : Number(supplierCoordinates.longitude),
+    },
+    {
+      latitude: jobSite.latitude === null ? null : Number(jobSite.latitude),
+      longitude: jobSite.longitude === null ? null : Number(jobSite.longitude),
+    },
+  );
   const calculation = calculateQuoteDraft({
     costPerUnit: Number(material.cost_per_unit),
     quantity: parsed.quantity,
@@ -293,6 +322,8 @@ export async function createQuoteDraft(
       customer_id: customer.id,
       job_site_id: jobSite.id,
       material_id: material.id,
+      route_distance_miles: routeDistance?.distanceMiles ?? null,
+      route_duration_seconds: routeDistance?.durationSeconds ?? null,
     },
   });
 
@@ -315,6 +346,8 @@ function parseQuoteForm(formData: FormData):
       siteCity: string;
       siteCounty: string;
       siteState: string;
+      siteLatitude: number | null;
+      siteLongitude: number | null;
       materialId: string;
       taxRateId: string;
       quantity: number;
@@ -348,6 +381,8 @@ function parseQuoteForm(formData: FormData):
     siteCity: getString(formData, "site_city"),
     siteCounty: getString(formData, "site_county"),
     siteState: getString(formData, "site_state") || "CA",
+    siteLatitude: optionalCoordinate(formData, "site_latitude", -90, 90),
+    siteLongitude: optionalCoordinate(formData, "site_longitude", -180, 180),
     materialId,
     taxRateId,
     quantity,
@@ -409,6 +444,8 @@ async function resolveJobSite({
   siteCity,
   siteCounty,
   siteState,
+  siteLatitude,
+  siteLongitude,
 }: {
   supabase: NonNullable<Awaited<ReturnType<typeof createClient>>>;
   organizationId: string;
@@ -419,6 +456,8 @@ async function resolveJobSite({
   siteCity: string;
   siteCounty: string;
   siteState: string;
+  siteLatitude: number | null;
+  siteLongitude: number | null;
 }): Promise<JobSiteRecord | null> {
   if (existingJobSite) {
     return existingJobSite;
@@ -444,11 +483,13 @@ async function resolveJobSite({
         city: siteCity,
         county: siteCounty,
         state: siteState,
+        latitude: siteLatitude,
+        longitude: siteLongitude,
         is_active: true,
       },
       { onConflict: "organization_id,customer_id,name" },
     )
-    .select("id, customer_id, name, city, county, state")
+    .select("id, customer_id, name, city, county, state, latitude, longitude")
     .single<JobSiteRecord>();
 
   return data ?? null;
@@ -470,6 +511,31 @@ function requiredUuid(formData: FormData, key: string): string {
   const value = getString(formData, key);
 
   return UUID_PATTERN.test(value) ? value : "";
+}
+
+function optionalCoordinate(
+  formData: FormData,
+  key: string,
+  min: number,
+  max: number,
+): number | null {
+  const value = getString(formData, key);
+
+  if (!value) {
+    return null;
+  }
+
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue) || numberValue < min || numberValue > max) {
+    throw new Error(`${key} is out of range.`);
+  }
+
+  return Math.round((numberValue + Number.EPSILON) * 10000000) / 10000000;
+}
+
+function relationOne<T>(value: T | T[] | null): T | null {
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
 function createQuoteNumber(): string {

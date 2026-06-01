@@ -374,3 +374,12 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Kept the Next.js dev server stopped.
+
+## 2026-06-01 - Distance Estimate Cache
+
+- Added a server-side distance helper that estimates mileage from stored coordinates and upserts into the `distances` cache.
+- Quote creation now captures supplier and job-site coordinates when available and records route distance/duration in quote audit metadata.
+- Added coordinate fields to the new-quote job-site form for new delivery sites.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Kept the Next.js dev server stopped.
