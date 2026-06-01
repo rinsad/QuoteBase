@@ -383,3 +383,12 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Kept the Next.js dev server stopped.
+
+## 2026-06-01 - Vehicle Type Admin
+
+- Added admin-only `/admin/vehicle-types` for fleet capacity management.
+- Added vehicle type create/update action with admin role enforcement, organization-scoped writes, active status, ton/CY capacity validation, and audit logging.
+- Linked vehicle management from dashboard and admin pricing/location views.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Kept the Next.js dev server stopped.

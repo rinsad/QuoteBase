@@ -57,6 +57,9 @@ export default async function AdminSuppliersPage({
               <Link href="/admin/yards" className="mac-link">
                 Yards
               </Link>
+              <Link href="/admin/vehicle-types" className="mac-link">
+                Vehicles
+              </Link>
               <Link href="/admin/material-prices" className="mac-link">
                 Material prices
               </Link>

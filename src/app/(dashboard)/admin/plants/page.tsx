@@ -62,6 +62,7 @@ export default async function AdminPlantsPage() {
               <HeaderLink href="/admin/suppliers">Suppliers</HeaderLink>
               <HeaderLink href="/admin/material-prices">Material prices</HeaderLink>
               <HeaderLink href="/admin/yards">Yards</HeaderLink>
+              <HeaderLink href="/admin/vehicle-types">Vehicles</HeaderLink>
               <HeaderLink href="/admin/pricing">Pricing</HeaderLink>
               <HeaderLink href="/admin/tax-rates">Taxes</HeaderLink>
               <HeaderLink href="/admin/feature-flags">Features</HeaderLink>
