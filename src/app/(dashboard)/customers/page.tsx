@@ -180,6 +180,22 @@ function JobSiteForm({ customers }: { customers: CustomerSummary[] }) {
             maxLength={2}
           />
         </Field>
+        <Field label="Latitude">
+          <input
+            name="latitude"
+            type="number"
+            step="0.0000001"
+            className="soft-control w-full"
+          />
+        </Field>
+        <Field label="Longitude">
+          <input
+            name="longitude"
+            type="number"
+            step="0.0000001"
+            className="soft-control w-full"
+          />
+        </Field>
       </div>
       <Button type="submit" className="mt-5 h-11 rounded-full">
         Save job site
@@ -221,6 +237,9 @@ function JobSiteRow({ site }: { site: JobSiteSummary }) {
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {site.city}, {site.state} - {site.county}
+          </p>
+          <p className="mt-1 font-mono text-xs text-muted-foreground">
+            {site.latitude ?? "lat pending"}, {site.longitude ?? "lng pending"}
           </p>
         </div>
         <StatusPill active={site.is_active} />

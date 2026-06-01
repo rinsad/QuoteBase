@@ -19,6 +19,8 @@ export type JobSiteSummary = {
   county: string;
   state: string;
   address: Record<string, unknown>;
+  latitude: number | null;
+  longitude: number | null;
   is_active: boolean;
 };
 
@@ -50,14 +52,16 @@ export async function getCustomerDeskSummary(
     supabase
       .from("customers")
       .select(
-        "id, name, contact_name, email, phone, is_active, job_sites(id, customer_id, name, city, county, state, address, is_active)",
+        "id, name, contact_name, email, phone, is_active, job_sites(id, customer_id, name, city, county, state, address, latitude, longitude, is_active)",
       )
       .eq("organization_id", user.organization_id)
       .order("name", { ascending: true })
       .returns<CustomerRecord[]>(),
     supabase
       .from("job_sites")
-      .select("id, customer_id, name, city, county, state, address, is_active")
+      .select(
+        "id, customer_id, name, city, county, state, address, latitude, longitude, is_active",
+      )
       .eq("organization_id", user.organization_id)
       .order("name", { ascending: true })
       .returns<JobSiteSummary[]>(),

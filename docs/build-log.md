@@ -364,3 +364,13 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Kept the Next.js dev server stopped.
+
+## 2026-06-01 - Job Site Coordinates
+
+- Added migration `202606010002_job_site_coordinates.sql` for job-site latitude and longitude.
+- Updated customer/job-site creation to validate and store delivery coordinates.
+- Updated the customer desk to show coordinate readiness for job sites.
+- Applied the migration to the local Supabase database.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Kept the Next.js dev server stopped.

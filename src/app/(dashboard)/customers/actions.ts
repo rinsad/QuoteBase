@@ -99,6 +99,8 @@ export async function createJobSite(formData: FormData) {
   const city = getString(formData, "city");
   const county = getString(formData, "county");
   const state = getString(formData, "state") || "CA";
+  const latitude = optionalCoordinate(formData, "latitude", -90, 90);
+  const longitude = optionalCoordinate(formData, "longitude", -180, 180);
 
   if (!customerId || !name || !city || !county) {
     throw new Error("Customer, site name, city, and county are required.");
@@ -132,6 +134,8 @@ export async function createJobSite(formData: FormData) {
         city,
         county,
         state,
+        latitude,
+        longitude,
         is_active: true,
       },
       { onConflict: "organization_id,customer_id,name" },
@@ -154,6 +158,8 @@ export async function createJobSite(formData: FormData) {
       city,
       county,
       state,
+      latitude,
+      longitude,
     },
   });
 
@@ -171,4 +177,25 @@ function requiredUuid(formData: FormData, key: string): string {
   const value = getString(formData, key);
 
   return UUID_PATTERN.test(value) ? value : "";
+}
+
+function optionalCoordinate(
+  formData: FormData,
+  key: string,
+  min: number,
+  max: number,
+): number | null {
+  const value = getString(formData, key);
+
+  if (!value) {
+    return null;
+  }
+
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue) || numberValue < min || numberValue > max) {
+    throw new Error(`${key} is out of range.`);
+  }
+
+  return Math.round((numberValue + Number.EPSILON) * 10000000) / 10000000;
 }
