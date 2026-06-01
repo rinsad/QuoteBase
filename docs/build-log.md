@@ -402,3 +402,14 @@ Next likely step:
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
 - Kept the Next.js dev server stopped.
+
+## 2026-06-01 - Plant Selection Engine
+
+- Added server-side plant recommendation helper for active suppliers carrying the same material name/unit/tier.
+- Recommendation logic compares supplier route distance, nearest-yard deadhead, calculated quote totals, material subtotal, and load count.
+- Quote creation now treats the selected material as a material request and saves the recommended supplier/material.
+- Draft line addition now uses the same plant recommendation path.
+- Audit metadata records requested material, selected supplier, route distance, deadhead distance, and selection reason.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
+- Kept the Next.js dev server stopped.

@@ -10,6 +10,10 @@ import {
   normalizeVehicleTypes,
 } from "@/lib/quotes/new-quote";
 import {
+  selectBestPlantForQuote,
+  type PlantSelectionMaterial,
+} from "@/lib/quotes/plant-selection";
+import {
   calculateQuoteDraft,
   type PricingConfig,
   type VehicleCapacity,
@@ -37,15 +41,10 @@ type QuoteStatusRecord = {
 
 type EditableQuoteRecord = QuoteStatusRecord & {
   tax_rate_id: string | null;
-};
-
-type MaterialRecord = {
-  id: string;
-  supplier_id: string;
-  name: string;
-  tier: "R1" | "R2" | "R3" | "R4";
-  unit: string;
-  cost_per_unit: number;
+  job_sites:
+    | { latitude: number | null; longitude: number | null }
+    | { latitude: number | null; longitude: number | null }[]
+    | null;
 };
 
 type TaxRateRecord = {
@@ -199,18 +198,22 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
   ] = await Promise.all([
     supabase
       .from("quotes")
-      .select("id, quote_number, status, notes, total, tax_rate_id")
+      .select(
+        "id, quote_number, status, notes, total, tax_rate_id, job_sites(latitude, longitude)",
+      )
       .eq("organization_id", user.organization_id)
       .eq("id", quoteId)
       .eq("is_active", true)
       .single<EditableQuoteRecord>(),
     supabase
       .from("materials")
-      .select("id, supplier_id, name, tier, unit, cost_per_unit")
+      .select(
+        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers(name, latitude, longitude)",
+      )
       .eq("organization_id", user.organization_id)
       .eq("id", materialId)
       .eq("is_active", true)
-      .single<MaterialRecord>(),
+      .single<PlantSelectionMaterial>(),
     supabase
       .from("pricing_config")
       .select(
@@ -252,16 +255,28 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     throw new Error("This quote's tax rate is no longer available.");
   }
 
-  const material = materialResult.data;
-  const calculation = calculateQuoteDraft({
-    costPerUnit: Number(material.cost_per_unit),
-    quantity,
-    tier: material.tier,
-    unit: material.unit,
+  const jobSite = relationOne(quote.job_sites);
+
+  if (!jobSite) {
+    throw new Error("This quote is missing job-site route data.");
+  }
+
+  const requestedMaterial = materialResult.data;
+  const recommendation = await selectBestPlantForQuote({
+    supabase,
+    organizationId: user.organization_id,
+    requestedMaterial,
+    jobSite: {
+      latitude: jobSite.latitude === null ? null : Number(jobSite.latitude),
+      longitude: jobSite.longitude === null ? null : Number(jobSite.longitude),
+    },
     taxRate: Number(taxRate.rate),
+    quantity,
     pricingConfig: normalizePricingConfig(pricingConfigResult.data),
     vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
   });
+  const material = recommendation.material;
+  const calculation = recommendation.calculation;
 
   const { data: item, error: itemError } = await supabase
     .from("quote_items")
@@ -332,6 +347,14 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       item_id: item.id,
       material_id: material.id,
       quantity,
+      requested_material_id: requestedMaterial.id,
+      selected_supplier_id: material.supplier_id,
+      selected_supplier_name: recommendation.supplierName,
+      plant_selection_reason: recommendation.selectionReason,
+      route_distance_miles:
+        recommendation.routeDistance?.distanceMiles ?? null,
+      deadhead_distance_miles:
+        recommendation.deadheadDistance?.distanceMiles ?? null,
       vehicle_type_id: calculation.vehicleTypeId,
       load_count: calculation.loadCount,
       total: totals.total,

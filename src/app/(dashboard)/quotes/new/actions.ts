@@ -6,14 +6,13 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
 import {
-  estimateAndCacheDistance,
-  type Coordinate,
-} from "@/lib/geo/distance";
-import {
-  calculateQuoteDraft,
   type PricingConfig,
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
+import {
+  selectBestPlantForQuote,
+  type PlantSelectionMaterial,
+} from "@/lib/quotes/plant-selection";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -39,16 +38,6 @@ type JobSiteRecord = {
   state: string;
   latitude: number | null;
   longitude: number | null;
-};
-
-type MaterialRecord = {
-  id: string;
-  supplier_id: string;
-  name: string;
-  tier: "R1" | "R2" | "R3" | "R4";
-  unit: string;
-  cost_per_unit: number;
-  suppliers: Coordinate | Coordinate[] | null;
 };
 
 type TaxRateRecord = {
@@ -111,11 +100,13 @@ export async function createQuoteDraft(
   ] = await Promise.all([
     supabase
       .from("materials")
-      .select("id, supplier_id, name, tier, unit, cost_per_unit, suppliers(latitude, longitude)")
+      .select(
+        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers(name, latitude, longitude)",
+      )
       .eq("organization_id", user.organization_id)
       .eq("id", parsed.materialId)
       .eq("is_active", true)
-      .single<MaterialRecord>(),
+      .single<PlantSelectionMaterial>(),
     supabase
       .from("sales_tax_rates")
       .select("id, rate")
@@ -210,38 +201,23 @@ export async function createQuoteDraft(
 
   const pricingConfig = normalizePricingConfig(pricingConfigResult.data);
   const vehicleTypes = normalizeVehicleTypes(vehicleTypesResult.data ?? []);
-  const material = materialResult.data;
-  const supplierCoordinates = relationOne(material.suppliers);
+  const requestedMaterial = materialResult.data;
   const taxRate = taxRateResult.data;
-  const routeDistance = await estimateAndCacheDistance(
+  const recommendation = await selectBestPlantForQuote({
     supabase,
-    user.organization_id,
-    {
-      latitude:
-        supplierCoordinates?.latitude === null ||
-        supplierCoordinates?.latitude === undefined
-          ? null
-          : Number(supplierCoordinates.latitude),
-      longitude:
-        supplierCoordinates?.longitude === null ||
-        supplierCoordinates?.longitude === undefined
-          ? null
-          : Number(supplierCoordinates.longitude),
-    },
-    {
+    organizationId: user.organization_id,
+    requestedMaterial,
+    jobSite: {
       latitude: jobSite.latitude === null ? null : Number(jobSite.latitude),
       longitude: jobSite.longitude === null ? null : Number(jobSite.longitude),
     },
-  );
-  const calculation = calculateQuoteDraft({
-    costPerUnit: Number(material.cost_per_unit),
-    quantity: parsed.quantity,
-    tier: material.tier,
-    unit: material.unit,
     taxRate: Number(taxRate.rate),
+    quantity: parsed.quantity,
     pricingConfig,
     vehicleTypes,
   });
+  const material = recommendation.material;
+  const calculation = recommendation.calculation;
   const quoteNumber = createQuoteNumber();
 
   const { data: quote, error: quoteError } = await supabase
@@ -323,8 +299,16 @@ export async function createQuoteDraft(
       customer_id: customer.id,
       job_site_id: jobSite.id,
       material_id: material.id,
-      route_distance_miles: routeDistance?.distanceMiles ?? null,
-      route_duration_seconds: routeDistance?.durationSeconds ?? null,
+      requested_material_id: requestedMaterial.id,
+      selected_supplier_id: material.supplier_id,
+      selected_supplier_name: recommendation.supplierName,
+      plant_selection_reason: recommendation.selectionReason,
+      route_distance_miles:
+        recommendation.routeDistance?.distanceMiles ?? null,
+      route_duration_seconds:
+        recommendation.routeDistance?.durationSeconds ?? null,
+      deadhead_distance_miles:
+        recommendation.deadheadDistance?.distanceMiles ?? null,
     },
   });
 
@@ -533,10 +517,6 @@ function optionalCoordinate(
   }
 
   return Math.round((numberValue + Number.EPSILON) * 10000000) / 10000000;
-}
-
-function relationOne<T>(value: T | T[] | null): T | null {
-  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
 function createQuoteNumber(): string {
