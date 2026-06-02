@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
-import { notifySlackQuoteStatusChange } from "@/lib/notifications/slack";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -19,18 +18,9 @@ import {
   type PricingConfig,
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
+import type { QuoteStatus } from "@/lib/quotes/quotes";
+import { transitionQuoteStatus } from "@/lib/quotes/workflow";
 import { createClient } from "@/lib/supabase/server";
-
-type QuoteStatus =
-  | "draft"
-  | "pending_approval"
-  | "approved"
-  | "rejected"
-  | "sent"
-  | "viewed"
-  | "accepted"
-  | "declined"
-  | "expired";
 
 type QuoteStatusRecord = {
   id: string;
@@ -88,7 +78,7 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function submitQuoteForApproval(quoteId: string) {
-  await transitionQuoteStatus({
+  await transitionQuoteStatusAction({
     quoteId,
     from: "draft",
     to: "pending_approval",
@@ -98,7 +88,7 @@ export async function submitQuoteForApproval(quoteId: string) {
 }
 
 export async function approveQuote(quoteId: string) {
-  await transitionQuoteStatus({
+  await transitionQuoteStatusAction({
     quoteId,
     from: "pending_approval",
     to: "approved",
@@ -111,7 +101,7 @@ export async function rejectQuote(quoteId: string, formData: FormData) {
   const reasonValue = formData.get("rejection_reason");
   const reason = typeof reasonValue === "string" ? reasonValue.trim() : "";
 
-  await transitionQuoteStatus({
+  await transitionQuoteStatusAction({
     quoteId,
     from: "pending_approval",
     to: "rejected",
@@ -125,7 +115,7 @@ export async function markQuoteSent(quoteId: string, formData: FormData) {
   const noteValue = formData.get("send_note");
   const note = typeof noteValue === "string" ? noteValue.trim() : "";
 
-  await transitionQuoteStatus({
+  await transitionQuoteStatusAction({
     quoteId,
     from: "approved",
     to: "sent",
@@ -139,7 +129,7 @@ export async function markQuoteAccepted(quoteId: string, formData: FormData) {
   const noteValue = formData.get("customer_response_note");
   const note = typeof noteValue === "string" ? noteValue.trim() : "";
 
-  await transitionQuoteStatus({
+  await transitionQuoteStatusAction({
     quoteId,
     from: "sent",
     to: "accepted",
@@ -153,7 +143,7 @@ export async function markQuoteDeclined(quoteId: string, formData: FormData) {
   const noteValue = formData.get("customer_response_note");
   const note = typeof noteValue === "string" ? noteValue.trim() : "";
 
-  await transitionQuoteStatus({
+  await transitionQuoteStatusAction({
     quoteId,
     from: "sent",
     to: "declined",
@@ -675,7 +665,7 @@ export async function updateQuoteItemQuantity(
   redirect(`/quotes/${quote.id}`);
 }
 
-async function transitionQuoteStatus({
+async function transitionQuoteStatusAction({
   quoteId,
   from,
   to,
@@ -710,81 +700,20 @@ async function transitionQuoteStatus({
     throw new Error("Supabase is not configured for this workspace.");
   }
 
-  const { data: quote, error: quoteError } = await supabase
-    .from("quotes")
-    .select("id, quote_number, status, notes, total")
-    .eq("organization_id", user.organization_id)
-    .eq("id", quoteId)
-    .eq("is_active", true)
-    .single<QuoteStatusRecord>();
-
-  if (quoteError || !quote) {
-    throw new Error(quoteError?.message ?? "Quote not found.");
-  }
-
-  if (quote.status !== from) {
-    throw new Error(
-      `Quote ${quote.quote_number} must be ${formatStatus(from)} before it can become ${formatStatus(to)}.`,
-    );
-  }
-
-  const notes = note ? appendNote(quote.notes, note) : quote.notes;
-  const { error: updateError } = await supabase
-    .from("quotes")
-    .update({
-      status: to,
-      notes,
-    })
-    .eq("organization_id", user.organization_id)
-    .eq("id", quote.id)
-    .eq("status", from)
-    .eq("is_active", true);
-
-  if (updateError) {
-    throw new Error(updateError.message);
-  }
-
-  await logAction({
-    user,
-    action,
-    targetTable: "quotes",
-    targetId: quote.id,
-    before: {
-      status: from,
-      notes: quote.notes,
-    },
-    after: {
-      status: to,
-      notes,
-      total: Number(quote.total),
-    },
-  });
-  await notifySlackQuoteStatusChange({
+  const quote = await transitionQuoteStatus({
     supabase,
     user,
-    quote,
     action,
+    quoteId,
     from,
     to,
+    allowedRoles,
+    note,
   });
 
   revalidatePath("/quotes");
   revalidatePath(`/quotes/${quote.id}`);
   redirect(`/quotes/${quote.id}`);
-}
-
-function appendNote(existingNotes: string | null, note: string): string {
-  const timestamp = new Date().toISOString();
-  const nextNote = `[${timestamp}] ${note}`;
-
-  return existingNotes ? `${existingNotes}\n\n${nextNote}` : nextNote;
-}
-
-function formatStatus(status: string): string {
-  return status
-    .split("_")
-    .map((part) => part[0]?.toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 async function getQuoteTotals(

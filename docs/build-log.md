@@ -454,3 +454,13 @@ Next likely step:
 - Verified API routes return safe errors without stack traces or internal paths.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-02 - Quote Workflow API
+
+- Extracted quote status transitions into a reusable server-side workflow helper.
+- Kept role checks, organization-scoped quote re-read, optimistic status guard, audit logging, Slack notifications, and note append behavior in the shared workflow path.
+- Updated quote page form actions to use the shared workflow helper without changing UI behavior.
+- Added authenticated `PATCH /api/quotes/[id]/status` for submit, approve, reject, send, accept, and decline actions.
+- Added safe API validation for workflow action payloads and note text.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
