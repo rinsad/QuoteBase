@@ -557,3 +557,13 @@ Next likely step:
 - Kept supplier/material queries and writes organization-scoped.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-03 - Quote Calculate API
+
+- Added authenticated `POST /api/quotes/calculate`.
+- Added Zod validation for material, tax rate, quantity, optional job site, and optional coordinates.
+- Reused the existing pricing and plant-selection engine without saving a quote.
+- Returns selected supplier/material, vehicle/load plan, line totals, tax, final total, and route/deadhead metadata.
+- Kept all lookup queries organization-scoped.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
