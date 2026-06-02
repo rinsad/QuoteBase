@@ -1,9 +1,14 @@
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { badRequest, apiOk, serverError, unauthorized } from "@/lib/api/responses";
 import {
   parsePagination,
   parseQuoteStatus,
+  UUID_PATTERN,
 } from "@/lib/api/validation";
+import { createQuoteDraftRecord } from "@/lib/quotes/create-draft";
 import { createClient } from "@/lib/supabase/server";
 import type { QuoteStatus } from "@/lib/quotes/quotes";
 
@@ -20,6 +25,48 @@ type QuoteApiRecord = {
     | null;
   users: { full_name: string; email: string } | { full_name: string; email: string }[] | null;
 };
+
+const createQuoteSchema = z
+  .object({
+    customer_id: z.string().regex(UUID_PATTERN).optional().or(z.literal("")),
+    customer_name: z.string().trim().max(160).optional().default(""),
+    contact_name: z.string().trim().max(160).optional().default(""),
+    contact_email: z.string().trim().email().optional().or(z.literal("")),
+    contact_phone: z.string().trim().max(40).optional().default(""),
+    job_site_id: z.string().regex(UUID_PATTERN).optional().or(z.literal("")),
+    site_name: z.string().trim().max(160).optional().default(""),
+    site_address: z.string().trim().max(240).optional().default(""),
+    site_city: z.string().trim().max(120).optional().default(""),
+    site_county: z.string().trim().max(120).optional().default(""),
+    site_state: z.string().trim().min(2).max(2).optional().default("CA"),
+    site_latitude: z.coerce.number().min(-90).max(90).nullable().optional(),
+    site_longitude: z.coerce.number().min(-180).max(180).nullable().optional(),
+    material_id: z.string().regex(UUID_PATTERN),
+    tax_rate_id: z.string().regex(UUID_PATTERN),
+    quantity: z.coerce.number().positive().max(100000),
+    notes: z.string().trim().max(4000).optional().default(""),
+  })
+  .superRefine((value, context) => {
+    if (!value.customer_id && !value.customer_name) {
+      context.addIssue({
+        code: "custom",
+        message: "customer_id or customer_name is required.",
+        path: ["customer_name"],
+      });
+    }
+
+    if (!value.job_site_id) {
+      for (const key of ["site_name", "site_city", "site_county"] as const) {
+        if (!value[key]) {
+          context.addIssue({
+            code: "custom",
+            message: `${key} is required when job_site_id is not provided.`,
+            path: [key],
+          });
+        }
+      }
+    }
+  });
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
@@ -100,6 +147,105 @@ export async function GET(request: Request) {
       },
     },
   );
+}
+
+export async function POST(request: Request) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return unauthorized();
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    return serverError("Supabase is not configured.");
+  }
+
+  const parsed = await parseCreateQuoteBody(request);
+
+  if (!parsed.ok) {
+    return badRequest(parsed.message);
+  }
+
+  try {
+    const quote = await createQuoteDraftRecord({
+      supabase,
+      user,
+      input: {
+        customerId: parsed.value.customer_id ?? "",
+        customerName: parsed.value.customer_name,
+        contactName: parsed.value.contact_name,
+        contactEmail: parsed.value.contact_email ?? "",
+        contactPhone: parsed.value.contact_phone,
+        jobSiteId: parsed.value.job_site_id ?? "",
+        siteName: parsed.value.site_name,
+        siteAddress: parsed.value.site_address,
+        siteCity: parsed.value.site_city,
+        siteCounty: parsed.value.site_county,
+        siteState: parsed.value.site_state,
+        siteLatitude: roundCoordinate(parsed.value.site_latitude ?? null),
+        siteLongitude: roundCoordinate(parsed.value.site_longitude ?? null),
+        materialId: parsed.value.material_id,
+        taxRateId: parsed.value.tax_rate_id,
+        quantity: parsed.value.quantity,
+        notes: parsed.value.notes,
+      },
+    });
+
+    revalidatePath("/quotes");
+    revalidatePath(`/quotes/${quote.id}`);
+
+    return apiOk({ quote }, { status: 201 });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Could not create quote.";
+
+    if (
+      message.includes("required") ||
+      message.includes("missing") ||
+      message.includes("not enabled") ||
+      message.includes("not belong")
+    ) {
+      return badRequest(message);
+    }
+
+    return serverError("Could not create quote.");
+  }
+}
+
+async function parseCreateQuoteBody(
+  request: Request,
+): Promise<
+  | { ok: true; value: z.infer<typeof createQuoteSchema> }
+  | { ok: false; message: string }
+> {
+  let payload: unknown;
+
+  try {
+    payload = await request.json();
+  } catch {
+    return { ok: false, message: "Request body must be valid JSON." };
+  }
+
+  const result = createQuoteSchema.safeParse(payload);
+
+  if (!result.success) {
+    return {
+      ok: false,
+      message: result.error.issues.map((issue) => issue.message).join(" "),
+    };
+  }
+
+  return { ok: true, value: result.data };
+}
+
+function roundCoordinate(value: number | null): number | null {
+  if (value === null) {
+    return null;
+  }
+
+  return Math.round((value + Number.EPSILON) * 10000000) / 10000000;
 }
 
 function relationOne<T>(value: T | T[] | null): T | null {

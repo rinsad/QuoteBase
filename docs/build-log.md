@@ -534,3 +534,15 @@ Next likely step:
 - Applied the local Supabase migration successfully.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-02 - Document-Aligned API Expansion
+
+- Added Zod as the API boundary validation library required by the project docs.
+- Extracted quote draft creation into a shared server helper used by both the web form and API.
+- Added authenticated `POST /api/quotes` for tenant-scoped draft quote creation.
+- Added authenticated `POST /api/customers` for tenant-scoped customer upsert.
+- Added authenticated `GET /api/customers/[id]` for customer detail with job sites.
+- Added authenticated `PATCH /api/customers/[id]` for audited customer updates.
+- Kept quote/customer writes organization-scoped and audit logged.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
