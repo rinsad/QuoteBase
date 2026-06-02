@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
 import {
   Building2,
   CheckCircle2,
@@ -437,9 +438,18 @@ export default async function QuoteDetailPage({
                             {formatDateTime(document.generated_at)}
                           </p>
                         </div>
-                        <span className="soft-chip bg-slate-100 text-slate-600 ring-slate-200">
-                          {formatStatus(document.status)}
-                        </span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Link
+                            href={`/api/quote-documents/${document.id}/download`}
+                            className="mac-link h-8 px-3 text-xs"
+                            target="_blank"
+                          >
+                            Open
+                          </Link>
+                          <span className="soft-chip bg-slate-100 text-slate-600 ring-slate-200">
+                            {formatStatus(document.status)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ))

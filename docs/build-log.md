@@ -512,3 +512,12 @@ Next likely step:
 - Applied the local Supabase migration successfully.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-02 - Quote Document Download
+
+- Added authenticated `GET /api/quote-documents/[id]/download`.
+- Download route validates UUIDs and verifies the document belongs to the current user organization before creating a signed storage URL.
+- Added short-lived signed URL creation for private quote document storage objects.
+- Added Open links to each generated document row in the quote detail Documents panel.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

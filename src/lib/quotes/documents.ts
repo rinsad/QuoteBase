@@ -204,6 +204,39 @@ export async function createQuoteHtmlDocument({
   };
 }
 
+export async function createQuoteDocumentSignedUrl({
+  supabase,
+  organizationId,
+  documentId,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  documentId: string;
+}): Promise<string | null> {
+  const { data: document } = await supabase
+    .from("quote_documents")
+    .select("id, storage_bucket, storage_path, status")
+    .eq("organization_id", organizationId)
+    .eq("id", documentId)
+    .neq("status", "voided")
+    .single<{
+      id: string;
+      storage_bucket: string;
+      storage_path: string;
+      status: string;
+    }>();
+
+  if (!document) {
+    return null;
+  }
+
+  const { data } = await supabase.storage
+    .from(document.storage_bucket)
+    .createSignedUrl(document.storage_path, 60);
+
+  return data?.signedUrl ?? null;
+}
+
 async function getNextDocumentVersion({
   supabase,
   organizationId,
