@@ -1,15 +1,18 @@
-import { CalendarDays, FileText, UserRound } from "lucide-react";
+import { CalendarDays, CheckCircle2, FileText, UserRound, XCircle } from "lucide-react";
 import { notFound } from "next/navigation";
 
+import { submitPublicQuoteResponse } from "@/app/q/[token]/actions";
 import { PublicPrintButton } from "@/app/q/[token]/public-print-button";
 import { getPublicQuoteByToken, type PublicQuoteItem } from "@/lib/quotes/delivery";
 
 export default async function PublicQuotePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>;
+  searchParams: Promise<{ responded?: string }>;
 }) {
-  const { token } = await params;
+  const [{ token }, query] = await Promise.all([params, searchParams]);
 
   if (!/^[A-Za-z0-9_-]{32,256}$/.test(token)) {
     notFound();
@@ -20,6 +23,9 @@ export default async function PublicQuotePage({
   if (!quote) {
     notFound();
   }
+
+  const canRespond = quote.status === "sent" || quote.status === "viewed";
+  const responseAction = submitPublicQuoteResponse.bind(null, token);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(135deg,#f8fbff_0%,#eef5fb_46%,#e9f6f3_100%)] px-4 py-6 text-slate-950 print:bg-white print:px-0 print:py-0">
@@ -114,6 +120,11 @@ export default async function PublicQuotePage({
                 <UserRound className="size-4 text-sky-700" />
                 Prepared by {quote.requested_by.full_name}
               </div>
+              {query.responded === "accepted" || query.responded === "declined" ? (
+                <div className="mt-6 rounded-[18px] border border-emerald-100 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
+                  Your response has been recorded.
+                </div>
+              ) : null}
             </div>
             <div className="space-y-3">
               <TotalRow
@@ -133,6 +144,51 @@ export default async function PublicQuotePage({
                 </span>
               </div>
             </div>
+          </section>
+
+          <section className="border-t border-slate-200 bg-slate-50/80 p-8 print:hidden">
+            {canRespond ? (
+              <form
+                action={responseAction}
+                className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-end"
+              >
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-600">
+                    Optional response note
+                  </span>
+                  <textarea
+                    name="response_note"
+                    rows={3}
+                    className="soft-control mt-2 w-full resize-none bg-white"
+                    placeholder="Add a short note for Western Materials"
+                  />
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2 lg:min-w-80">
+                  <button
+                    type="submit"
+                    name="response"
+                    value="accepted"
+                    className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white shadow-[0_14px_32px_rgba(5,150,105,0.24)] transition hover:bg-emerald-700"
+                  >
+                    <CheckCircle2 className="size-4" />
+                    Accept quote
+                  </button>
+                  <button
+                    type="submit"
+                    name="response"
+                    value="declined"
+                    className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border border-rose-100 bg-white px-5 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50"
+                  >
+                    <XCircle className="size-4" />
+                    Decline quote
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="rounded-[18px] border border-slate-200 bg-white p-4 text-sm font-medium text-slate-600">
+                This quote has already been {formatStatus(quote.status)}.
+              </div>
+            )}
           </section>
 
           <footer className="border-t border-slate-200 px-8 py-6 text-xs leading-5 text-slate-500">

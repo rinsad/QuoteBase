@@ -476,3 +476,14 @@ Next likely step:
 - Applied the local Supabase migration successfully.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-02 - Public Quote Response Actions
+
+- Added public token-based accept/decline actions for customer quote links.
+- Added customer response note capture with a 1000-character server-side limit.
+- Updated the public quote page with Accept Quote and Decline Quote controls.
+- First public quote view now transitions sent quotes to viewed and writes an audit entry.
+- Public responses update viewed/sent quotes to accepted or declined and append customer notes.
+- Public response updates write immutable audit log entries without requiring an internal user session.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

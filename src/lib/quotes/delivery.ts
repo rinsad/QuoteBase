@@ -46,6 +46,12 @@ export type PublicQuote = {
   expires_at: string;
 };
 
+export type PublicQuoteResponseResult = {
+  quoteId: string;
+  quoteNumber: string;
+  status: "accepted" | "declined";
+};
+
 export type PublicQuoteItem = {
   id: string;
   supplier_name: string;
@@ -113,6 +119,22 @@ type PublicQuoteRecord = {
     | { full_name: string; email: string }[]
     | null;
   quote_items: PublicQuoteItemRecord[] | null;
+};
+
+type PublicQuoteResponseLink = {
+  id: string;
+  organization_id: string;
+  quote_id: string;
+  expires_at: string;
+  revoked_at: string | null;
+};
+
+type PublicQuoteResponseRecord = {
+  id: string;
+  quote_number: string;
+  status: string;
+  notes: string | null;
+  total: number;
 };
 
 type PublicQuoteItemRecord = {
@@ -232,6 +254,8 @@ export async function getPublicQuoteByToken(
   }
 
   await markPublicQuoteViewed(admin, link, quote.status);
+  const visibleStatus =
+    quote.status === "sent" && !link.last_viewed_at ? "viewed" : quote.status;
 
   const customer = relationOne(quote.customers);
   const jobSite = relationOne(quote.job_sites);
@@ -244,7 +268,7 @@ export async function getPublicQuoteByToken(
   return {
     id: quote.id,
     quote_number: quote.quote_number,
-    status: quote.status,
+    status: visibleStatus,
     material_subtotal: Number(quote.material_subtotal),
     trucking_subtotal: Number(quote.trucking_subtotal),
     fees_subtotal: Number(quote.fees_subtotal),
@@ -277,6 +301,92 @@ export async function getPublicQuoteByToken(
   };
 }
 
+export async function respondToPublicQuote({
+  token,
+  response,
+  note,
+}: {
+  token: string;
+  response: "accepted" | "declined";
+  note: string;
+}): Promise<PublicQuoteResponseResult | null> {
+  const admin = createAdminClient();
+
+  if (!admin || !token || token.length > 256) {
+    return null;
+  }
+
+  const tokenHash = hashToken(token);
+  const { data: link } = await admin
+    .from("quote_public_links")
+    .select("id, organization_id, quote_id, expires_at, revoked_at")
+    .eq("token_hash", tokenHash)
+    .maybeSingle<PublicQuoteResponseLink>();
+
+  if (!link || link.revoked_at || link.expires_at <= new Date().toISOString()) {
+    return null;
+  }
+
+  const { data: quote } = await admin
+    .from("quotes")
+    .select("id, quote_number, status, notes, total")
+    .eq("organization_id", link.organization_id)
+    .eq("id", link.quote_id)
+    .eq("is_active", true)
+    .single<PublicQuoteResponseRecord>();
+
+  if (!quote || !["sent", "viewed"].includes(quote.status)) {
+    return null;
+  }
+
+  const nextNote = appendCustomerResponseNote({
+    existingNotes: quote.notes,
+    response,
+    note,
+  });
+  const { error } = await admin
+    .from("quotes")
+    .update({
+      status: response,
+      notes: nextNote,
+    })
+    .eq("organization_id", link.organization_id)
+    .eq("id", quote.id)
+    .in("status", ["sent", "viewed"])
+    .eq("is_active", true);
+
+  if (error) {
+    return null;
+  }
+
+  await admin.from("audit_log").insert({
+    organization_id: link.organization_id,
+    user_id: null,
+    action: response === "accepted" ? "quote.customer_accepted" : "quote.customer_declined",
+    target_table: "quotes",
+    target_id: quote.id,
+    before_value: {
+      status: quote.status,
+      notes: quote.notes,
+    },
+    after_value: {
+      status: response,
+      notes: nextNote,
+      total: Number(quote.total),
+    },
+    metadata: {
+      public_link_id: link.id,
+      response_note: note || null,
+    },
+  });
+
+  return {
+    quoteId: quote.id,
+    quoteNumber: quote.quote_number,
+    status: response,
+  };
+}
+
 async function markPublicQuoteViewed(
   admin: SupabaseClient,
   link: {
@@ -297,6 +407,18 @@ async function markPublicQuoteViewed(
     return;
   }
 
+  const nextStatus = currentStatus === "sent" ? "viewed" : currentStatus;
+
+  if (currentStatus === "sent") {
+    await admin
+      .from("quotes")
+      .update({ status: "viewed" })
+      .eq("organization_id", link.organization_id)
+      .eq("id", link.quote_id)
+      .eq("status", "sent")
+      .eq("is_active", true);
+  }
+
   await admin.from("audit_log").insert({
     organization_id: link.organization_id,
     user_id: null,
@@ -304,7 +426,7 @@ async function markPublicQuoteViewed(
     target_table: "quotes",
     target_id: link.quote_id,
     before_value: { status: currentStatus },
-    after_value: { status: currentStatus },
+    after_value: { status: nextStatus },
     metadata: {
       public_link_id: link.id,
     },
@@ -330,4 +452,22 @@ function hashToken(token: string): string {
 
 function relationOne<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+function appendCustomerResponseNote({
+  existingNotes,
+  response,
+  note,
+}: {
+  existingNotes: string | null;
+  response: "accepted" | "declined";
+  note: string;
+}): string {
+  const timestamp = new Date().toISOString();
+  const label = response === "accepted" ? "Customer accepted" : "Customer declined";
+  const nextNote = note
+    ? `[${timestamp}] ${label}: ${note}`
+    : `[${timestamp}] ${label}.`;
+
+  return existingNotes ? `${existingNotes}\n\n${nextNote}` : nextNote;
 }
