@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
+import { ensureQuotePublicLink } from "@/lib/quotes/delivery";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -151,6 +152,69 @@ export async function markQuoteDeclined(quoteId: string, formData: FormData) {
     allowedRoles: ["admin", "account_manager"],
     note: note ? `Declined: ${note}` : "Marked declined by customer.",
   });
+}
+
+export async function createCustomerQuoteLink(quoteId: string) {
+  if (!UUID_PATTERN.test(quoteId)) {
+    throw new Error("Invalid quote id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (user.role !== "admin" && user.role !== "account_manager") {
+    throw new Error("You do not have permission to create customer quote links.");
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
+
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("id, status")
+    .eq("organization_id", user.organization_id)
+    .eq("id", quoteId)
+    .eq("is_active", true)
+    .single<{ id: string; status: QuoteStatus }>();
+
+  if (!quote) {
+    throw new Error("Quote not found.");
+  }
+
+  if (!["sent", "viewed", "accepted", "declined"].includes(quote.status)) {
+    throw new Error("Customer links are available after the quote is sent.");
+  }
+
+  const publicLink = await ensureQuotePublicLink({
+    supabase,
+    user,
+    quoteId,
+  });
+
+  if (!publicLink?.url) {
+    throw new Error("Could not create the customer quote link.");
+  }
+
+  await logAction({
+    user,
+    action: "quote.public_link_created",
+    targetTable: "quotes",
+    targetId: quoteId,
+    before: null,
+    after: {
+      public_link_id: publicLink.id,
+      expires_at: publicLink.expires_at,
+    },
+  });
+
+  revalidatePath(`/quotes/${quoteId}`);
+  redirect(`/quotes/${quoteId}?public_link=${encodeURIComponent(publicLink.url)}`);
 }
 
 export async function addQuoteItem(quoteId: string, formData: FormData) {

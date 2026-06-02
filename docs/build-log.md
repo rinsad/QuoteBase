@@ -464,3 +464,15 @@ Next likely step:
 - Added safe API validation for workflow action payloads and note text.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-02 - Customer Quote Link Foundation
+
+- Added `quote_public_links` table for secure customer-facing quote tokens.
+- Enabled RLS on public quote links and scoped authenticated access by organization and role.
+- Added token generation that stores only a SHA-256 token hash in the database.
+- Added internal quote detail action to create customer quote links for sent/customer-response quotes.
+- Added public `/q/[token]` quote view rendered server-side from a valid, unexpired token.
+- Added first-view tracking with `quote.customer_viewed` audit entries and `last_viewed_at`.
+- Applied the local Supabase migration successfully.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

@@ -8,6 +8,7 @@ import {
   MapPin,
   PackagePlus,
   Send,
+  Share2,
   XCircle,
   UserRound,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import {
 import {
   addQuoteItem,
   approveQuote,
+  createCustomerQuoteLink,
   markQuoteAccepted,
   markQuoteDeclined,
   markQuoteSent,
@@ -38,7 +40,7 @@ export default async function QuoteDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ created?: string }>;
+  searchParams: Promise<{ created?: string; public_link?: string }>;
 }) {
   const user = await getCurrentUser();
 
@@ -61,6 +63,7 @@ export default async function QuoteDetailPage({
   const acceptedAction = markQuoteAccepted.bind(null, quote.id);
   const declinedAction = markQuoteDeclined.bind(null, quote.id);
   const addItemAction = addQuoteItem.bind(null, quote.id);
+  const createPublicLinkAction = createCustomerQuoteLink.bind(null, quote.id);
   const canSubmit = quote.status === "draft";
   const canEditItems = quote.status === "draft";
   const canApprove =
@@ -71,6 +74,9 @@ export default async function QuoteDetailPage({
     (user.role === "admin" || user.role === "account_manager");
   const canRecordCustomerResponse =
     quote.status === "sent" &&
+    (user.role === "admin" || user.role === "account_manager");
+  const canCreateCustomerLink =
+    ["sent", "viewed", "accepted", "declined"].includes(quote.status) &&
     (user.role === "admin" || user.role === "account_manager");
 
   return (
@@ -118,6 +124,16 @@ export default async function QuoteDetailPage({
               <p className="mt-5 whitespace-pre-line rounded-[16px] bg-white/70 px-4 py-3 text-sm leading-6 text-muted-foreground">
                 {quote.notes}
               </p>
+            ) : null}
+            {query.public_link ? (
+              <div className="mt-5 rounded-[18px] border border-emerald-100 bg-emerald-50/80 p-4 text-sm text-emerald-900">
+                <p className="font-semibold">Customer link created</p>
+                <input
+                  readOnly
+                  value={query.public_link}
+                  className="soft-control mt-3 w-full bg-white/85 font-mono text-xs"
+                />
+              </div>
             ) : null}
             {canSubmit || canApprove || canSend || canRecordCustomerResponse ? (
               <div className="mt-6 space-y-3">
@@ -204,6 +220,18 @@ export default async function QuoteDetailPage({
                   </div>
                 ) : null}
               </div>
+            ) : null}
+            {canCreateCustomerLink ? (
+              <form action={createPublicLinkAction} className="mt-3">
+                <Button
+                  type="submit"
+                  variant="outline"
+                  className="h-11 w-full rounded-full bg-white/70"
+                >
+                  <Share2 className="size-4" />
+                  Create customer link
+                </Button>
+              </form>
             ) : null}
           </div>
 
