@@ -3,17 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { logAction } from "@/lib/audit/log-action";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { updateMaterialPrices } from "@/lib/materials/price-updates";
 import { createClient } from "@/lib/supabase/server";
-
-type MaterialRecord = {
-  id: string;
-  name: string;
-  cost_per_unit: number;
-  last_price_update: string | null;
-  is_active: boolean;
-};
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -40,81 +32,17 @@ export async function updateMaterialPrice(formData: FormData) {
   const notes = optionalText(formData, "notes");
   const priceDate = requiredDate(formData, "price_date");
 
-  const { data: before, error: beforeError } = await supabase
-    .from("materials")
-    .select("id, name, cost_per_unit, last_price_update, is_active")
-    .eq("organization_id", user.organization_id)
-    .eq("id", materialId)
-    .eq("is_active", true)
-    .single<MaterialRecord>();
-
-  if (beforeError || !before) {
-    throw new Error(beforeError?.message ?? "Material was not found.");
-  }
-
-  const oldPrice = Number(before.cost_per_unit);
-
-  if (oldPrice === newPrice) {
-    throw new Error("New price must be different from the current price.");
-  }
-
-  const updatePayload = {
-    cost_per_unit: newPrice,
-    last_price_update: priceDate,
-  };
-
-  const { data: after, error: updateError } = await supabase
-    .from("materials")
-    .update(updatePayload)
-    .eq("organization_id", user.organization_id)
-    .eq("id", materialId)
-    .eq("is_active", true)
-    .select("id, name, cost_per_unit, last_price_update")
-    .single<{
-      id: string;
-      name: string;
-      cost_per_unit: number;
-      last_price_update: string | null;
-    }>();
-
-  if (updateError || !after) {
-    throw new Error(updateError?.message ?? "Could not update material price.");
-  }
-
-  const { error: historyError } = await supabase
-    .from("material_price_history")
-    .insert({
-      organization_id: user.organization_id,
-      material_id: materialId,
-      old_price: oldPrice,
-      new_price: newPrice,
-      changed_by: user.id,
-      notes,
-    });
-
-  if (historyError) {
-    await supabase
-      .from("materials")
-      .update({
-        cost_per_unit: oldPrice,
-        last_price_update: before.last_price_update,
-      })
-      .eq("organization_id", user.organization_id)
-      .eq("id", materialId);
-
-    throw new Error(historyError.message);
-  }
-
-  await logAction({
+  await updateMaterialPrices({
     user,
-    action: "material.price_updated",
-    targetTable: "materials",
-    targetId: materialId,
-    before,
-    after,
-    metadata: {
-      notes,
-    },
+    supabase,
+    updates: [
+      {
+        materialId,
+        newPrice,
+        priceDate,
+        notes,
+      },
+    ],
   });
 
   revalidatePath("/admin/material-prices");

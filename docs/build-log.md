@@ -546,3 +546,14 @@ Next likely step:
 - Kept quote/customer writes organization-scoped and audit logged.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-03 - Supplier and Material API Routes
+
+- Added authenticated `GET /api/suppliers` with pagination, active filtering, and search.
+- Added authenticated `GET /api/suppliers/[id]` with supplier materials.
+- Added authenticated `POST /api/materials/price` with Zod validation, admin/account-manager role checks, material history, and audit logging.
+- Added authenticated `POST /api/materials/bulk-price-update` with Zod validation and batch material/history writes.
+- Extracted material price updates into a shared helper used by the admin UI and APIs.
+- Kept supplier/material queries and writes organization-scoped.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
