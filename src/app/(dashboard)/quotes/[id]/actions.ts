@@ -22,6 +22,7 @@ import {
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
 import type { QuoteStatus } from "@/lib/quotes/quotes";
+import { createQuoteRevision } from "@/lib/quotes/revisions";
 import { transitionQuoteStatus } from "@/lib/quotes/workflow";
 import { createClient } from "@/lib/supabase/server";
 
@@ -361,6 +362,39 @@ export async function generateQuoteDocument(quoteId: string) {
 
   revalidatePath(`/quotes/${quoteId}`);
   redirect(`/quotes/${quoteId}?document_created=${document.version}`);
+}
+
+export async function createQuoteRevisionAction(quoteId: string) {
+  if (!UUID_PATTERN.test(quoteId)) {
+    throw new Error("Invalid quote id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
+
+  const revision = await createQuoteRevision({
+    supabase,
+    user,
+    quoteId,
+  });
+
+  revalidatePath("/quotes");
+  revalidatePath(`/quotes/${quoteId}`);
+  revalidatePath(`/quotes/${revision.id}`);
+  redirect(
+    `/quotes/${revision.id}?revision_created=${encodeURIComponent(
+      revision.quote_number,
+    )}`,
+  );
 }
 
 export async function addQuoteItem(quoteId: string, formData: FormData) {

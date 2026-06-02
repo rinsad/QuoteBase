@@ -521,3 +521,16 @@ Next likely step:
 - Added Open links to each generated document row in the quote detail Documents panel.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-02 - Quote Revision Workflow
+
+- Added quote revision tracking with `parent_quote_id` and `revision_number`.
+- Added tenant-safe self-reference constraints and revision indexes on quotes.
+- Added an admin/account-manager action to copy approved/sent/customer-response quotes into a new draft revision.
+- Copies active quote line items while leaving the source quote unchanged.
+- Logs `quote.revision_created` with source quote, new quote, parent quote, revision number, and copied item count.
+- Added revision context and revision draft controls to the quote detail page.
+- Added revision badges to the quote desk list.
+- Applied the local Supabase migration successfully.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

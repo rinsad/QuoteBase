@@ -17,6 +17,8 @@ export type QuoteListItem = {
   id: string;
   quote_number: string;
   status: QuoteStatus;
+  parent_quote_id: string | null;
+  revision_number: number;
   total: number;
   created_at: string;
   customer_name: string;
@@ -40,6 +42,8 @@ export type QuoteDetail = {
   id: string;
   quote_number: string;
   status: QuoteStatus;
+  parent_quote_id: string | null;
+  revision_number: number;
   material_subtotal: number;
   trucking_subtotal: number;
   fees_subtotal: number;
@@ -72,6 +76,16 @@ export type QuoteDetail = {
   items: QuoteDetailItem[];
   auditEntries: QuoteAuditEntry[];
   documents: QuoteDocument[];
+  revision_parent: QuoteRevisionLink | null;
+  revision_children: QuoteRevisionLink[];
+};
+
+export type QuoteRevisionLink = {
+  id: string;
+  quote_number: string;
+  status: QuoteStatus;
+  revision_number: number;
+  created_at: string;
 };
 
 export type QuoteDetailItem = {
@@ -104,6 +118,8 @@ type QuoteListRecord = {
   id: string;
   quote_number: string;
   status: QuoteStatus;
+  parent_quote_id: string | null;
+  revision_number: number;
   total: number;
   created_at: string;
   customers: { name: string } | { name: string }[] | null;
@@ -118,6 +134,8 @@ type QuoteDetailRecord = {
   id: string;
   quote_number: string;
   status: QuoteStatus;
+  parent_quote_id: string | null;
+  revision_number: number;
   material_subtotal: number;
   trucking_subtotal: number;
   fees_subtotal: number;
@@ -194,6 +212,8 @@ type AuditRecord = {
   users: { full_name: string } | { full_name: string }[] | null;
 };
 
+type QuoteRevisionLinkRecord = QuoteRevisionLink;
+
 export async function getQuoteList(
   user: AppUser,
 ): Promise<QuoteListSummary> {
@@ -208,7 +228,7 @@ export async function getQuoteList(
       supabase
         .from("quotes")
         .select(
-          "id, quote_number, status, total, created_at, customers(name), job_sites(name, city, state), users(full_name)",
+          "id, quote_number, status, parent_quote_id, revision_number, total, created_at, customers(name), job_sites(name, city, state), users(full_name)",
         )
         .eq("organization_id", user.organization_id)
         .eq("is_active", true)
@@ -257,6 +277,8 @@ export async function getQuoteList(
           id: quote.id,
           quote_number: quote.quote_number,
           status: quote.status,
+          parent_quote_id: quote.parent_quote_id,
+          revision_number: Number(quote.revision_number),
           total: Number(quote.total),
           created_at: quote.created_at,
           customer_name: customer?.name ?? "Unknown customer",
@@ -289,7 +311,7 @@ export async function getQuoteDetail(
     supabase
       .from("quotes")
       .select(
-        "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), sales_tax_rates(city, state, rate), quote_items(id, quantity, unit, unit_cost, markup_pct, material_unit_price, material_subtotal, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, suppliers(name), materials(name, tier), vehicle_types(name))",
+        "id, quote_number, status, parent_quote_id, revision_number, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), sales_tax_rates(city, state, rate), quote_items(id, quantity, unit, unit_cost, markup_pct, material_unit_price, material_subtotal, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, suppliers(name), materials(name, tier), vehicle_types(name))",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", quoteId)
@@ -320,15 +342,38 @@ export async function getQuoteDetail(
   const site = relationOne(quote.job_sites);
   const requestedBy = relationOne(quote.users);
   const taxRate = relationOne(quote.sales_tax_rates);
+  const rootQuoteId = quote.parent_quote_id ?? quote.id;
 
   if (!customer || !site || !requestedBy) {
     return null;
   }
 
+  const [parentResult, childrenResult] = await Promise.all([
+    quote.parent_quote_id
+      ? supabase
+          .from("quotes")
+          .select("id, quote_number, status, revision_number, created_at")
+          .eq("organization_id", user.organization_id)
+          .eq("id", quote.parent_quote_id)
+          .eq("is_active", true)
+          .single<QuoteRevisionLinkRecord>()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from("quotes")
+      .select("id, quote_number, status, revision_number, created_at")
+      .eq("organization_id", user.organization_id)
+      .eq("parent_quote_id", rootQuoteId)
+      .eq("is_active", true)
+      .order("revision_number", { ascending: true })
+      .returns<QuoteRevisionLinkRecord[]>(),
+  ]);
+
   return {
     id: quote.id,
     quote_number: quote.quote_number,
     status: quote.status,
+    parent_quote_id: quote.parent_quote_id,
+    revision_number: Number(quote.revision_number),
     material_subtotal: Number(quote.material_subtotal),
     trucking_subtotal: Number(quote.trucking_subtotal),
     fees_subtotal: Number(quote.fees_subtotal),
@@ -379,6 +424,25 @@ export async function getQuoteDetail(
         user_name: relationOne(entry.users)?.full_name ?? null,
       })) ?? [],
     documents,
+    revision_parent: parentResult.data
+      ? {
+          id: parentResult.data.id,
+          quote_number: parentResult.data.quote_number,
+          status: parentResult.data.status,
+          revision_number: Number(parentResult.data.revision_number),
+          created_at: parentResult.data.created_at,
+        }
+      : null,
+    revision_children:
+      childrenResult.data
+        ?.filter((revision) => revision.id !== quote.id)
+        .map((revision) => ({
+          id: revision.id,
+          quote_number: revision.quote_number,
+          status: revision.status,
+          revision_number: Number(revision.revision_number),
+          created_at: revision.created_at,
+        })) ?? [],
   };
 }
 

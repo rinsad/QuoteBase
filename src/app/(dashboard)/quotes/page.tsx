@@ -82,9 +82,16 @@ export default async function QuotesPage() {
                   className="soft-row grid gap-3 px-4 py-4 transition hover:bg-white/80 md:grid-cols-[1fr_1fr_auto_auto] md:items-center"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">
-                      {quote.quote_number}
-                    </p>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="truncate text-sm font-semibold">
+                        {quote.quote_number}
+                      </p>
+                      {quote.revision_number > 1 ? (
+                        <span className="soft-chip shrink-0 bg-sky-50 text-sky-700 ring-sky-100">
+                          R{quote.revision_number}
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="mt-1 truncate text-sm text-muted-foreground">
                       {quote.customer_name}
                     </p>

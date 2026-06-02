@@ -6,6 +6,7 @@ import {
   ClipboardList,
   DollarSign,
   FileText,
+  GitBranch,
   MapPin,
   PackagePlus,
   Send,
@@ -18,6 +19,7 @@ import {
   addQuoteItem,
   approveQuote,
   createCustomerQuoteLink,
+  createQuoteRevisionAction,
   generateQuoteDocument,
   markQuoteAccepted,
   markQuoteDeclined,
@@ -48,6 +50,7 @@ export default async function QuoteDetailPage({
     document_created?: string;
     email_status?: string;
     public_link?: string;
+    revision_created?: string;
   }>;
 }) {
   const user = await getCurrentUser();
@@ -74,6 +77,7 @@ export default async function QuoteDetailPage({
   const createPublicLinkAction = createCustomerQuoteLink.bind(null, quote.id);
   const generateDocumentAction = generateQuoteDocument.bind(null, quote.id);
   const sendEmailAction = sendCustomerQuoteEmail.bind(null, quote.id);
+  const createRevisionAction = createQuoteRevisionAction.bind(null, quote.id);
   const canSubmit = quote.status === "draft";
   const canEditItems = quote.status === "draft";
   const canApprove =
@@ -90,6 +94,10 @@ export default async function QuoteDetailPage({
     (user.role === "admin" || user.role === "account_manager");
   const canGenerateDocument =
     ["approved", "sent", "viewed", "accepted", "declined"].includes(
+      quote.status,
+    ) && (user.role === "admin" || user.role === "account_manager");
+  const canCreateRevision =
+    ["approved", "sent", "viewed", "accepted", "declined", "expired"].includes(
       quote.status,
     ) && (user.role === "admin" || user.role === "account_manager");
 
@@ -130,6 +138,12 @@ export default async function QuoteDetailPage({
           </div>
         ) : null}
 
+        {query.revision_created ? (
+          <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
+            Revision draft {query.revision_created} was created.
+          </div>
+        ) : null}
+
         <section className="mt-6 grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
           <div className="glass-panel p-6 sm:p-8">
             <StatusPill status={quote.status} />
@@ -140,6 +154,45 @@ export default async function QuoteDetailPage({
               Created {formatDateTime(quote.created_at)} by{" "}
               {quote.requested_by.full_name}.
             </p>
+            <div className="mt-5 rounded-[18px] border border-white/70 bg-white/65 p-4">
+              <div className="flex items-start gap-3">
+                <div className="icon-well text-blue-700">
+                  <GitBranch className="size-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium uppercase text-muted-foreground">
+                    Revision
+                  </p>
+                  <p className="mt-1 text-sm font-semibold">
+                    Revision {quote.revision_number}
+                  </p>
+                  {quote.revision_parent ? (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Based on{" "}
+                      <Link
+                        href={`/quotes/${quote.revision_parent.id}`}
+                        className="font-semibold text-blue-700 hover:text-blue-800"
+                      >
+                        {quote.revision_parent.quote_number}
+                      </Link>
+                    </p>
+                  ) : null}
+                  {quote.revision_children.length ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {quote.revision_children.map((revision) => (
+                        <Link
+                          key={revision.id}
+                          href={`/quotes/${revision.id}`}
+                          className="soft-chip bg-sky-50 text-sky-700 ring-sky-100"
+                        >
+                          {revision.quote_number}
+                        </Link>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
             {quote.notes ? (
               <p className="mt-5 whitespace-pre-line rounded-[16px] bg-white/70 px-4 py-3 text-sm leading-6 text-muted-foreground">
                 {quote.notes}
@@ -264,6 +317,18 @@ export default async function QuoteDetailPage({
                   </Button>
                 </form>
               </div>
+            ) : null}
+            {canCreateRevision ? (
+              <form action={createRevisionAction} className="mt-3">
+                <Button
+                  type="submit"
+                  variant="outline"
+                  className="h-11 w-full rounded-full bg-white/70"
+                >
+                  <GitBranch className="size-4" />
+                  Create revision draft
+                </Button>
+              </form>
             ) : null}
           </div>
 
