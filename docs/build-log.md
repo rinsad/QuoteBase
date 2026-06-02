@@ -487,3 +487,15 @@ Next likely step:
 - Public response updates write immutable audit log entries without requiring an internal user session.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-02 - Quote Email Delivery Foundation
+
+- Added a server-side quote email delivery helper with Resend support when `RESEND_API_KEY` and `EMAIL_FROM` are configured.
+- Added safe local fallback that creates the customer link and records delivery as skipped when no provider is configured.
+- Added internal quote action to generate a fresh public quote link and send or skip customer email delivery.
+- Added “Send customer email” control to the quote detail page for sent/customer-response quotes.
+- Added `quote.email_sent` audit log entries with recipient, provider, message id, delivery status, and skip/failure reason.
+- Added email delivery configuration placeholders to `.env.local.example`.
+- Added an admin system check for email delivery configuration.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.

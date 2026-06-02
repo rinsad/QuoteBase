@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
+import { sendQuoteEmail } from "@/lib/notifications/email";
 import { ensureQuotePublicLink } from "@/lib/quotes/delivery";
 import {
   normalizePricingConfig,
@@ -215,6 +216,100 @@ export async function createCustomerQuoteLink(quoteId: string) {
 
   revalidatePath(`/quotes/${quoteId}`);
   redirect(`/quotes/${quoteId}?public_link=${encodeURIComponent(publicLink.url)}`);
+}
+
+export async function sendCustomerQuoteEmail(quoteId: string) {
+  if (!UUID_PATTERN.test(quoteId)) {
+    throw new Error("Invalid quote id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (user.role !== "admin" && user.role !== "account_manager") {
+    throw new Error("You do not have permission to send customer quote emails.");
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
+
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("id, quote_number, status, total, customers(name, email)")
+    .eq("organization_id", user.organization_id)
+    .eq("id", quoteId)
+    .eq("is_active", true)
+    .single<{
+      id: string;
+      quote_number: string;
+      status: QuoteStatus;
+      total: number;
+      customers:
+        | { name: string; email: string | null }
+        | { name: string; email: string | null }[]
+        | null;
+    }>();
+
+  if (!quote) {
+    throw new Error("Quote not found.");
+  }
+
+  if (!["sent", "viewed", "accepted", "declined"].includes(quote.status)) {
+    throw new Error("Customer email is available after the quote is sent.");
+  }
+
+  const customer = relationOne(quote.customers);
+
+  if (!customer?.email) {
+    throw new Error("This customer does not have an email address.");
+  }
+
+  const publicLink = await ensureQuotePublicLink({
+    supabase,
+    user,
+    quoteId,
+  });
+
+  if (!publicLink?.url) {
+    throw new Error("Could not create the customer quote link.");
+  }
+
+  const delivery = await sendQuoteEmail({
+    to: customer.email,
+    customerName: customer.name,
+    quoteNumber: quote.quote_number,
+    quoteUrl: publicLink.url,
+    total: Number(quote.total),
+  });
+
+  await logAction({
+    user,
+    action: "quote.email_sent",
+    targetTable: "quotes",
+    targetId: quoteId,
+    before: null,
+    after: {
+      public_link_id: publicLink.id,
+      recipient: customer.email,
+      delivery_status: delivery.status,
+      provider: delivery.provider,
+      message_id: delivery.messageId,
+    },
+    metadata: {
+      delivery_reason: delivery.reason,
+    },
+  });
+
+  revalidatePath(`/quotes/${quoteId}`);
+  redirect(
+    `/quotes/${quoteId}?email_status=${delivery.status}&public_link=${encodeURIComponent(publicLink.url)}`,
+  );
 }
 
 export async function addQuoteItem(quoteId: string, formData: FormData) {

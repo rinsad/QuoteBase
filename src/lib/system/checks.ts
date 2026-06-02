@@ -174,6 +174,30 @@ export async function getSystemCheckSummary(
           : "Slack notifications are disabled for this organization.",
   });
 
+  const emailAutomationEnabled =
+    visibleFlags?.some(
+      (flag) => flag.feature_name === "email_sms_automation" && flag.is_enabled,
+    ) ?? false;
+  const emailConfigured = Boolean(
+    process.env.RESEND_API_KEY && process.env.EMAIL_FROM,
+  );
+
+  checks.push({
+    label: "Email delivery",
+    status:
+      emailAutomationEnabled && !emailConfigured
+        ? "warn"
+        : emailAutomationEnabled
+          ? "pass"
+          : "warn",
+    detail:
+      emailAutomationEnabled && emailConfigured
+        ? "Quote email delivery is enabled and Resend environment values are configured."
+        : emailAutomationEnabled
+          ? "Quote email delivery is enabled, but RESEND_API_KEY or EMAIL_FROM is missing."
+          : "Email automation is disabled for this organization; local sends will create links and skip provider delivery.",
+  });
+
   const { data: hiddenInvites, error: inviteError } = await supabase
     .from("user_invites")
     .select("id")

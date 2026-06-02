@@ -22,6 +22,7 @@ import {
   markQuoteSent,
   rejectQuote,
   removeQuoteItem,
+  sendCustomerQuoteEmail,
   submitQuoteForApproval,
   updateQuoteItemQuantity,
 } from "@/app/(dashboard)/quotes/[id]/actions";
@@ -40,7 +41,11 @@ export default async function QuoteDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ created?: string; public_link?: string }>;
+  searchParams: Promise<{
+    created?: string;
+    email_status?: string;
+    public_link?: string;
+  }>;
 }) {
   const user = await getCurrentUser();
 
@@ -64,6 +69,7 @@ export default async function QuoteDetailPage({
   const declinedAction = markQuoteDeclined.bind(null, quote.id);
   const addItemAction = addQuoteItem.bind(null, quote.id);
   const createPublicLinkAction = createCustomerQuoteLink.bind(null, quote.id);
+  const sendEmailAction = sendCustomerQuoteEmail.bind(null, quote.id);
   const canSubmit = quote.status === "draft";
   const canEditItems = quote.status === "draft";
   const canApprove =
@@ -127,7 +133,11 @@ export default async function QuoteDetailPage({
             ) : null}
             {query.public_link ? (
               <div className="mt-5 rounded-[18px] border border-emerald-100 bg-emerald-50/80 p-4 text-sm text-emerald-900">
-                <p className="font-semibold">Customer link created</p>
+                <p className="font-semibold">
+                  {query.email_status
+                    ? emailStatusMessage(query.email_status)
+                    : "Customer link created"}
+                </p>
                 <input
                   readOnly
                   value={query.public_link}
@@ -222,16 +232,24 @@ export default async function QuoteDetailPage({
               </div>
             ) : null}
             {canCreateCustomerLink ? (
-              <form action={createPublicLinkAction} className="mt-3">
-                <Button
-                  type="submit"
-                  variant="outline"
-                  className="h-11 w-full rounded-full bg-white/70"
-                >
-                  <Share2 className="size-4" />
-                  Create customer link
-                </Button>
-              </form>
+              <div className="mt-3 grid gap-3">
+                <form action={sendEmailAction}>
+                  <Button type="submit" className="h-11 w-full rounded-full">
+                    <Send className="size-4" />
+                    Send customer email
+                  </Button>
+                </form>
+                <form action={createPublicLinkAction}>
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    className="h-11 w-full rounded-full bg-white/70"
+                  >
+                    <Share2 className="size-4" />
+                    Create customer link
+                  </Button>
+                </form>
+              </div>
             ) : null}
           </div>
 
@@ -598,4 +616,20 @@ function formatDateTime(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function emailStatusMessage(status: string) {
+  if (status === "sent") {
+    return "Customer email sent";
+  }
+
+  if (status === "skipped") {
+    return "Email provider not configured; customer link created";
+  }
+
+  if (status === "failed") {
+    return "Email delivery failed; customer link created";
+  }
+
+  return "Customer link created";
 }
