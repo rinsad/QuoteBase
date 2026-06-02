@@ -443,3 +443,14 @@ Next likely step:
 - Added an admin system check for Slack notification configuration.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-02 - API Route Foundation
+
+- Added shared API response helpers with a consistent `{ data, error, meta }` envelope.
+- Added shared API validation helpers for UUIDs, quote statuses, and pagination limits.
+- Added authenticated, organization-scoped `GET /api/quotes` with status filtering and pagination.
+- Added authenticated, organization-scoped `GET /api/quotes/[id]` for quote detail payloads.
+- Added authenticated, organization-scoped `GET /api/customers` with active filtering and pagination.
+- Verified API routes return safe errors without stack traces or internal paths.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
