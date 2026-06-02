@@ -1,4 +1,5 @@
 import type { AppUser } from "@/lib/auth/current-user";
+import { getQuoteDocuments, type QuoteDocument } from "@/lib/quotes/documents";
 import { createClient } from "@/lib/supabase/server";
 
 export type QuoteStatus =
@@ -70,6 +71,7 @@ export type QuoteDetail = {
   } | null;
   items: QuoteDetailItem[];
   auditEntries: QuoteAuditEntry[];
+  documents: QuoteDocument[];
 };
 
 export type QuoteDetailItem = {
@@ -283,7 +285,7 @@ export async function getQuoteDetail(
     return null;
   }
 
-  const [quoteResult, auditResult] = await Promise.all([
+  const [quoteResult, auditResult, documents] = await Promise.all([
     supabase
       .from("quotes")
       .select(
@@ -302,6 +304,11 @@ export async function getQuoteDetail(
       .order("created_at", { ascending: false })
       .limit(10)
       .returns<AuditRecord[]>(),
+    getQuoteDocuments({
+      supabase,
+      organizationId: user.organization_id,
+      quoteId,
+    }),
   ]);
 
   if (!quoteResult.data) {
@@ -371,6 +378,7 @@ export async function getQuoteDetail(
         created_at: entry.created_at,
         user_name: relationOne(entry.users)?.full_name ?? null,
       })) ?? [],
+    documents,
   };
 }
 

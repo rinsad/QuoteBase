@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
 import { sendQuoteEmail } from "@/lib/notifications/email";
 import { ensureQuotePublicLink } from "@/lib/quotes/delivery";
+import { createQuoteHtmlDocument } from "@/lib/quotes/documents";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -310,6 +311,56 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
   redirect(
     `/quotes/${quoteId}?email_status=${delivery.status}&public_link=${encodeURIComponent(publicLink.url)}`,
   );
+}
+
+export async function generateQuoteDocument(quoteId: string) {
+  if (!UUID_PATTERN.test(quoteId)) {
+    throw new Error("Invalid quote id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (user.role !== "admin" && user.role !== "account_manager") {
+    throw new Error("You do not have permission to generate quote documents.");
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
+
+  const document = await createQuoteHtmlDocument({
+    supabase,
+    user,
+    quoteId,
+  });
+
+  if (!document) {
+    throw new Error("Could not generate the quote document.");
+  }
+
+  await logAction({
+    user,
+    action: "quote.document_created",
+    targetTable: "quotes",
+    targetId: quoteId,
+    before: null,
+    after: {
+      document_id: document.id,
+      version: document.version,
+      document_type: document.document_type,
+      storage_bucket: document.storage_bucket,
+      storage_path: document.storage_path,
+    },
+  });
+
+  revalidatePath(`/quotes/${quoteId}`);
+  redirect(`/quotes/${quoteId}?document_created=${document.version}`);
 }
 
 export async function addQuoteItem(quoteId: string, formData: FormData) {

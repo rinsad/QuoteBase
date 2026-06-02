@@ -17,6 +17,7 @@ import {
   addQuoteItem,
   approveQuote,
   createCustomerQuoteLink,
+  generateQuoteDocument,
   markQuoteAccepted,
   markQuoteDeclined,
   markQuoteSent,
@@ -43,6 +44,7 @@ export default async function QuoteDetailPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{
     created?: string;
+    document_created?: string;
     email_status?: string;
     public_link?: string;
   }>;
@@ -69,6 +71,7 @@ export default async function QuoteDetailPage({
   const declinedAction = markQuoteDeclined.bind(null, quote.id);
   const addItemAction = addQuoteItem.bind(null, quote.id);
   const createPublicLinkAction = createCustomerQuoteLink.bind(null, quote.id);
+  const generateDocumentAction = generateQuoteDocument.bind(null, quote.id);
   const sendEmailAction = sendCustomerQuoteEmail.bind(null, quote.id);
   const canSubmit = quote.status === "draft";
   const canEditItems = quote.status === "draft";
@@ -84,6 +87,10 @@ export default async function QuoteDetailPage({
   const canCreateCustomerLink =
     ["sent", "viewed", "accepted", "declined"].includes(quote.status) &&
     (user.role === "admin" || user.role === "account_manager");
+  const canGenerateDocument =
+    ["approved", "sent", "viewed", "accepted", "declined"].includes(
+      quote.status,
+    ) && (user.role === "admin" || user.role === "account_manager");
 
   return (
     <main className="app-background">
@@ -113,6 +120,12 @@ export default async function QuoteDetailPage({
         {query.created ? (
           <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
             Draft quote {query.created} was saved and logged.
+          </div>
+        ) : null}
+
+        {query.document_created ? (
+          <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
+            Quote document version {query.document_created} was generated.
           </div>
         ) : null}
 
@@ -390,6 +403,51 @@ export default async function QuoteDetailPage({
                 <TotalRow label="Fees" value={formatCurrency(quote.fees_subtotal)} />
                 <TotalRow label="Tax" value={formatCurrency(quote.tax_total)} />
                 <TotalRow label="Total" value={formatCurrency(quote.total)} strong />
+              </div>
+            </section>
+
+            <section className="glass-panel p-5 sm:p-6">
+              <SectionHeading
+                icon={FileText}
+                kicker="Documents"
+                title={`${quote.documents.length} archived version${
+                  quote.documents.length === 1 ? "" : "s"
+                }`}
+              />
+              {canGenerateDocument ? (
+                <form action={generateDocumentAction} className="mt-5">
+                  <Button type="submit" className="h-11 w-full rounded-full">
+                    <FileText className="size-4" />
+                    Generate document
+                  </Button>
+                </form>
+              ) : null}
+              <div className="mt-5 space-y-3">
+                {quote.documents.length ? (
+                  quote.documents.map((document) => (
+                    <div key={document.id} className="soft-row px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold">
+                            Version {document.version}{" "}
+                            {document.document_type.toUpperCase()}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {document.generated_by_name ?? "System"} -{" "}
+                            {formatDateTime(document.generated_at)}
+                          </p>
+                        </div>
+                        <span className="soft-chip bg-slate-100 text-slate-600 ring-slate-200">
+                          {formatStatus(document.status)}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No quote documents generated yet.
+                  </p>
+                )}
               </div>
             </section>
 

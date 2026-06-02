@@ -499,3 +499,16 @@ Next likely step:
 - Added an admin system check for email delivery configuration.
 - Verified `npm run lint` passes.
 - Verified `npm run build` passes.
+
+## 2026-06-02 - Quote Document Archive Foundation
+
+- Added private Supabase Storage bucket `quote-documents`.
+- Added tenant-scoped `quote_documents` table with document versioning, storage path tracking, status, generated_by, and generated_at.
+- Enabled RLS for quote document metadata and private storage objects.
+- Added server-side quote document helper that renders and uploads an HTML quote snapshot.
+- Added document generation action for approved/sent/viewed/accepted/declined quotes.
+- Added Documents panel to quote detail with generated versions and audit-friendly metadata.
+- Added `quote.document_created` audit logging.
+- Applied the local Supabase migration successfully.
+- Verified `npm run lint` passes.
+- Verified `npm run build` passes.
