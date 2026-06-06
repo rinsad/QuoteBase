@@ -2,9 +2,12 @@ import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/app/(auth)/login/login-form";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { isLocalSupabase } from "@/lib/env";
 
 export default async function LoginPage() {
   const user = await getCurrentUser();
+  const showDevSignIn =
+    process.env.NODE_ENV !== "production" && isLocalSupabase();
 
   if (user) {
     redirect("/dashboard");
@@ -43,7 +46,7 @@ export default async function LoginPage() {
                 Use your allowlisted Western Materials email. Supabase will send
                 a magic link; local development can use the Rinsad shortcut.
               </p>
-              <LoginForm />
+              <LoginForm showDevSignIn={showDevSignIn} />
             </div>
 
             <aside className="border-t border-white/70 bg-white/40 p-6 sm:p-8 lg:border-l lg:border-t-0 lg:p-10">

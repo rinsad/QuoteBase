@@ -15,7 +15,7 @@ const initialState: LoginState = {
   status: "idle",
 };
 
-export function LoginForm() {
+export function LoginForm({ showDevSignIn }: { showDevSignIn: boolean }) {
   const [state, formAction, isPending] = useActionState(
     sendMagicLink,
     initialState,
@@ -52,25 +52,29 @@ export function LoginForm() {
         {isPending ? "Sending..." : "Send magic link"}
       </Button>
 
-      <div className="relative py-1">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-white/70" />
-        </div>
-        <div className="relative flex justify-center">
-          <span className="bg-white/70 px-3 text-xs font-medium text-muted-foreground">
-            local development
-          </span>
-        </div>
-      </div>
+      {showDevSignIn ? (
+        <div className="space-y-4">
+          <div className="relative py-1">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-white/70" />
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-white/70 px-3 text-xs font-medium text-muted-foreground">
+                local development
+              </span>
+            </div>
+          </div>
 
-      <Button
-        formAction={devSignInAsRinsad}
-        type="submit"
-        variant="outline"
-        className="h-11 w-full rounded-full bg-white/70"
-      >
-        Continue as Rinsad
-      </Button>
+          <Button
+            formAction={devSignInAsRinsad}
+            type="submit"
+            variant="outline"
+            className="h-11 w-full rounded-full bg-white/70"
+          >
+            Continue as Rinsad
+          </Button>
+        </div>
+      ) : null}
 
       {state.message ? (
         <p
