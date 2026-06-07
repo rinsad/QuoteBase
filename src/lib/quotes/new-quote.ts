@@ -49,6 +49,7 @@ export type NewQuoteContext = {
   materials: QuoteMaterialOption[];
   taxRates: QuoteTaxRateOption[];
   vehicleTypes: QuoteVehicleOption[];
+  pricingConfig: PricingConfig | null;
   sampleCalculation: ReturnType<typeof calculateQuoteDraft> | null;
 };
 
@@ -123,17 +124,20 @@ export async function getNewQuoteContext(
       .single<PricingConfig>(),
   ]);
 
+  const pricingConfig = pricingConfigResult.data
+    ? normalizePricingConfig(pricingConfigResult.data)
+    : null;
   const firstMaterial = materialsResult.data?.[0];
   const firstTaxRate = taxRatesResult.data?.[0];
   const sampleCalculation =
-    firstMaterial && firstTaxRate && pricingConfigResult.data
+    firstMaterial && firstTaxRate && pricingConfig
       ? calculateQuoteDraft({
           costPerUnit: Number(firstMaterial.cost_per_unit),
           quantity: 10,
           tier: firstMaterial.tier,
           unit: firstMaterial.unit,
           taxRate: Number(firstTaxRate.rate),
-          pricingConfig: normalizePricingConfig(pricingConfigResult.data),
+          pricingConfig,
           vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
         })
       : null;
@@ -164,6 +168,7 @@ export async function getNewQuoteContext(
         rate: Number(taxRate.rate),
       })) ?? [],
     vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
+    pricingConfig,
     sampleCalculation,
   };
 }
@@ -210,6 +215,7 @@ function emptyContext(): NewQuoteContext {
     materials: [],
     taxRates: [],
     vehicleTypes: [],
+    pricingConfig: null,
     sampleCalculation: null,
   };
 }

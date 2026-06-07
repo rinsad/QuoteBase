@@ -1,13 +1,24 @@
 "use client";
 
-import { useActionState } from "react";
-import { Calculator, FilePlus2, MapPin, PackageOpen, UserRound } from "lucide-react";
+import { useActionState, useMemo, useState } from "react";
+import {
+  BrainCircuit,
+  Calculator,
+  FilePlus2,
+  GitPullRequestArrow,
+  MapPin,
+  PackageOpen,
+  ShieldCheck,
+  TrendingUp,
+  UserRound,
+} from "lucide-react";
 
 import {
   createQuoteDraft,
   type CreateQuoteState,
 } from "@/app/(dashboard)/quotes/new/actions";
 import { Button } from "@/components/ui/button";
+import { calculateQuoteDraft } from "@/lib/quotes/pricing";
 import type { NewQuoteContext } from "@/lib/quotes/new-quote";
 
 const initialState: CreateQuoteState = {
@@ -20,6 +31,50 @@ export function QuoteDraftForm({ context }: { context: NewQuoteContext }) {
     createQuoteDraft,
     initialState,
   );
+  const [materialId, setMaterialId] = useState("");
+  const [taxRateId, setTaxRateId] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const selectedMaterial = context.materials.find(
+    (material) => material.id === materialId,
+  );
+  const selectedTaxRate = context.taxRates.find(
+    (taxRate) => taxRate.id === taxRateId,
+  );
+  const quantityValue = Number(quantity);
+  const liveCalculation = useMemo(() => {
+    if (
+      !selectedMaterial ||
+      !selectedTaxRate ||
+      !context.pricingConfig ||
+      !Number.isFinite(quantityValue) ||
+      quantityValue <= 0
+    ) {
+      return null;
+    }
+
+    return calculateQuoteDraft({
+      costPerUnit: selectedMaterial.cost_per_unit,
+      quantity: quantityValue,
+      tier: selectedMaterial.tier,
+      unit: selectedMaterial.unit,
+      taxRate: selectedTaxRate.rate,
+      pricingConfig: context.pricingConfig,
+      vehicleTypes: context.vehicleTypes,
+    });
+  }, [
+    context.pricingConfig,
+    context.vehicleTypes,
+    quantityValue,
+    selectedMaterial,
+    selectedTaxRate,
+  ]);
+  const margin =
+    liveCalculation && selectedMaterial && liveCalculation.materialSubtotal > 0
+      ? ((liveCalculation.materialSubtotal -
+          selectedMaterial.cost_per_unit * quantityValue) /
+          liveCalculation.materialSubtotal) *
+        100
+      : null;
 
   return (
     <form action={formAction} className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">
@@ -156,7 +211,13 @@ export function QuoteDraftForm({ context }: { context: NewQuoteContext }) {
           />
           <div className="mt-5 space-y-4">
             <Field label="Material">
-              <select name="material_id" className="soft-control w-full" required>
+              <select
+                name="material_id"
+                className="soft-control w-full"
+                value={materialId}
+                onChange={(event) => setMaterialId(event.target.value)}
+                required
+              >
                 <option value="">Select material...</option>
                 {context.materials.map((material) => (
                   <option key={material.id} value={material.id}>
@@ -173,11 +234,19 @@ export function QuoteDraftForm({ context }: { context: NewQuoteContext }) {
                 step="0.01"
                 className="soft-control w-full"
                 placeholder="10"
+                value={quantity}
+                onChange={(event) => setQuantity(event.target.value)}
                 required
               />
             </Field>
             <Field label="Tax area">
-              <select name="tax_rate_id" className="soft-control w-full" required>
+              <select
+                name="tax_rate_id"
+                className="soft-control w-full"
+                value={taxRateId}
+                onChange={(event) => setTaxRateId(event.target.value)}
+                required
+              >
                 <option value="">Select tax area...</option>
                 {context.taxRates.map((taxRate) => (
                   <option key={taxRate.id} value={taxRate.id}>
@@ -199,46 +268,88 @@ export function QuoteDraftForm({ context }: { context: NewQuoteContext }) {
 
         <section className="glass-panel p-5 sm:p-6">
           <SectionHeader
-            icon={Calculator}
-            kicker="Calculation"
-            title="Server-priced draft"
+            icon={BrainCircuit}
+            kicker="Pricing Logic"
+            title="John's distributor rules"
           />
-          {context.sampleCalculation ? (
-            <div className="mt-5 space-y-3">
+          {liveCalculation && selectedMaterial && selectedTaxRate ? (
+            <div className="mt-5 space-y-4">
+              <div className="rounded-[18px] border border-blue-100 bg-blue-50/70 p-4">
+                <div className="flex items-center gap-3">
+                  <div className="icon-well bg-white text-blue-700">
+                    <TrendingUp className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {selectedMaterial.tier} markup applied
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Buy at {formatCurrency(selectedMaterial.cost_per_unit)} /
+                      {selectedMaterial.unit}; sell at{" "}
+                      {formatCurrency(liveCalculation.materialUnitPrice)} /
+                      {selectedMaterial.unit}.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <SummaryRow
-                label="Example material"
-                value={formatCurrency(context.sampleCalculation.materialSubtotal)}
+                label="Markup"
+                value={`${liveCalculation.markupPct.toFixed(2)}%`}
               />
               <SummaryRow
-                label="Example trucking"
-                value={formatCurrency(context.sampleCalculation.truckingSubtotal)}
+                label="Material revenue"
+                value={formatCurrency(liveCalculation.materialSubtotal)}
               />
               <SummaryRow
-                label="Example loads"
-                value={`${context.sampleCalculation.loadCount.toFixed(0)}${
-                  context.sampleCalculation.vehicleName
-                    ? ` via ${context.sampleCalculation.vehicleName}`
+                label="Gross material margin"
+                value={margin === null ? "Pending" : `${margin.toFixed(1)}%`}
+              />
+              <SummaryRow
+                label="Truck plan"
+                value={`${liveCalculation.loadCount.toFixed(0)} load${
+                  liveCalculation.loadCount === 1 ? "" : "s"
+                }${
+                  liveCalculation.vehicleName
+                    ? ` via ${liveCalculation.vehicleName}`
                     : ""
                 }`}
               />
               <SummaryRow
-                label="Example fees"
-                value={formatCurrency(context.sampleCalculation.feesSubtotal)}
+                label="Trucking"
+                value={formatCurrency(liveCalculation.truckingSubtotal)}
               />
               <SummaryRow
-                label="Example tax"
-                value={formatCurrency(context.sampleCalculation.taxTotal)}
+                label="Fuel/environmental fees"
+                value={formatCurrency(liveCalculation.feesSubtotal)}
               />
               <SummaryRow
-                label="Example total"
-                value={formatCurrency(context.sampleCalculation.total)}
+                label={`Tax (${(selectedTaxRate.rate * 100).toFixed(2)}%)`}
+                value={formatCurrency(liveCalculation.taxTotal)}
+              />
+              <SummaryRow
+                label="Draft quote total"
+                value={formatCurrency(liveCalculation.total)}
                 strong
               />
+
+              <div className="grid gap-3">
+                <LogicCallout
+                  icon={ShieldCheck}
+                  title="Approval rule"
+                  text="The rep can save this as a draft; John reviews the calculated total before it becomes customer-facing."
+                />
+                <LogicCallout
+                  icon={GitPullRequestArrow}
+                  title="Integration path"
+                  text="This draft is ready to route to Slack approval now, and later to Quoter, Pipedrive, or QuoteBase CRM."
+                />
+              </div>
             </div>
           ) : (
             <p className="mt-5 text-sm leading-6 text-muted-foreground">
-              Load material, tax, and pricing config to preview calculated
-              totals.
+              Select a material, quantity, and tax area to see the markup,
+              trucking, fees, margin, and approval logic before saving.
             </p>
           )}
           <Button
@@ -257,6 +368,26 @@ export function QuoteDraftForm({ context }: { context: NewQuoteContext }) {
         </section>
       </aside>
     </form>
+  );
+}
+
+function LogicCallout({
+  icon: Icon,
+  title,
+  text,
+}: {
+  icon: typeof Calculator;
+  title: string;
+  text: string;
+}) {
+  return (
+    <div className="soft-row flex gap-3 p-4">
+      <Icon className="mt-0.5 size-4 shrink-0 text-blue-700" />
+      <div>
+        <p className="text-sm font-semibold">{title}</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">{text}</p>
+      </div>
+    </div>
   );
 }
 
