@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { getAdminPricingConfig } from "@/lib/admin/pricing";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
-const truckRateOptions = ["floor", "standard", "target", "premium", "stretch"];
+const defaultTruckRateOptions = ["standard", "target", "premium", "stretch"];
 
 export default async function AdminPricingPage({
   searchParams,
@@ -50,7 +50,7 @@ export default async function AdminPricingPage({
                   Admin
                 </p>
                 <h1 className="truncate text-lg font-semibold">
-                  Pricing Configuration
+                  Pricing Rules
                 </h1>
               </div>
             </div>
@@ -60,7 +60,7 @@ export default async function AdminPricingPage({
 
         {params.saved ? (
           <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
-            Pricing configuration saved.
+            Pricing rules saved.
           </div>
         ) : null}
 
@@ -74,19 +74,19 @@ export default async function AdminPricingPage({
                 Quote Engine
               </p>
               <h2 className="accent-title text-3xl font-semibold tracking-normal">
-                DB-backed pricing controls
+                Pricing rules
               </h2>
             </div>
           </div>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">
-            These values feed draft quote calculations. Changes are scoped to
-            the current organization and written to the audit log.
+            These values control draft quote calculations for this organization.
+            Every change is recorded in the audit log.
           </p>
         </section>
 
         <form action={updatePricingConfig} className="mt-6 space-y-6">
           <section className="glass-panel p-5 sm:p-6">
-            <h2 className="text-xl font-semibold">Tier markups</h2>
+            <h2 className="text-xl font-semibold">Tier dollar markups</h2>
             <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <RangeFields
                 label="R1"
@@ -122,11 +122,11 @@ export default async function AdminPricingPage({
           <section className="glass-panel p-5 sm:p-6">
             <h2 className="text-xl font-semibold">Trucking rates</h2>
             <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <MoneyField name="truck_floor_rate" label="Floor" value={pricing.truck_floor_rate} />
-              <MoneyField name="truck_standard_rate" label="Standard" value={pricing.truck_standard_rate} />
-              <MoneyField name="truck_target_rate" label="Target" value={pricing.truck_target_rate} />
-              <MoneyField name="truck_premium_rate" label="Premium" value={pricing.truck_premium_rate} />
-              <MoneyField name="truck_stretch_rate" label="Stretch" value={pricing.truck_stretch_rate} />
+              <MoneyField name="truck_floor_rate" label="Floor $/hr" value={pricing.truck_floor_rate} />
+              <MoneyField name="truck_standard_rate" label="Standard $/hr" value={pricing.truck_standard_rate} />
+              <MoneyField name="truck_target_rate" label="Target $/hr" value={pricing.truck_target_rate} />
+              <MoneyField name="truck_premium_rate" label="Premium $/hr" value={pricing.truck_premium_rate} />
+              <MoneyField name="truck_stretch_rate" label="Stretch $/hr" value={pricing.truck_stretch_rate} />
               <label className="block">
                 <span className="text-sm font-medium text-muted-foreground">
                   Default rate
@@ -136,7 +136,7 @@ export default async function AdminPricingPage({
                   className="soft-control mt-2 w-full"
                   defaultValue={pricing.default_truck_rate}
                 >
-                  {truckRateOptions.map((option) => (
+                  {defaultTruckRateOptions.map((option) => (
                     <option key={option} value={option}>
                       {formatLabel(option)}
                     </option>
@@ -187,8 +187,8 @@ function RangeFields({
     <div className="soft-row p-4">
       <p className="text-sm font-semibold">{label}</p>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <NumberField name={minName} label="Min %" value={minValue} />
-        <NumberField name={maxName} label="Max %" value={maxValue} />
+        <NumberField name={minName} label="Min $/unit" value={minValue} />
+        <NumberField name={maxName} label="Max $/unit" value={maxValue} />
       </div>
     </div>
   );

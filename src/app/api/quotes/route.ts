@@ -30,9 +30,12 @@ const createQuoteSchema = z
   .object({
     customer_id: z.string().regex(UUID_PATTERN).optional().or(z.literal("")),
     customer_name: z.string().trim().max(160).optional().default(""),
+    company_name: z.string().trim().max(160).optional().default(""),
     contact_name: z.string().trim().max(160).optional().default(""),
     contact_email: z.string().trim().email().optional().or(z.literal("")),
     contact_phone: z.string().trim().max(40).optional().default(""),
+    customer_address: z.string().trim().max(240).optional().default(""),
+    payment_terms: z.string().trim().max(80).optional().default(""),
     job_site_id: z.string().regex(UUID_PATTERN).optional().or(z.literal("")),
     site_name: z.string().trim().max(160).optional().default(""),
     site_address: z.string().trim().max(240).optional().default(""),
@@ -41,10 +44,51 @@ const createQuoteSchema = z
     site_state: z.string().trim().min(2).max(2).optional().default("CA"),
     site_latitude: z.coerce.number().min(-90).max(90).nullable().optional(),
     site_longitude: z.coerce.number().min(-180).max(180).nullable().optional(),
+    manual_route_distance_miles: z.coerce
+      .number()
+      .min(0)
+      .max(10000)
+      .nullable()
+      .optional(),
+    manual_deadhead_distance_miles: z.coerce
+      .number()
+      .min(0)
+      .max(10000)
+      .nullable()
+      .optional(),
     material_id: z.string().regex(UUID_PATTERN),
-    tax_rate_id: z.string().regex(UUID_PATTERN),
+    tax_rate_id: z.string().regex(UUID_PATTERN).optional().or(z.literal("")),
     quantity: z.coerce.number().positive().max(100000),
     notes: z.string().trim().max(4000).optional().default(""),
+    use_selected_plant: z.boolean().optional().default(false),
+    material_unit_price_override: z.coerce
+      .number()
+      .positive()
+      .max(1000000)
+      .nullable()
+      .optional(),
+    competitor_price: z.coerce
+      .number()
+      .positive()
+      .max(1000000)
+      .nullable()
+      .optional(),
+    truck_rate_override: z
+      .enum(["floor", "standard", "target", "premium", "stretch"])
+      .nullable()
+      .optional(),
+    material_minimum_override: z.coerce
+      .number()
+      .min(0)
+      .max(1000000)
+      .nullable()
+      .optional(),
+    trucking_minimum_override: z.coerce
+      .number()
+      .min(0)
+      .max(1000000)
+      .nullable()
+      .optional(),
   })
   .superRefine((value, context) => {
     if (!value.customer_id && !value.customer_name) {
@@ -175,9 +219,12 @@ export async function POST(request: Request) {
       input: {
         customerId: parsed.value.customer_id ?? "",
         customerName: parsed.value.customer_name,
+        companyName: parsed.value.company_name,
         contactName: parsed.value.contact_name,
         contactEmail: parsed.value.contact_email ?? "",
         contactPhone: parsed.value.contact_phone,
+        customerAddress: parsed.value.customer_address,
+        paymentTerms: parsed.value.payment_terms,
         jobSiteId: parsed.value.job_site_id ?? "",
         siteName: parsed.value.site_name,
         siteAddress: parsed.value.site_address,
@@ -186,10 +233,24 @@ export async function POST(request: Request) {
         siteState: parsed.value.site_state,
         siteLatitude: roundCoordinate(parsed.value.site_latitude ?? null),
         siteLongitude: roundCoordinate(parsed.value.site_longitude ?? null),
+        manualRouteDistanceMiles:
+          parsed.value.manual_route_distance_miles ?? null,
+        manualDeadheadDistanceMiles:
+          parsed.value.manual_deadhead_distance_miles ?? null,
         materialId: parsed.value.material_id,
-        taxRateId: parsed.value.tax_rate_id,
+        taxRateId: parsed.value.tax_rate_id ?? "",
         quantity: parsed.value.quantity,
         notes: parsed.value.notes,
+        useSelectedPlant: parsed.value.use_selected_plant,
+        materialUnitPriceOverride:
+          parsed.value.material_unit_price_override ?? null,
+        competitorPrice: parsed.value.competitor_price ?? null,
+        truckRateOverride:
+          user.role === "admin" ? (parsed.value.truck_rate_override ?? null) : null,
+        materialMinimumOverride:
+          parsed.value.material_minimum_override ?? null,
+        truckingMinimumOverride:
+          parsed.value.trucking_minimum_override ?? null,
       },
     });
 

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
+import { pushCustomerToPipedrive } from "@/lib/integrations/pipedrive";
 import { createClient } from "@/lib/supabase/server";
 
 type CustomerRecord = {
@@ -35,9 +36,14 @@ export async function createCustomer(formData: FormData) {
   }
 
   const name = getString(formData, "name");
+  const companyName = getString(formData, "company_name");
   const contactName = getString(formData, "contact_name");
   const email = getString(formData, "email");
   const phone = getString(formData, "phone");
+  const addressLine = getString(formData, "address");
+  const paymentTerms = getString(formData, "payment_terms");
+  const pricingNotes = getString(formData, "pricing_notes");
+  const defaultPlantId = optionalUuid(formData, "default_plant_id");
 
   if (!name) {
     throw new Error("Customer name is required.");
@@ -49,9 +55,16 @@ export async function createCustomer(formData: FormData) {
       {
         organization_id: user.organization_id,
         name,
+        company_name: companyName || name,
         contact_name: contactName || null,
         email: email || null,
         phone: phone || null,
+        address: {
+          line1: addressLine || null,
+        },
+        payment_terms: paymentTerms || null,
+        pricing_notes: pricingNotes || null,
+        default_plant_id: defaultPlantId || null,
         is_active: true,
       },
       { onConflict: "organization_id,name" },
@@ -70,10 +83,21 @@ export async function createCustomer(formData: FormData) {
     targetId: customer.id,
     after: {
       name,
+      company_name: companyName || name,
       contact_name: contactName || null,
       email: email || null,
       phone: phone || null,
+      address: addressLine || null,
+      payment_terms: paymentTerms || null,
+      pricing_notes: pricingNotes || null,
+      default_plant_id: defaultPlantId || null,
     },
+  });
+
+  await pushCustomerToPipedrive({
+    supabase,
+    user,
+    customerId: customer.id,
   });
 
   revalidatePath("/customers");
@@ -177,6 +201,20 @@ function requiredUuid(formData: FormData, key: string): string {
   const value = getString(formData, key);
 
   return UUID_PATTERN.test(value) ? value : "";
+}
+
+function optionalUuid(formData: FormData, key: string): string | null {
+  const value = getString(formData, key);
+
+  if (!value) {
+    return null;
+  }
+
+  if (!UUID_PATTERN.test(value)) {
+    throw new Error(`${key} is invalid.`);
+  }
+
+  return value;
 }
 
 function optionalCoordinate(

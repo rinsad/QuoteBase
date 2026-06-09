@@ -9,7 +9,8 @@ import {
   Truck,
 } from "lucide-react";
 
-import { AdminNav } from "@/components/app-nav";
+import { togglePlantActive } from "@/app/(dashboard)/admin/plants/actions";
+import { AdminNav, WorkspaceNav } from "@/components/app-nav";
 import { getAdminPlantsSummary } from "@/lib/admin/plants";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
@@ -21,7 +22,7 @@ export default async function AdminPlantsPage() {
     redirect("/login");
   }
 
-  if (user.role !== "admin") {
+  if (user.role !== "admin" && user.role !== "account_manager") {
     redirect("/dashboard");
   }
 
@@ -57,7 +58,11 @@ export default async function AdminPlantsPage() {
                 </h1>
               </div>
             </div>
-            <AdminNav />
+            {user.role === "admin" ? (
+              <AdminNav />
+            ) : (
+              <WorkspaceNav role={user.role} />
+            )}
           </div>
         </header>
 
@@ -102,7 +107,7 @@ export default async function AdminPlantsPage() {
             </div>
             <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
               <ShieldCheck className="size-4" />
-              Admin only
+                Admin and account manager
             </div>
           </div>
 
@@ -124,15 +129,33 @@ export default async function AdminPlantsPage() {
                       {supplier.longitude ?? "lng pending"}
                     </p>
                   </div>
-                  <span
-                    className={`w-fit rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
-                      supplier.is_active
-                        ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-                        : "bg-slate-100 text-slate-600 ring-slate-200"
-                    }`}
+                  <form
+                    action={togglePlantActive}
+                    className="flex items-center gap-3"
                   >
-                    {supplier.is_active ? "Active" : "Inactive"}
-                  </span>
+                    <input
+                      type="hidden"
+                      name="supplier_id"
+                      value={supplier.id}
+                    />
+                    <input
+                      type="hidden"
+                      name="is_active"
+                      value={supplier.is_active ? "false" : "true"}
+                    />
+                    <span
+                      className={`w-fit rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
+                        supplier.is_active
+                          ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                          : "bg-slate-100 text-slate-600 ring-slate-200"
+                      }`}
+                    >
+                      {supplier.is_active ? "Active" : "Inactive"}
+                    </span>
+                    <button type="submit" className="mac-link px-3 py-1.5">
+                      {supplier.is_active ? "Flag inactive" : "Reactivate"}
+                    </button>
+                  </form>
                 </div>
 
                 <div className="grid gap-2 p-4">
@@ -149,9 +172,14 @@ export default async function AdminPlantsPage() {
                           </p>
                         </div>
                         <TierBadge tier={material.tier} />
-                        <p className="font-mono text-sm font-semibold">
-                          ${Number(material.cost_per_unit).toFixed(2)}
-                        </p>
+                        <div>
+                          <p className="font-mono text-sm font-semibold">
+                            ${Number(material.cost_per_unit).toFixed(2)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Updated {formatDate(material.last_price_update)}
+                          </p>
+                        </div>
                         <span
                           className={`w-fit rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
                             material.is_active
@@ -220,4 +248,8 @@ function formatAddress(address: Record<string, unknown>) {
   const state = typeof address.state === "string" ? address.state : "";
 
   return [city, state].filter(Boolean).join(", ") || "Address pending";
+}
+
+function formatDate(value: string | null) {
+  return value ? new Date(value).toLocaleDateString("en-US") : "not recorded";
 }

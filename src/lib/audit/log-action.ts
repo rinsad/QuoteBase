@@ -1,3 +1,5 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import type { AppUser } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 
@@ -9,6 +11,7 @@ type LogActionInput = {
   before?: unknown;
   after?: unknown;
   metadata?: Record<string, unknown>;
+  supabase?: SupabaseClient;
 };
 
 export async function logAction({
@@ -19,8 +22,9 @@ export async function logAction({
   before,
   after,
   metadata,
+  supabase: providedClient,
 }: LogActionInput) {
-  const supabase = await createClient();
+  const supabase = providedClient ?? (await createClient());
 
   if (!supabase) {
     return;
@@ -37,4 +41,3 @@ export async function logAction({
     metadata: metadata ?? null,
   });
 }
-

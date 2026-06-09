@@ -156,7 +156,20 @@ export async function getSystemCheckSummary(
     visibleFlags?.some(
       (flag) => flag.feature_name === "slack_notifications" && flag.is_enabled,
     ) ?? false;
-  const slackConfigured = Boolean(process.env.SLACK_WEBHOOK_URL);
+  const { data: slackIntegration } = await supabase
+    .from("organization_integrations")
+    .select("is_enabled, credentials_last4")
+    .eq("organization_id", user.organization_id)
+    .eq("provider", "slack")
+    .maybeSingle<{
+      is_enabled: boolean;
+      credentials_last4: Record<string, unknown> | null;
+    }>();
+  const slackConfigured = Boolean(
+    slackIntegration?.is_enabled &&
+      slackIntegration.credentials_last4?.webhook_url &&
+      slackIntegration.credentials_last4?.signing_secret,
+  );
 
   checks.push({
     label: "Slack notifications",
@@ -168,9 +181,9 @@ export async function getSystemCheckSummary(
           : "warn",
     detail:
       slackEnabled && slackConfigured
-        ? "Slack quote workflow notifications are enabled and the server has a webhook URL."
+        ? "Slack quote workflow notifications are enabled and configured for this organization."
         : slackEnabled
-          ? "Slack notifications are enabled, but SLACK_WEBHOOK_URL is missing; quote workflow notifications will be skipped."
+          ? "Slack notifications are enabled, but this organization has not completed Slack integration settings."
           : "Slack notifications are disabled for this organization.",
   });
 
@@ -178,8 +191,17 @@ export async function getSystemCheckSummary(
     visibleFlags?.some(
       (flag) => flag.feature_name === "email_sms_automation" && flag.is_enabled,
     ) ?? false;
+  const { data: gmailIntegration } = await supabase
+    .from("organization_integrations")
+    .select("is_enabled, credentials_last4")
+    .eq("organization_id", user.organization_id)
+    .eq("provider", "gmail")
+    .maybeSingle<{
+      is_enabled: boolean;
+      credentials_last4: Record<string, unknown> | null;
+    }>();
   const emailConfigured = Boolean(
-    process.env.RESEND_API_KEY && process.env.EMAIL_FROM,
+    gmailIntegration?.is_enabled && gmailIntegration.credentials_last4?.email,
   );
 
   checks.push({
@@ -192,9 +214,9 @@ export async function getSystemCheckSummary(
           : "warn",
     detail:
       emailAutomationEnabled && emailConfigured
-        ? "Quote email delivery is enabled and Resend environment values are configured."
+        ? "Quote email delivery is enabled and Gmail is connected for this organization."
         : emailAutomationEnabled
-          ? "Quote email delivery is enabled, but RESEND_API_KEY or EMAIL_FROM is missing."
+          ? "Quote email delivery is enabled, but Gmail is not connected for this organization."
           : "Email automation is disabled for this organization; local sends will create links and skip provider delivery.",
   });
 

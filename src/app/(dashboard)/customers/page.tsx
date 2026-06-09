@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { Building2, MapPin, Plus, UsersRound } from "lucide-react";
+import Link from "next/link";
+import { Building2, MapPin, Plus, Search, UsersRound } from "lucide-react";
 
 import {
   createCustomer,
@@ -11,17 +12,24 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import {
   getCustomerDeskSummary,
   type CustomerSummary,
+  type CustomerPlantOption,
   type JobSiteSummary,
 } from "@/lib/customers/customers";
 
-export default async function CustomersPage() {
+export default async function CustomersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
   const user = await getCurrentUser();
 
   if (!user) {
     redirect("/login");
   }
 
-  const summary = await getCustomerDeskSummary(user);
+  const query = await searchParams;
+  const search = query.q?.trim() ?? "";
+  const summary = await getCustomerDeskSummary(user, search);
 
   return (
     <main className="app-background">
@@ -71,8 +79,37 @@ export default async function CustomersPage() {
           </div>
         </section>
 
+        <section className="mt-6 glass-panel p-5 sm:p-6">
+          <form className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <label className="block flex-1">
+              <span className="text-sm font-medium text-muted-foreground">
+                Search customers and job sites
+              </span>
+              <span className="mt-2 flex items-center gap-2 rounded-[20px] bg-white/70 px-4 ring-1 ring-white/80">
+                <Search className="size-4 text-muted-foreground" />
+                <input
+                  name="q"
+                  defaultValue={search}
+                  className="min-h-11 flex-1 bg-transparent text-sm outline-none"
+                  placeholder="Customer, contact, email, city, or county"
+                />
+              </span>
+            </label>
+            <div className="flex gap-2">
+              <Button type="submit" className="h-11 rounded-full">
+                Search
+              </Button>
+              {search ? (
+                <Link href="/customers" className="mac-button-secondary h-11">
+                  Clear
+                </Link>
+              ) : null}
+            </div>
+          </form>
+        </section>
+
         <section className="mt-6 grid gap-6 lg:grid-cols-2">
-          <CustomerForm />
+          <CustomerForm plants={summary.plants} />
           <JobSiteForm customers={summary.customers} />
         </section>
 
@@ -108,13 +145,16 @@ export default async function CustomersPage() {
   );
 }
 
-function CustomerForm() {
+function CustomerForm({ plants }: { plants: CustomerPlantOption[] }) {
   return (
     <form action={createCustomer} className="glass-panel p-5 sm:p-6">
       <SectionHeading icon={Plus} kicker="Create" title="Customer" />
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <Field label="Customer name">
           <input name="name" className="soft-control w-full" required />
+        </Field>
+        <Field label="Company">
+          <input name="company_name" className="soft-control w-full" />
         </Field>
         <Field label="Contact name">
           <input name="contact_name" className="soft-control w-full" />
@@ -124,6 +164,29 @@ function CustomerForm() {
         </Field>
         <Field label="Phone">
           <input name="phone" className="soft-control w-full" />
+        </Field>
+        <Field label="Address">
+          <input name="address" className="soft-control w-full" />
+        </Field>
+        <Field label="Payment terms">
+          <input name="payment_terms" className="soft-control w-full" />
+        </Field>
+        <Field label="Default plant">
+          <select name="default_plant_id" className="soft-control w-full">
+            <option value="">No default</option>
+            {plants.map((plant) => (
+              <option key={plant.id} value={plant.id}>
+                {plant.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Pricing notes">
+          <textarea
+            name="pricing_notes"
+            rows={3}
+            className="soft-control w-full resize-none sm:col-span-2"
+          />
         </Field>
       </div>
       <Button type="submit" className="mt-5 h-11 rounded-full">
@@ -199,11 +262,38 @@ function CustomerRow({ customer }: { customer: CustomerSummary }) {
     <div className="soft-row px-4 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">{customer.name}</p>
+          <p className="truncate text-sm font-semibold">
+            {customer.company_name ?? customer.name}
+          </p>
+          {customer.company_name ? (
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              {customer.name}
+            </p>
+          ) : null}
           <p className="mt-1 text-sm text-muted-foreground">
             {[customer.contact_name, customer.email, customer.phone]
               .filter(Boolean)
               .join(" - ") || "Contact pending"}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {[formatAddress(customer.address), customer.payment_terms]
+              .filter(Boolean)
+              .join(" - ") || "Address and terms pending"}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {[customer.default_plant_name, customer.pricing_notes]
+              .filter(Boolean)
+              .join(" - ") || "WM pricing settings pending"}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {customer.pipedrive_person_id
+              ? `Pipedrive #${customer.pipedrive_person_id}`
+              : "Not linked to Pipedrive yet"}
+            {customer.pipedrive_synced_at
+              ? ` - synced ${new Date(
+                  customer.pipedrive_synced_at,
+                ).toLocaleDateString("en-US")}`
+              : ""}
           </p>
         </div>
         <StatusPill active={customer.is_active} />
@@ -212,6 +302,33 @@ function CustomerRow({ customer }: { customer: CustomerSummary }) {
         {customer.job_sites.length} job site
         {customer.job_sites.length === 1 ? "" : "s"}
       </p>
+      <div className="mt-4 border-t border-border/70 pt-3">
+        <p className="text-xs font-medium uppercase text-muted-foreground">
+          Recent quote history
+        </p>
+        {customer.quote_history.length ? (
+          <div className="mt-3 space-y-2">
+            {customer.quote_history.map((quote) => (
+              <Link
+                key={quote.id}
+                href={`/quotes/${quote.id}`}
+                className="flex items-center justify-between gap-3 rounded-xl bg-white/60 px-3 py-2 text-sm transition hover:bg-white"
+              >
+                <span className="min-w-0 truncate font-medium">
+                  {quote.quote_number}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {formatStatus(quote.status)} - {formatCurrency(quote.total)}
+                </span>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground">
+            No quote history yet.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -306,4 +423,19 @@ function formatAddress(address: Record<string, unknown>) {
   const state = typeof address.state === "string" ? address.state : "";
 
   return [line1, city, state].filter(Boolean).join(", ") || "Address pending";
+}
+
+function formatStatus(status: string) {
+  return status
+    .split("_")
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
 }

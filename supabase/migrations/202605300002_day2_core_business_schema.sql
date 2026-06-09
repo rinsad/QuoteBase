@@ -291,18 +291,24 @@ create policy "users_insert_distances"
 on public.distances for insert to authenticated
 with check (true);
 
-insert into public.vehicle_types (organization_id, name, capacity_tons, capacity_cy)
+insert into public.vehicle_types (
+  organization_id,
+  name,
+  capacity_tons,
+  capacity_cy,
+  is_active
+)
 values
-  ('00000000-0000-0000-0000-000000000001', 'Super-10', 17.00, null),
-  ('00000000-0000-0000-0000-000000000001', 'Super-Tag', 20.00, null),
-  ('00000000-0000-0000-0000-000000000001', 'End-Dump', 22.00, null),
-  ('00000000-0000-0000-0000-000000000001', 'Bottom-Dump', 25.00, null),
-  ('00000000-0000-0000-0000-000000000001', 'Transfer', 25.00, null)
+  ('00000000-0000-0000-0000-000000000001', 'Super-10', 17.00, null, true),
+  ('00000000-0000-0000-0000-000000000001', 'Super-Tag (Super-18)', 20.00, null, true),
+  ('00000000-0000-0000-0000-000000000001', 'End-Dump', 22.00, null, true),
+  ('00000000-0000-0000-0000-000000000001', 'Bottom-Dump', 25.00, null, false),
+  ('00000000-0000-0000-0000-000000000001', 'Transfer', 25.00, null, true)
 on conflict (organization_id, name) do update
 set
   capacity_tons = excluded.capacity_tons,
   capacity_cy = excluded.capacity_cy,
-  is_active = true,
+  is_active = excluded.is_active,
   updated_at = now();
 
 insert into public.yards (organization_id, name, address, latitude, longitude)
@@ -311,15 +317,15 @@ values
     '00000000-0000-0000-0000-000000000001',
     'Acton',
     '{"city":"Acton","state":"CA"}'::jsonb,
-    null,
-    null
+    34.4700000,
+    -118.1967000
   ),
   (
     '00000000-0000-0000-0000-000000000001',
     'Sun Valley',
     '{"city":"Sun Valley","state":"CA"}'::jsonb,
-    null,
-    null
+    34.2274440,
+    -118.3810730
   )
 on conflict (organization_id, name) do update
 set
@@ -336,8 +342,18 @@ on conflict (organization_id) do nothing;
 insert into public.sales_tax_rates (organization_id, city, county, state, rate)
 values
   ('00000000-0000-0000-0000-000000000001', 'Los Angeles', 'Los Angeles', 'CA', 0.0950),
-  ('00000000-0000-0000-0000-000000000001', 'Burbank', 'Los Angeles', 'CA', 0.1025),
-  ('00000000-0000-0000-0000-000000000001', 'Glendale', 'Los Angeles', 'CA', 0.1025)
+  ('00000000-0000-0000-0000-000000000001', 'Burbank', 'Los Angeles', 'CA', 0.1050),
+  ('00000000-0000-0000-0000-000000000001', 'Glendale', 'Los Angeles', 'CA', 0.1050),
+  ('00000000-0000-0000-0000-000000000001', 'Irwindale', 'Los Angeles', 'CA', 0.1075),
+  ('00000000-0000-0000-0000-000000000001', 'Pico Rivera', 'Los Angeles', 'CA', 0.1075),
+  ('00000000-0000-0000-0000-000000000001', 'Camarillo', 'Ventura', 'CA', 0.0725),
+  ('00000000-0000-0000-0000-000000000001', 'Moorpark', 'Ventura', 'CA', 0.0725),
+  ('00000000-0000-0000-0000-000000000001', 'Oxnard', 'Ventura', 'CA', 0.0925),
+  ('00000000-0000-0000-0000-000000000001', 'Anaheim', 'Orange', 'CA', 0.0775),
+  ('00000000-0000-0000-0000-000000000001', 'Irvine', 'Orange', 'CA', 0.0775),
+  ('00000000-0000-0000-0000-000000000001', 'San Diego', 'San Diego', 'CA', 0.0775),
+  ('00000000-0000-0000-0000-000000000001', 'Riverside', 'Riverside', 'CA', 0.0875),
+  ('00000000-0000-0000-0000-000000000001', 'San Bernardino', 'San Bernardino', 'CA', 0.0875)
 on conflict (organization_id, city, county, state, effective_date) do update
 set rate = excluded.rate;
 
@@ -398,4 +414,3 @@ set
   minimum_order_quantity = excluded.minimum_order_quantity,
   is_active = true,
   updated_at = now();
-

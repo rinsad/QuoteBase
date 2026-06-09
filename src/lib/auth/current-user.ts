@@ -24,38 +24,53 @@ export async function getCurrentUser(): Promise<AppUser | null> {
     return null;
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let authUserId: string | null = null;
 
-  if (!user) {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    authUserId = user?.id ?? null;
+  } catch {
     return null;
   }
 
-  const { data } = await supabase
-    .from("users")
-    .select(
-      "id, organization_id, email, full_name, role, organizations(id, name, slug)",
-    )
-    .eq("auth_user_id", user.id)
-    .eq("is_active", true)
-    .single<UserRecord>();
-
-  if (!data) {
+  if (!authUserId) {
     return null;
   }
 
-  const organization = Array.isArray(data.organizations)
-    ? (data.organizations[0] ?? null)
-    : data.organizations;
+  let userRecord: UserRecord | null = null;
+
+  try {
+    const { data } = await supabase
+      .from("users")
+      .select(
+        "id, organization_id, email, full_name, role, organizations(id, name, slug)",
+      )
+      .eq("auth_user_id", authUserId)
+      .eq("is_active", true)
+      .single<UserRecord>();
+
+    userRecord = data;
+  } catch {
+    return null;
+  }
+
+  if (!userRecord) {
+    return null;
+  }
+
+  const organization = Array.isArray(userRecord.organizations)
+    ? (userRecord.organizations[0] ?? null)
+    : userRecord.organizations;
 
   return {
-    id: data.id,
-    organization_id: data.organization_id,
-    email: data.email,
-    full_name: data.full_name,
-    role: data.role,
+    id: userRecord.id,
+    organization_id: userRecord.organization_id,
+    email: userRecord.email,
+    full_name: userRecord.full_name,
+    role: userRecord.role,
     organization,
   };
 }
-

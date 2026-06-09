@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AppUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
 import { notifySlackQuoteStatusChange } from "@/lib/notifications/slack";
+import { pushQuoteToQuoterDraft } from "@/lib/integrations/quoter";
 import type { QuoteStatus } from "@/lib/quotes/quotes";
 
 type AppRole = AppUser["role"];
@@ -13,6 +14,7 @@ type QuoteStatusRecord = {
   status: QuoteStatus;
   notes: string | null;
   total: number;
+  requested_by: string;
 };
 
 export type QuoteTransitionResult = {
@@ -48,7 +50,7 @@ export async function transitionQuoteStatus({
 
   const { data: quote, error: quoteError } = await supabase
     .from("quotes")
-    .select("id, quote_number, status, notes, total")
+    .select("id, quote_number, status, notes, total, requested_by")
     .eq("organization_id", user.organization_id)
     .eq("id", quoteId)
     .eq("is_active", true)
@@ -94,7 +96,22 @@ export async function transitionQuoteStatus({
       notes,
       total: Number(quote.total),
     },
+    metadata:
+      to === "approved" && quote.requested_by === user.id
+        ? {
+            self_approval: true,
+            rule: "Admin approved their own quote; allowed but tracked.",
+          }
+        : undefined,
+    supabase,
   });
+  if (to === "approved") {
+    await pushQuoteToQuoterDraft({
+      supabase,
+      user,
+      quoteId: quote.id,
+    });
+  }
   await notifySlackQuoteStatusChange({
     supabase,
     user,
@@ -102,6 +119,7 @@ export async function transitionQuoteStatus({
     action,
     from,
     to,
+    note,
   });
 
   return {

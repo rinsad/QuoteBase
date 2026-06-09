@@ -7,7 +7,7 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
 import { createClient } from "@/lib/supabase/server";
 
-const DEFAULT_TRUCK_RATES = ["floor", "standard", "target", "premium", "stretch"];
+const DEFAULT_TRUCK_RATES = ["standard", "target", "premium", "stretch"];
 
 export async function updatePricingConfig(formData: FormData) {
   const user = await getCurrentUser();
@@ -53,10 +53,10 @@ export async function updatePricingConfig(formData: FormData) {
     updated_at: new Date().toISOString(),
   };
 
-  validateRange(payload.tier_r1_min, payload.tier_r1_max, "R1 markup");
-  validateRange(payload.tier_r2_min, payload.tier_r2_max, "R2 markup");
-  validateRange(payload.tier_r3_min, payload.tier_r3_max, "R3 markup");
-  validateRange(payload.tier_r4_min, payload.tier_r4_max, "R4 markup");
+  validateRange(payload.tier_r1_min, payload.tier_r1_max, "R1 dollar markup");
+  validateRange(payload.tier_r2_min, payload.tier_r2_max, "R2 dollar markup");
+  validateRange(payload.tier_r3_min, payload.tier_r3_max, "R3 dollar markup");
+  validateRange(payload.tier_r4_min, payload.tier_r4_max, "R4 dollar markup");
 
   const { data: before } = await supabase
     .from("pricing_config")

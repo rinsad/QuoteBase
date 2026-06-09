@@ -32,3 +32,27 @@ export function isLocalSupabase() {
       supabaseUrl?.startsWith("http://localhost:"),
   );
 }
+
+export async function isSupabaseReachable(): Promise<boolean> {
+  const config = getSupabaseBrowserConfig();
+
+  if (!config) {
+    return false;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
+
+  try {
+    const response = await fetch(`${config.supabaseUrl}/auth/v1/health`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}

@@ -5,9 +5,14 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
+import { isFeatureEnabled } from "@/lib/features/flags";
 import { sendQuoteEmail } from "@/lib/notifications/email";
 import { ensureQuotePublicLink } from "@/lib/quotes/delivery";
-import { createQuoteHtmlDocument } from "@/lib/quotes/documents";
+import {
+  createQuoteHtmlDocument,
+  createQuotePdfDocument,
+  getQuoteDocumentAttachment,
+} from "@/lib/quotes/documents";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -18,6 +23,7 @@ import {
 } from "@/lib/quotes/plant-selection";
 import {
   calculateQuoteDraft,
+  isCodPaymentTerms,
   type PricingConfig,
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
@@ -64,6 +70,7 @@ type QuoteItemRecord = {
 type EditableQuoteItemRecord = QuoteItemRecord & {
   unit: string;
   unit_cost: number;
+  markup_per_unit: number | null;
   markup_pct: number;
   material_unit_price: number;
   material_subtotal: number;
@@ -80,14 +87,59 @@ type EditableQuoteItemRecord = QuoteItemRecord & {
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const EDITABLE_UNAPPROVED_STATUSES: QuoteStatus[] = [
+  "draft",
+  "pending_approval",
+  "changes_requested",
+  "rejected",
+];
 
 export async function submitQuoteForApproval(quoteId: string) {
+  if (!UUID_PATTERN.test(quoteId)) {
+    throw new Error("Invalid quote id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
+
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("status")
+    .eq("organization_id", user.organization_id)
+    .eq("id", quoteId)
+    .eq("is_active", true)
+    .single<{ status: QuoteStatus }>();
+
+  if (!quote || !["draft", "changes_requested"].includes(quote.status)) {
+    throw new Error("Only draft or changes-requested quotes can be submitted.");
+  }
+  const approvalWorkflowEnabled = await isFeatureEnabled({
+    supabase,
+    organizationId: user.organization_id,
+    featureName: "approval_workflow",
+    defaultValue: true,
+  });
+
   await transitionQuoteStatusAction({
     quoteId,
-    from: "draft",
-    to: "pending_approval",
-    action: "quote.submitted_for_approval",
+    from: quote.status,
+    to: approvalWorkflowEnabled ? "pending_approval" : "approved",
+    action: approvalWorkflowEnabled
+      ? "quote.submitted_for_approval"
+      : "quote.fast_mode_approved",
     allowedRoles: ["admin", "account_manager", "estimator"],
+    note: approvalWorkflowEnabled
+      ? undefined
+      : "Approval workflow disabled; quote approved in fast mode.",
   });
 }
 
@@ -97,7 +149,7 @@ export async function approveQuote(quoteId: string) {
     from: "pending_approval",
     to: "approved",
     action: "quote.approved",
-    allowedRoles: ["admin", "account_manager"],
+    allowedRoles: ["admin"],
   });
 }
 
@@ -110,8 +162,22 @@ export async function rejectQuote(quoteId: string, formData: FormData) {
     from: "pending_approval",
     to: "rejected",
     action: "quote.rejected",
-    allowedRoles: ["admin", "account_manager"],
+    allowedRoles: ["admin"],
     note: reason ? `Rejected: ${reason}` : "Rejected without a reason.",
+  });
+}
+
+export async function requestQuoteChanges(quoteId: string, formData: FormData) {
+  const commentValue = formData.get("change_request_comment");
+  const comment = typeof commentValue === "string" ? commentValue.trim() : "";
+
+  await transitionQuoteStatusAction({
+    quoteId,
+    from: "pending_approval",
+    to: "changes_requested",
+    action: "quote.changes_requested",
+    allowedRoles: ["admin"],
+    note: comment ? `Changes requested: ${comment}` : "Changes requested.",
   });
 }
 
@@ -262,8 +328,8 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
     throw new Error("Quote not found.");
   }
 
-  if (!["sent", "viewed", "accepted", "declined"].includes(quote.status)) {
-    throw new Error("Customer email is available after the quote is sent.");
+  if (!["approved", "sent", "viewed", "accepted", "declined"].includes(quote.status)) {
+    throw new Error("Customer email is available after the quote is approved.");
   }
 
   const customer = relationOne(quote.customers);
@@ -282,13 +348,41 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
     throw new Error("Could not create the customer quote link.");
   }
 
+  const pdfDocument = await createQuotePdfDocument({
+    supabase,
+    user,
+    quoteId,
+  });
+  const attachment = pdfDocument
+    ? await getQuoteDocumentAttachment({
+        supabase,
+        organizationId: user.organization_id,
+        documentId: pdfDocument.id,
+      })
+    : null;
   const delivery = await sendQuoteEmail({
+    supabase,
+    organizationId: user.organization_id,
     to: customer.email,
     customerName: customer.name,
     quoteNumber: quote.quote_number,
     quoteUrl: publicLink.url,
     total: Number(quote.total),
+    attachments: attachment ? [attachment] : [],
   });
+
+  if (delivery.status === "sent" && quote.status === "approved") {
+    await transitionQuoteStatus({
+      supabase,
+      user,
+      action: "quote.sent_to_customer_by_email",
+      quoteId,
+      from: "approved",
+      to: "sent",
+      allowedRoles: ["admin", "account_manager"],
+      note: `Sent to ${customer.email} by email.`,
+    });
+  }
 
   await logAction({
     user,
@@ -302,6 +396,7 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
       delivery_status: delivery.status,
       provider: delivery.provider,
       message_id: delivery.messageId,
+      document_id: pdfDocument?.id ?? null,
     },
     metadata: {
       delivery_reason: delivery.reason,
@@ -309,9 +404,12 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
   });
 
   revalidatePath(`/quotes/${quoteId}`);
-  redirect(
-    `/quotes/${quoteId}?email_status=${delivery.status}&public_link=${encodeURIComponent(publicLink.url)}`,
-  );
+  const publicLinkParam =
+    delivery.status === "sent"
+      ? `&public_link=${encodeURIComponent(publicLink.url)}`
+      : "";
+
+  redirect(`/quotes/${quoteId}?email_status=${delivery.status}${publicLinkParam}`);
 }
 
 export async function generateQuoteDocument(quoteId: string) {
@@ -443,11 +541,12 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers(name, latitude, longitude)",
+        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", materialId)
       .eq("is_active", true)
+      .eq("suppliers.is_active", true)
       .single<PlantSelectionMaterial>(),
     supabase
       .from("pricing_config")
@@ -471,8 +570,8 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
 
   const quote = quoteResult.data;
 
-  if (quote.status !== "draft") {
-    throw new Error("Only draft quotes can be edited.");
+  if (!EDITABLE_UNAPPROVED_STATUSES.includes(quote.status)) {
+    throw new Error("Only unapproved quotes can be edited.");
   }
 
   if (!quote.tax_rate_id) {
@@ -491,6 +590,10 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
   }
 
   const jobSite = relationOne(quote.job_sites);
+  const minimumOverrides = await getQuoteMinimumOverrides(
+    quote.id,
+    user.organization_id,
+  );
 
   if (!jobSite) {
     throw new Error("This quote is missing job-site route data.");
@@ -507,7 +610,13 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     },
     taxRate: Number(taxRate.rate),
     quantity,
-    pricingConfig: normalizePricingConfig(pricingConfigResult.data),
+    pricingConfig: {
+      ...normalizePricingConfig(pricingConfigResult.data),
+      material_minimum: 0,
+      trucking_minimum:
+        minimumOverrides.truckingMinimumOverride ??
+        Number(pricingConfigResult.data.trucking_minimum),
+    },
     vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
   });
   const material = recommendation.material;
@@ -523,6 +632,7 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       quantity,
       unit: material.unit,
       unit_cost: Number(material.cost_per_unit),
+      markup_per_unit: calculation.markupPerUnit,
       markup_pct: calculation.markupPct,
       material_unit_price: calculation.materialUnitPrice,
       material_subtotal: calculation.materialSubtotal,
@@ -553,7 +663,7 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     })
     .eq("organization_id", user.organization_id)
     .eq("id", quote.id)
-    .eq("status", "draft")
+    .in("status", EDITABLE_UNAPPROVED_STATUSES)
     .eq("is_active", true)
     .select("id")
     .single<{ id: string }>();
@@ -600,6 +710,8 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
   });
 
   revalidatePath("/quotes");
+  revalidatePath("/quotes/approvals");
+  revalidatePath("/quotes/approved");
   revalidatePath(`/quotes/${quote.id}`);
   redirect(`/quotes/${quote.id}`);
 }
@@ -646,8 +758,8 @@ export async function removeQuoteItem(quoteId: string, itemId: string) {
   const quote = quoteResult.data;
   const item = itemResult.data;
 
-  if (quote.status !== "draft") {
-    throw new Error("Only draft quotes can be edited.");
+  if (!EDITABLE_UNAPPROVED_STATUSES.includes(quote.status)) {
+    throw new Error("Only unapproved quotes can be edited.");
   }
 
   const { data: disabledItem, error: disableError } = await supabase
@@ -676,7 +788,7 @@ export async function removeQuoteItem(quoteId: string, itemId: string) {
     })
     .eq("organization_id", user.organization_id)
     .eq("id", quote.id)
-    .eq("status", "draft")
+    .in("status", EDITABLE_UNAPPROVED_STATUSES)
     .eq("is_active", true)
     .select("id")
     .single<{ id: string }>();
@@ -758,7 +870,7 @@ export async function updateQuoteItemQuantity(
     supabase
       .from("quote_items")
       .select(
-        "id, material_id, quantity, unit, unit_cost, markup_pct, material_unit_price, material_subtotal, vehicle_type_id, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, materials(tier)",
+        "id, material_id, quantity, unit, unit_cost, markup_per_unit, markup_pct, material_unit_price, material_subtotal, vehicle_type_id, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, materials(tier)",
       )
       .eq("organization_id", user.organization_id)
       .eq("quote_id", quoteId)
@@ -789,8 +901,8 @@ export async function updateQuoteItemQuantity(
   const item = itemResult.data;
   const material = relationOne(item.materials);
 
-  if (quote.status !== "draft") {
-    throw new Error("Only draft quotes can be edited.");
+  if (!EDITABLE_UNAPPROVED_STATUSES.includes(quote.status)) {
+    throw new Error("Only unapproved quotes can be edited.");
   }
 
   if (!quote.tax_rate_id || !material) {
@@ -807,6 +919,10 @@ export async function updateQuoteItemQuantity(
   if (!taxRate) {
     throw new Error("This quote's tax rate is no longer available.");
   }
+  const minimumOverrides = await getQuoteMinimumOverrides(
+    quote.id,
+    user.organization_id,
+  );
 
   const calculation = calculateQuoteDraft({
     costPerUnit: Number(item.unit_cost),
@@ -814,12 +930,19 @@ export async function updateQuoteItemQuantity(
     tier: material.tier,
     unit: item.unit,
     taxRate: Number(taxRate.rate),
-    pricingConfig: normalizePricingConfig(pricingConfigResult.data),
+    pricingConfig: {
+      ...normalizePricingConfig(pricingConfigResult.data),
+      trucking_minimum:
+        minimumOverrides.truckingMinimumOverride ??
+        Number(pricingConfigResult.data.trucking_minimum),
+    },
     vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
+    applyMaterialMinimum: false,
   });
 
   const beforeItem = {
     quantity: Number(item.quantity),
+    markup_per_unit: Number(item.markup_per_unit ?? item.markup_pct),
     markup_pct: Number(item.markup_pct),
     material_unit_price: Number(item.material_unit_price),
     material_subtotal: Number(item.material_subtotal),
@@ -834,6 +957,7 @@ export async function updateQuoteItemQuantity(
     .from("quote_items")
     .update({
       quantity,
+      markup_per_unit: calculation.markupPerUnit,
       markup_pct: calculation.markupPct,
       material_unit_price: calculation.materialUnitPrice,
       material_subtotal: calculation.materialSubtotal,
@@ -867,7 +991,7 @@ export async function updateQuoteItemQuantity(
     })
     .eq("organization_id", user.organization_id)
     .eq("id", quote.id)
-    .eq("status", "draft")
+    .in("status", EDITABLE_UNAPPROVED_STATUSES)
     .eq("is_active", true)
     .select("id")
     .single<{ id: string }>();
@@ -976,19 +1100,54 @@ async function getQuoteTotals(
     throw new Error("Supabase is not configured for this workspace.");
   }
 
-  const { data: items, error } = await supabase
+  const [
+    quoteResult,
+    pricingConfigResult,
+    itemsResult,
+    minimumOverrides,
+  ] = await Promise.all([
+    supabase
+      .from("quotes")
+      .select("tax_rate_id, sales_tax_rates(rate), customers(payment_terms)")
+      .eq("organization_id", organizationId)
+      .eq("id", quoteId)
+      .eq("is_active", true)
+      .single<{
+        tax_rate_id: string | null;
+        sales_tax_rates:
+          | { rate: number }
+          | { rate: number }[]
+          | null;
+        customers:
+          | { payment_terms: string | null }
+          | { payment_terms: string | null }[]
+          | null;
+      }>(),
+    supabase
+      .from("pricing_config")
+      .select("material_minimum, cc_surcharge_pct")
+      .eq("organization_id", organizationId)
+      .single<{ material_minimum: number; cc_surcharge_pct: number }>(),
+    supabase
     .from("quote_items")
     .select("material_subtotal, trucking_subtotal, fees_subtotal, line_total")
     .eq("organization_id", organizationId)
     .eq("quote_id", quoteId)
     .eq("is_active", true)
-    .returns<QuoteTotalsRecord[]>();
+      .returns<QuoteTotalsRecord[]>(),
+    getQuoteMinimumOverrides(quoteId, organizationId),
+  ]);
 
-  if (error) {
-    throw new Error(error.message);
+  if (quoteResult.error || pricingConfigResult.error || itemsResult.error) {
+    throw new Error(
+      quoteResult.error?.message ??
+        pricingConfigResult.error?.message ??
+        itemsResult.error?.message ??
+        "Could not calculate quote totals.",
+    );
   }
 
-  const totals = (items ?? []).reduce(
+  const totals = (itemsResult.data ?? []).reduce(
     (sum, item) => ({
       materialSubtotal: sum.materialSubtotal + Number(item.material_subtotal),
       truckingSubtotal: sum.truckingSubtotal + Number(item.trucking_subtotal),
@@ -1002,18 +1161,78 @@ async function getQuoteTotals(
       total: 0,
     },
   );
+  const materialSubtotal = Math.max(
+    totals.materialSubtotal,
+    minimumOverrides.materialMinimumOverride ??
+      Number(pricingConfigResult.data?.material_minimum ?? 0),
+  );
+  const taxRate = Number(relationOne(quoteResult.data?.sales_tax_rates ?? null)?.rate ?? 0);
+  const paymentTerms =
+    relationOne(quoteResult.data?.customers ?? null)?.payment_terms ?? null;
+  const baseSubtotal =
+    materialSubtotal + totals.truckingSubtotal + totals.feesSubtotal;
+  const creditCardSurcharge = isCodPaymentTerms(paymentTerms)
+    ? baseSubtotal * (Number(pricingConfigResult.data?.cc_surcharge_pct ?? 0) / 100)
+    : 0;
+  const feesSubtotal = totals.feesSubtotal + creditCardSurcharge;
+  const taxableSubtotal = materialSubtotal + totals.truckingSubtotal + feesSubtotal;
 
   return {
-    ...totals,
-    taxTotal:
-      roundMoney(
-        totals.total -
-          totals.materialSubtotal -
-          totals.truckingSubtotal -
-          totals.feesSubtotal,
-      ),
-    total: roundMoney(totals.total),
+    materialSubtotal: roundMoney(materialSubtotal),
+    truckingSubtotal: roundMoney(totals.truckingSubtotal),
+    feesSubtotal: roundMoney(feesSubtotal),
+    taxTotal: roundMoney(taxableSubtotal * taxRate),
+    total: roundMoney(taxableSubtotal * (1 + taxRate)),
   };
+}
+
+async function getQuoteMinimumOverrides(
+  quoteId: string,
+  organizationId: string,
+): Promise<{
+  materialMinimumOverride: number | null;
+  truckingMinimumOverride: number | null;
+}> {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
+
+  const { data } = await supabase
+    .from("audit_log")
+    .select("metadata")
+    .eq("organization_id", organizationId)
+    .eq("target_table", "quotes")
+    .eq("target_id", quoteId)
+    .eq("action", "quote.draft_created")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ metadata: Record<string, unknown> | null }>();
+  const metadata = data?.metadata ?? null;
+
+  return {
+    materialMinimumOverride: readMoneyMetadata(
+      metadata,
+      "material_minimum_override",
+    ),
+    truckingMinimumOverride: readMoneyMetadata(
+      metadata,
+      "trucking_minimum_override",
+    ),
+  };
+}
+
+function readMoneyMetadata(
+  metadata: Record<string, unknown> | null,
+  key: string,
+): number | null {
+  const value = metadata?.[key];
+  const numberValue = typeof value === "number" ? value : null;
+
+  return numberValue !== null && Number.isFinite(numberValue) && numberValue >= 0
+    ? numberValue
+    : null;
 }
 
 function getString(formData: FormData, key: string): string {

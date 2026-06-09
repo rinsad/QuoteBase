@@ -4,11 +4,13 @@ import {
   estimateAndCacheDistance,
   type DistanceEstimate,
 } from "@/lib/geo/distance";
+import { isFeatureEnabled } from "@/lib/features/flags";
 import {
   calculateQuoteDraft,
   type MaterialTier,
   type PricingConfig,
   type QuoteDraftCalculation,
+  type TruckRateKey,
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
 
@@ -54,6 +56,9 @@ type YardRecord = {
   longitude: number | null;
 };
 
+const SMALL_QUOTE_MATERIAL_WEIGHT = 0.55;
+const SMALL_QUOTE_TRUCKING_WEIGHT = 0.45;
+
 export async function selectBestPlantForQuote({
   supabase,
   organizationId,
@@ -63,6 +68,14 @@ export async function selectBestPlantForQuote({
   taxRate,
   pricingConfig,
   vehicleTypes,
+  useRequestedPlant = false,
+  materialUnitPriceOverride = null,
+  truckRateOverride = null,
+  materialMinimumOverride = null,
+  truckingMinimumOverride = null,
+  paymentTerms = null,
+  manualRouteDistanceMiles = null,
+  manualDeadheadDistanceMiles = null,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -72,18 +85,33 @@ export async function selectBestPlantForQuote({
   taxRate: number;
   pricingConfig: PricingConfig;
   vehicleTypes: VehicleCapacity[];
+  useRequestedPlant?: boolean;
+  materialUnitPriceOverride?: number | null;
+  truckRateOverride?: TruckRateKey | null;
+  materialMinimumOverride?: number | null;
+  truckingMinimumOverride?: number | null;
+  paymentTerms?: string | null;
+  manualRouteDistanceMiles?: number | null;
+  manualDeadheadDistanceMiles?: number | null;
 }): Promise<PlantRecommendation> {
-  const [materialsResult, yardsResult, mapsFlagResult] = await Promise.all([
+  const [
+    materialsResult,
+    yardsResult,
+    googleMapsEnabled,
+    multiPitComparisonEnabled,
+    autoPlantSelectionEnabled,
+  ] = await Promise.all([
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers(name, latitude, longitude)",
+        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
       )
       .eq("organization_id", organizationId)
       .eq("name", requestedMaterial.name)
       .eq("unit", requestedMaterial.unit)
       .eq("tier", requestedMaterial.tier)
       .eq("is_active", true)
+      .eq("suppliers.is_active", true)
       .returns<PlantSelectionMaterial[]>(),
     supabase
       .from("yards")
@@ -91,16 +119,25 @@ export async function selectBestPlantForQuote({
       .eq("organization_id", organizationId)
       .eq("is_active", true)
       .returns<YardRecord[]>(),
-    supabase
-      .from("feature_flags")
-      .select("is_enabled")
-      .eq("organization_id", organizationId)
-      .eq("feature_name", "google_maps_distance_api")
-      .single<{ is_enabled: boolean }>(),
+    isFeatureEnabled({
+      supabase,
+      organizationId,
+      featureName: "google_maps_distance_api",
+    }),
+    isFeatureEnabled({
+      supabase,
+      organizationId,
+      featureName: "multi_pit_comparison",
+    }),
+    isFeatureEnabled({
+      supabase,
+      organizationId,
+      featureName: "auto_plant_selection",
+      defaultValue: true,
+    }),
   ]);
-  const googleMapsEnabled = mapsFlagResult.data?.is_enabled ?? false;
 
-  const candidates = materialsResult.data?.length
+  const candidates = multiPitComparisonEnabled && materialsResult.data?.length
     ? materialsResult.data
     : [requestedMaterial];
   const recommendations = await Promise.all(
@@ -116,11 +153,48 @@ export async function selectBestPlantForQuote({
         vehicleTypes,
         yards: yardsResult.data ?? [],
         useGoogleMaps: googleMapsEnabled,
+        truckRateOverride,
+        paymentTerms,
+        manualRouteDistanceMiles,
+        manualDeadheadDistanceMiles,
       }),
     ),
   );
 
-  return recommendations.sort(compareRecommendations)[0];
+  const sortedRecommendations = recommendations.sort(compareRecommendations);
+
+  if (useRequestedPlant || !autoPlantSelectionEnabled) {
+    const selected =
+      sortedRecommendations.find(
+        (recommendation) => recommendation.material.id === requestedMaterial.id,
+      ) ?? sortedRecommendations[0];
+
+    return applyMaterialUnitPriceOverride({
+      recommendation: selected,
+      quantity,
+      taxRate,
+      pricingConfig,
+      vehicleTypes,
+      materialUnitPriceOverride,
+      truckRateOverride,
+      materialMinimumOverride,
+      truckingMinimumOverride,
+      paymentTerms,
+    });
+  }
+
+  return applyMaterialUnitPriceOverride({
+    recommendation: sortedRecommendations[0],
+    quantity,
+    taxRate,
+    pricingConfig,
+    vehicleTypes,
+    materialUnitPriceOverride,
+    truckRateOverride,
+    materialMinimumOverride,
+    truckingMinimumOverride,
+    paymentTerms,
+  });
 }
 
 async function buildRecommendation({
@@ -134,6 +208,10 @@ async function buildRecommendation({
   vehicleTypes,
   yards,
   useGoogleMaps,
+  truckRateOverride,
+  paymentTerms,
+  manualRouteDistanceMiles,
+  manualDeadheadDistanceMiles,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -145,6 +223,10 @@ async function buildRecommendation({
   vehicleTypes: VehicleCapacity[];
   yards: YardRecord[];
   useGoogleMaps: boolean;
+  truckRateOverride: TruckRateKey | null;
+  paymentTerms: string | null;
+  manualRouteDistanceMiles: number | null;
+  manualDeadheadDistanceMiles: number | null;
 }): Promise<PlantRecommendation> {
   const supplier = relationOne(material.suppliers);
   const supplierCoordinates = {
@@ -157,20 +239,26 @@ async function buildRecommendation({
         ? null
         : Number(supplier.longitude),
   };
-  const routeDistance = await estimateAndCacheDistance(
-    supabase,
-    organizationId,
-    supplierCoordinates,
-    jobSite,
-    { useGoogleMaps },
-  );
-  const deadheadDistance = await getNearestYardDistance({
-    supabase,
-    organizationId,
-    supplierCoordinates,
-    yards,
-    useGoogleMaps,
-  });
+  const routeDistance =
+    manualRouteDistanceMiles === null
+      ? await estimateAndCacheDistance(
+          supabase,
+          organizationId,
+          supplierCoordinates,
+          jobSite,
+          { useGoogleMaps },
+        )
+      : manualDistanceEstimate(manualRouteDistanceMiles);
+  const deadheadDistance =
+    manualDeadheadDistanceMiles === null
+      ? await getNearestYardDistance({
+          supabase,
+          organizationId,
+          supplierCoordinates,
+          yards,
+          useGoogleMaps,
+        })
+      : manualDistanceEstimate(manualDeadheadDistanceMiles);
   const calculation = calculateQuoteDraft({
     costPerUnit: Number(material.cost_per_unit),
     quantity,
@@ -179,6 +267,10 @@ async function buildRecommendation({
     taxRate,
     pricingConfig,
     vehicleTypes,
+    routeDurationSeconds: routeDistance?.durationSeconds ?? null,
+    deadheadDurationSeconds: deadheadDistance?.durationSeconds ?? null,
+    truckRateOverride,
+    paymentTerms,
   });
 
   return {
@@ -188,6 +280,68 @@ async function buildRecommendation({
     routeDistance,
     deadheadDistance,
     selectionReason: selectionReason(calculation.loadCount),
+  };
+}
+
+function manualDistanceEstimate(distanceMiles: number): DistanceEstimate {
+  return {
+    distanceMiles,
+    durationSeconds: Math.round((distanceMiles / 35) * 3600),
+    source: "estimate",
+  };
+}
+
+function applyMaterialUnitPriceOverride({
+  recommendation,
+  quantity,
+  taxRate,
+  pricingConfig,
+  vehicleTypes,
+  materialUnitPriceOverride,
+  truckRateOverride,
+  materialMinimumOverride,
+  truckingMinimumOverride,
+  paymentTerms,
+}: {
+  recommendation: PlantRecommendation;
+  quantity: number;
+  taxRate: number;
+  pricingConfig: PricingConfig;
+  vehicleTypes: VehicleCapacity[];
+  materialUnitPriceOverride: number | null;
+  truckRateOverride: TruckRateKey | null;
+  materialMinimumOverride: number | null;
+  truckingMinimumOverride: number | null;
+  paymentTerms: string | null;
+}): PlantRecommendation {
+  if (
+    materialUnitPriceOverride === null &&
+    truckRateOverride === null &&
+    materialMinimumOverride === null &&
+    truckingMinimumOverride === null
+  ) {
+    return recommendation;
+  }
+
+  return {
+    ...recommendation,
+    calculation: calculateQuoteDraft({
+      costPerUnit: Number(recommendation.material.cost_per_unit),
+      quantity,
+      tier: recommendation.material.tier,
+      unit: recommendation.material.unit,
+      taxRate,
+      pricingConfig,
+      vehicleTypes,
+      routeDurationSeconds: recommendation.routeDistance?.durationSeconds ?? null,
+      deadheadDurationSeconds:
+        recommendation.deadheadDistance?.durationSeconds ?? null,
+      materialUnitPriceOverride,
+      truckRateOverride,
+      materialMinimumOverride,
+      truckingMinimumOverride,
+      paymentTerms,
+    }),
   };
 }
 
@@ -234,14 +388,15 @@ function compareRecommendations(
 
   if (loads <= 1) {
     return (
-      leftRouteMiles - rightRouteMiles ||
-      left.calculation.total - right.calculation.total
+      deliveredCost(left) - deliveredCost(right) ||
+      leftRouteMiles - rightRouteMiles
     );
   }
 
   if (loads <= 3) {
     return (
-      left.calculation.total - right.calculation.total ||
+      smallQuoteScore(left) - smallQuoteScore(right) ||
+      deliveredCost(left) - deliveredCost(right) ||
       leftRouteMiles - rightRouteMiles
     );
   }
@@ -250,6 +405,17 @@ function compareRecommendations(
     left.calculation.materialSubtotal - right.calculation.materialSubtotal ||
     left.calculation.total - right.calculation.total ||
     leftRouteMiles - rightRouteMiles
+  );
+}
+
+function deliveredCost(recommendation: PlantRecommendation): number {
+  return recommendation.calculation.total;
+}
+
+function smallQuoteScore(recommendation: PlantRecommendation): number {
+  return (
+    recommendation.calculation.materialSubtotal * SMALL_QUOTE_MATERIAL_WEIGHT +
+    recommendation.calculation.truckingSubtotal * SMALL_QUOTE_TRUCKING_WEIGHT
   );
 }
 
@@ -262,14 +428,14 @@ function routeMiles(recommendation: PlantRecommendation): number {
 
 function selectionReason(loadCount: number): string {
   if (loadCount <= 1) {
-    return "1-load rule: shortest supplier route wins, with quote total as tie-breaker.";
+    return "Zone 1: lowest delivered total wins, including round-trip trucking and nearest-yard deadhead.";
   }
 
   if (loadCount <= 3) {
-    return "2-3 load rule: quote total wins, with route distance as tie-breaker.";
+    return "Zone 2: weighted material and trucking economics win, with delivered total and route distance as tie-breakers.";
   }
 
-  return "4+ load rule: material subtotal wins, with total and route distance as tie-breakers.";
+  return "Zone 3: material economics win, with delivered total and route distance as tie-breakers.";
 }
 
 function relationOne<T>(value: T | T[] | null): T | null {

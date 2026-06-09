@@ -10,6 +10,7 @@ import {
 } from "@/lib/api/responses";
 import { isUuid } from "@/lib/api/validation";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { isFeatureEnabled } from "@/lib/features/flags";
 import type { QuoteStatus } from "@/lib/quotes/quotes";
 import { transitionQuoteStatus } from "@/lib/quotes/workflow";
 import { createClient } from "@/lib/supabase/server";
@@ -18,6 +19,7 @@ type WorkflowAction =
   | "submit"
   | "approve"
   | "reject"
+  | "request_changes"
   | "send"
   | "accept"
   | "decline";
@@ -42,15 +44,23 @@ const WORKFLOW_RULES: Record<WorkflowAction, WorkflowRule> = {
     from: "pending_approval",
     to: "approved",
     action: "quote.approved",
-    allowedRoles: ["admin", "account_manager"],
+    allowedRoles: ["admin"],
   },
   reject: {
     from: "pending_approval",
     to: "rejected",
     action: "quote.rejected",
-    allowedRoles: ["admin", "account_manager"],
+    allowedRoles: ["admin"],
     notePrefix: "Rejected",
     defaultNote: "Rejected without a reason.",
+  },
+  request_changes: {
+    from: "pending_approval",
+    to: "changes_requested",
+    action: "quote.changes_requested",
+    allowedRoles: ["admin"],
+    notePrefix: "Changes requested",
+    defaultNote: "Changes requested.",
   },
   send: {
     from: "approved",
@@ -106,7 +116,26 @@ export async function PATCH(
     return badRequest(parsed.message);
   }
 
-  const rule = WORKFLOW_RULES[parsed.action];
+  const baseRule = WORKFLOW_RULES[parsed.action];
+  const approvalWorkflowEnabled =
+    parsed.action === "submit"
+      ? await isFeatureEnabled({
+          supabase,
+          organizationId: user.organization_id,
+          featureName: "approval_workflow",
+          defaultValue: true,
+        })
+      : true;
+  const rule =
+    parsed.action === "submit" && !approvalWorkflowEnabled
+      ? {
+          ...baseRule,
+          to: "approved" as const,
+          action: "quote.fast_mode_approved",
+          defaultNote:
+            "Approval workflow disabled; quote approved in fast mode.",
+        }
+      : baseRule;
 
   if (!rule.allowedRoles.includes(user.role)) {
     return forbidden("You do not have permission to perform this quote action.");

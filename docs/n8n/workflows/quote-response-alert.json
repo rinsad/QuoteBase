@@ -1,0 +1,182 @@
+{
+  "name": "QuoteBase - Customer Response Slack Alerts",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 10 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.SUPABASE_URL + '/rest/v1/audit_log'}}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "id,action,target_table,target_id,before_value,after_value,metadata,created_at"
+            },
+            {
+              "name": "organization_id",
+              "value": "={{'eq.' + $env.QUOTEBASE_ORGANIZATION_ID}}"
+            },
+            {
+              "name": "target_table",
+              "value": "eq.quotes"
+            },
+            {
+              "name": "action",
+              "value": "in.(quote.customer_viewed,quote.customer_accepted,quote.customer_declined)"
+            },
+            {
+              "name": "created_at",
+              "value": "={{'gte.' + new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()}}"
+            },
+            {
+              "name": "order",
+              "value": "created_at.asc"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $env.SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-response-audit-events",
+      "name": "Fetch Response Audit Events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nstaticData.sentAuditIds ??= {};\n\nconst rows = $input.all().flatMap((item) => {\n  if (Array.isArray(item.json)) return item.json;\n  if (Array.isArray(item.json.body)) return item.json.body;\n  return [item.json];\n}).filter((row) => row && row.id);\n\nconst fresh = [];\nfor (const row of rows) {\n  if (staticData.sentAuditIds[row.id]) continue;\n  staticData.sentAuditIds[row.id] = new Date().toISOString();\n  fresh.push({ json: row });\n}\n\nreturn fresh;"
+      },
+      "id": "dedupe-response-events",
+      "name": "Dedupe Response Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SLACK_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": `Quote customer event: ${$json.action}`,\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": `*Quote customer event*\\nAction: ${$json.action}\\nQuote ID: ${$json.target_id}\\nNew status: ${$json.after_value?.status ?? 'unknown'}\\nWhen: ${$json.created_at}`\n      }\n    },\n    {\n      \"type\": \"actions\",\n      \"elements\": [\n        {\n          \"type\": \"button\",\n          \"text\": { \"type\": \"plain_text\", \"text\": \"Open quote\" },\n          \"url\": `${$env.QUOTEBASE_APP_URL}/quotes/${$json.target_id}`\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "send-slack-response-alert",
+      "name": "Send Slack Response Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        40
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Response Audit Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 10 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Fetch Response Audit Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Response Audit Events": {
+      "main": [
+        [
+          {
+            "node": "Dedupe Response Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe Response Events": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Response Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}

@@ -38,8 +38,8 @@ Last updated: 2026-05-30
 - Backend: Next.js route handlers.
 - Database/Auth: Supabase Postgres 15+ with RLS and Supabase Auth magic-link email.
 - Storage: Supabase Storage for PDFs/profile photos.
-- Workflows: self-hosted n8n.
-- Hosting: Vercel app, Supabase Cloud database, VPS for n8n.
+- Workflows: native app/server workflows where possible; no n8n dependency for Pipedrive customer sync.
+- Hosting: Vercel app and Supabase Cloud database.
 - Integrations: Google Maps Distance Matrix, Pipedrive, Quoter/ScalePad, Slack, later Postmark/Resend and Twilio.
 
 ## Users and Roles
@@ -149,7 +149,7 @@ Key routes include:
 - `GET/PATCH /api/admin/feature-flags`
 - `GET/PATCH /api/admin/users`
 - `GET /api/admin/audit-log`
-- `POST /api/webhooks/n8n/*`
+- `GET /api/cron/pipedrive-sync`
 
 Every route verifies `supabase.auth.getUser()`, checks role/org server-side, validates input with Zod, and uses typed responses.
 
@@ -159,7 +159,7 @@ Phase 1 MVP, 3-4 weeks:
 
 - Week 1: schema, auth, customers, vendor pricing, feature toggles, admin users.
 - Week 2: pricing engine, three-zone plant selection, quote builder, approval workflow.
-- Week 3: n8n/Pipedrive/Google Maps/Quoter/Slack integrations, performance/security testing.
+- Week 3: Pipedrive/Google Maps/Quoter/Slack integrations, performance/security testing.
 - Days 16-20: shadow mode alongside Excel/Quoter.
 - Day 21: go-live if shadow mode passes.
 
@@ -181,7 +181,7 @@ The docs say Day 0 should produce:
 - Next.js 15 + TypeScript + Tailwind + shadcn/ui scaffold.
 - Supabase project named `wm-quoting-app`.
 - Supabase client SDK connected.
-- `.env.local` with Supabase, Google Maps, Pipedrive, Quoter/Slack/n8n values as they become available.
+- `.env.local` with Supabase, Google Maps, Pipedrive, Quoter/Slack values as they become available.
 - Root `CLAUDE.md` and `AGENTS.md` generated from prompt pack.
 - `docs/build-log.md` and `docs/decisions/`.
 
@@ -206,3 +206,6 @@ When asked to review, lead with findings. Block on:
 
 When this project resumes after shutdown, first read this file, then inspect current files and `docs/build-log.md` if present. Ask what day/task the user wants next only if it is not inferable from workspace state.
 
+## Deployment Reminder
+
+When preparing to deploy to the server, remind the user to configure `CRON_SECRET` and the tenant Pipedrive API token. A.5.4 uses native Vercel Cron at `/api/cron/pipedrive-sync` every 30 minutes, not n8n.

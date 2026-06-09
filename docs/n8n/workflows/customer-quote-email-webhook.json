@@ -1,0 +1,121 @@
+{
+  "name": "QuoteBase - Customer Quote Email Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quotebase/customer-quote-email",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "customer-email-webhook",
+      "name": "Customer Email Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "quotebase-customer-quote-email"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\nconst required = ['to', 'customerName', 'quoteNumber', 'quoteUrl'];\nconst missing = required.filter((key) => typeof body[key] !== 'string' || body[key].trim() === '');\n\nif (missing.length) {\n  throw new Error(`Missing required field(s): ${missing.join(', ')}`);\n}\n\nconst total = Number(body.total ?? 0);\n\nreturn [{\n  json: {\n    to: body.to.trim(),\n    customerName: body.customerName.trim(),\n    quoteNumber: body.quoteNumber.trim(),\n    quoteUrl: body.quoteUrl.trim(),\n    total: Number.isFinite(total) ? total : 0\n  }\n}];"
+      },
+      "id": "validate-email-payload",
+      "name": "Validate Email Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $env.RESEND_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"from\": $env.EMAIL_FROM,\n  \"to\": $json.to,\n  \"subject\": `Western Materials quote ${$json.quoteNumber}`,\n  \"text\": `Hello ${$json.customerName},\\n\\nWestern Materials has prepared quote ${$json.quoteNumber} for your review.\\nTotal: $${Number($json.total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\\n\\nView and respond to the quote here: ${$json.quoteUrl}\\n\\nThank you,\\nWestern Materials`\n}",
+        "options": {}
+      },
+      "id": "send-resend-email",
+      "name": "Send Resend Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": true,\n  \"provider\": \"resend\",\n  \"resend\": $json\n}",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Customer Email Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Email Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Email Payload": {
+      "main": [
+        [
+          {
+            "node": "Send Resend Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Resend Email": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}

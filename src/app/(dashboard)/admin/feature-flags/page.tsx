@@ -6,6 +6,7 @@ import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { getAdminFeatureFlags } from "@/lib/admin/feature-flags";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { isAlwaysOnFeature } from "@/lib/features/flags";
 
 export default async function AdminFeatureFlagsPage({
   searchParams,
@@ -82,65 +83,80 @@ export default async function AdminFeatureFlagsPage({
 
         <section className="mt-6 grid gap-4 lg:grid-cols-2">
           {flags.map((flag) => (
-            <form
-              key={flag.id}
-              action={updateFeatureFlag}
-              className="glass-panel p-5 sm:p-6"
-            >
-              <input type="hidden" name="flag_id" value={flag.id} />
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <h3 className="break-words text-lg font-semibold">
-                    {formatFeatureName(flag.feature_name)}
-                  </h3>
-                  <p className="mt-1 font-mono text-xs text-muted-foreground">
-                    {flag.feature_name}
-                  </p>
-                </div>
-                <label className="flex shrink-0 items-center gap-2 rounded-full bg-white/70 px-3 py-2 text-sm font-medium ring-1 ring-white/80">
-                  <input
-                    name="is_enabled"
-                    type="checkbox"
-                    defaultChecked={flag.is_enabled}
-                    className="size-4"
-                  />
-                  {flag.is_enabled ? (
-                    <ToggleRight className="size-4 text-emerald-700" />
-                  ) : (
-                    <ToggleLeft className="size-4 text-slate-500" />
-                  )}
-                  Enabled
-                </label>
-              </div>
-
-              <label className="mt-5 block">
-                <span className="text-sm font-medium text-muted-foreground">
-                  Config JSON
-                </span>
-                <textarea
-                  name="config"
-                  rows={5}
-                  defaultValue={formatConfig(flag.config)}
-                  className="soft-control mt-2 w-full resize-none font-mono text-xs"
-                  placeholder='{"key":"value"}'
-                />
-              </label>
-
-              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-muted-foreground">
-                  Updated by {flag.updated_by?.full_name ?? "system"} on{" "}
-                  {new Date(flag.updated_at).toLocaleDateString("en-US")}
-                </p>
-                <Button type="submit" className="h-10 rounded-full">
-                  <Save className="size-4" />
-                  Save
-                </Button>
-              </div>
-            </form>
+            <FeatureFlagForm key={flag.id} flag={flag} />
           ))}
         </section>
       </div>
     </main>
+  );
+}
+
+function FeatureFlagForm({
+  flag,
+}: {
+  flag: Awaited<ReturnType<typeof getAdminFeatureFlags>>[number];
+}) {
+  const alwaysOn = isAlwaysOnFeature(flag.feature_name);
+
+  return (
+    <form action={updateFeatureFlag} className="glass-panel p-5 sm:p-6">
+      <input type="hidden" name="flag_id" value={flag.id} />
+      {alwaysOn ? <input type="hidden" name="is_enabled" value="on" /> : null}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="break-words text-lg font-semibold">
+            {formatFeatureName(flag.feature_name)}
+          </h3>
+          <p className="mt-1 font-mono text-xs text-muted-foreground">
+            {flag.feature_name}
+          </p>
+          {alwaysOn ? (
+            <p className="mt-2 text-xs font-medium text-emerald-700">
+              Always on
+            </p>
+          ) : null}
+        </div>
+        <label className="flex shrink-0 items-center gap-2 rounded-full bg-white/70 px-3 py-2 text-sm font-medium ring-1 ring-white/80">
+          <input
+            name="is_enabled"
+            type="checkbox"
+            defaultChecked={flag.is_enabled || alwaysOn}
+            disabled={alwaysOn}
+            className="size-4"
+          />
+          {flag.is_enabled || alwaysOn ? (
+            <ToggleRight className="size-4 text-emerald-700" />
+          ) : (
+            <ToggleLeft className="size-4 text-slate-500" />
+          )}
+          Enabled
+        </label>
+      </div>
+
+      <label className="mt-5 block">
+        <span className="text-sm font-medium text-muted-foreground">
+          Config JSON
+        </span>
+        <textarea
+          name="config"
+          rows={5}
+          defaultValue={formatConfig(flag.config)}
+          className="soft-control mt-2 w-full resize-none font-mono text-xs"
+          placeholder='{"key":"value"}'
+        />
+      </label>
+
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground">
+          Updated by {flag.updated_by?.full_name ?? "system"} on{" "}
+          {new Date(flag.updated_at).toLocaleDateString("en-US")}
+        </p>
+        <Button type="submit" className="h-10 rounded-full">
+          <Save className="size-4" />
+          Save
+        </Button>
+      </div>
+    </form>
   );
 }
 

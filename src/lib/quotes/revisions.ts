@@ -33,6 +33,7 @@ type RevisionQuoteItemRecord = {
   quantity: number;
   unit: string;
   unit_cost: number;
+  markup_per_unit: number | null;
   markup_pct: number;
   material_unit_price: number;
   material_subtotal: number;
@@ -68,7 +69,7 @@ export async function createQuoteRevision({
   user: AppUser;
   quoteId: string;
 }): Promise<CreatedQuoteRevision> {
-  if (user.role !== "admin" && user.role !== "account_manager") {
+  if (user.role !== "admin") {
     throw new Error("You do not have permission to create quote revisions.");
   }
 
@@ -104,7 +105,7 @@ export async function createQuoteRevision({
   const { data: quoteItems, error: itemsError } = await supabase
     .from("quote_items")
     .select(
-      "supplier_id, material_id, quantity, unit, unit_cost, markup_pct, material_unit_price, material_subtotal, vehicle_type_id, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total",
+      "supplier_id, material_id, quantity, unit, unit_cost, markup_per_unit, markup_pct, material_unit_price, material_subtotal, vehicle_type_id, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total",
     )
     .eq("organization_id", user.organization_id)
     .eq("quote_id", quote.id)
@@ -152,6 +153,7 @@ export async function createQuoteRevision({
         quantity: Number(item.quantity),
         unit: item.unit,
         unit_cost: Number(item.unit_cost),
+        markup_per_unit: Number(item.markup_per_unit ?? item.markup_pct),
         markup_pct: Number(item.markup_pct),
         material_unit_price: Number(item.material_unit_price),
         material_subtotal: Number(item.material_subtotal),

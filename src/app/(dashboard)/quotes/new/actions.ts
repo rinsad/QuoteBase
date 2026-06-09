@@ -36,7 +36,7 @@ export async function createQuoteDraft(
     };
   }
 
-  const parsed = parseQuoteForm(formData);
+  const parsed = parseQuoteForm(formData, user.role);
 
   if (!parsed.ok) {
     return {
@@ -68,17 +68,42 @@ export async function createQuoteDraft(
   );
 }
 
-function parseQuoteForm(formData: FormData):
+function parseQuoteForm(
+  formData: FormData,
+  userRole: "admin" | "account_manager" | "estimator",
+):
   | ({ ok: true } & CreateQuoteDraftInput)
   | { ok: false; message: string } {
   const customerId = optionalUuid(formData, "customer_id");
   const jobSiteId = optionalUuid(formData, "job_site_id");
   const materialId = requiredUuid(formData, "material_id");
-  const taxRateId = requiredUuid(formData, "tax_rate_id");
+  const taxRateId = optionalUuid(formData, "tax_rate_id");
   const quantity = Number(getString(formData, "quantity"));
+  const materialUnitPriceOverride = optionalMoney(
+    formData,
+    "material_unit_price_override",
+  );
+  const materialMinimumOverride = optionalNonNegativeMoney(
+    formData,
+    "material_minimum_override",
+  );
+  const truckingMinimumOverride = optionalNonNegativeMoney(
+    formData,
+    "trucking_minimum_override",
+  );
+  const competitorPrice = optionalMoney(formData, "competitor_price");
+  const manualRouteDistanceMiles = optionalNonNegativeMoney(
+    formData,
+    "manual_route_distance_miles",
+  );
+  const manualDeadheadDistanceMiles = optionalNonNegativeMoney(
+    formData,
+    "manual_deadhead_distance_miles",
+  );
+  const truckRateOverride = optionalTruckRate(formData, "truck_rate_override");
 
-  if (!materialId || !taxRateId) {
-    return { ok: false, message: "Select a material and tax rate." };
+  if (!materialId) {
+    return { ok: false, message: "Select a material." };
   }
 
   if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 100000) {
@@ -89,9 +114,12 @@ function parseQuoteForm(formData: FormData):
     ok: true,
     customerId,
     customerName: getString(formData, "customer_name"),
+    companyName: getString(formData, "company_name"),
     contactName: getString(formData, "contact_name"),
     contactEmail: getString(formData, "contact_email"),
     contactPhone: getString(formData, "contact_phone"),
+    customerAddress: getString(formData, "customer_address"),
+    paymentTerms: getString(formData, "payment_terms"),
     jobSiteId,
     siteName: getString(formData, "site_name"),
     siteAddress: getString(formData, "site_address"),
@@ -104,6 +132,14 @@ function parseQuoteForm(formData: FormData):
     taxRateId,
     quantity,
     notes: getString(formData, "notes"),
+    useSelectedPlant: formData.get("use_selected_plant") === "on",
+    materialUnitPriceOverride,
+    truckRateOverride: userRole === "admin" ? truckRateOverride : null,
+    materialMinimumOverride,
+    truckingMinimumOverride,
+    competitorPrice,
+    manualRouteDistanceMiles,
+    manualDeadheadDistanceMiles,
   };
 }
 
@@ -144,4 +180,48 @@ function optionalCoordinate(
   }
 
   return Math.round((numberValue + Number.EPSILON) * 10000000) / 10000000;
+}
+
+function optionalMoney(formData: FormData, key: string): number | null {
+  const value = getString(formData, key);
+
+  if (!value) {
+    return null;
+  }
+
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue) || numberValue <= 0) {
+    throw new Error(`${key} must be greater than zero when provided.`);
+  }
+
+  return Math.round((numberValue + Number.EPSILON) * 100) / 100;
+}
+
+function optionalNonNegativeMoney(formData: FormData, key: string): number | null {
+  const value = getString(formData, key);
+
+  if (!value) {
+    return null;
+  }
+
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue) || numberValue < 0) {
+    throw new Error(`${key} must be zero or greater when provided.`);
+  }
+
+  return Math.round((numberValue + Number.EPSILON) * 100) / 100;
+}
+
+function optionalTruckRate(
+  formData: FormData,
+  key: string,
+): "floor" | "standard" | "target" | "premium" | "stretch" | null {
+  const value = getString(formData, key);
+  const allowed = ["floor", "standard", "target", "premium", "stretch"] as const;
+
+  return allowed.includes(value as (typeof allowed)[number])
+    ? (value as (typeof allowed)[number])
+    : null;
 }

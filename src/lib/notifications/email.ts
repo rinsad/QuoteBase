@@ -1,85 +1,63 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import {
+  sendGmailQuoteEmail,
+  type EmailAttachment,
+} from "@/lib/integrations/gmail";
+
 export type EmailDeliveryResult = {
   status: "sent" | "skipped" | "failed";
-  provider: "resend" | "none";
+  provider: "gmail" | "none";
   messageId: string | null;
   reason: string | null;
 };
 
 type QuoteEmailInput = {
+  supabase: SupabaseClient;
+  organizationId: string;
   to: string;
   customerName: string;
   quoteNumber: string;
   quoteUrl: string;
   total: number;
+  attachments?: EmailAttachment[];
 };
 
 export async function sendQuoteEmail({
+  supabase,
+  organizationId,
   to,
   customerName,
   quoteNumber,
   quoteUrl,
   total,
+  attachments = [],
 }: QuoteEmailInput): Promise<EmailDeliveryResult> {
-  const resendApiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM;
+  const text = createQuoteEmailText({
+    customerName,
+    quoteNumber,
+    quoteUrl,
+    total,
+  });
+  const gmailDelivery = await sendGmailQuoteEmail({
+    supabase,
+    organizationId,
+    to,
+    subject: `Western Materials quote ${quoteNumber}`,
+    text,
+    attachments,
+  });
 
-  if (!resendApiKey || !from) {
-    return {
-      status: "skipped",
-      provider: "none",
-      messageId: null,
-      reason: "Email provider is not configured.",
-    };
+  if (gmailDelivery.status !== "skipped") {
+    return gmailDelivery;
   }
 
-  try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${resendApiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to,
-        subject: `Western Materials quote ${quoteNumber}`,
-        text: createQuoteEmailText({
-          customerName,
-          quoteNumber,
-          quoteUrl,
-          total,
-        }),
-      }),
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      return {
-        status: "failed",
-        provider: "resend",
-        messageId: null,
-        reason: `Resend returned HTTP ${response.status}.`,
-      };
-    }
-
-    const payload = (await response.json()) as unknown;
-    const messageId =
-      isRecord(payload) && typeof payload.id === "string" ? payload.id : null;
-
-    return {
-      status: "sent",
-      provider: "resend",
-      messageId,
-      reason: null,
-    };
-  } catch {
-    return {
-      status: "failed",
-      provider: "resend",
-      messageId: null,
-      reason: "Email provider request failed.",
-    };
-  }
+  return {
+    status: "skipped",
+    provider: "none",
+    messageId: null,
+    reason: "Gmail is not connected for this organization.",
+  };
 }
 
 function createQuoteEmailText({
@@ -87,7 +65,10 @@ function createQuoteEmailText({
   quoteNumber,
   quoteUrl,
   total,
-}: Omit<QuoteEmailInput, "to">): string {
+}: Pick<
+  QuoteEmailInput,
+  "customerName" | "quoteNumber" | "quoteUrl" | "total"
+>): string {
   return [
     `Hello ${customerName},`,
     "",
@@ -106,8 +87,4 @@ function formatCurrency(value: number): string {
     style: "currency",
     currency: "USD",
   }).format(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }

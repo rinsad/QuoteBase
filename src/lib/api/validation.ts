@@ -6,6 +6,7 @@ export const UUID_PATTERN =
 const QUOTE_STATUSES = new Set<QuoteStatus>([
   "draft",
   "pending_approval",
+  "changes_requested",
   "approved",
   "rejected",
   "sent",

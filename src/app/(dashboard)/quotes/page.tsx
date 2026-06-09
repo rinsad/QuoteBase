@@ -34,7 +34,7 @@ export default async function QuotesPage() {
                 <h1 className="truncate text-lg font-semibold">Quote Desk</h1>
               </div>
             </div>
-            <QuoteNav />
+            <QuoteNav userRole={user.role} />
           </div>
         </header>
 
@@ -146,6 +146,7 @@ function StatusPill({ status }: { status: QuoteStatus }) {
   const tone = {
     draft: "bg-blue-50 text-blue-700 ring-blue-100",
     pending_approval: "bg-amber-50 text-amber-700 ring-amber-100",
+    changes_requested: "bg-orange-50 text-orange-700 ring-orange-100",
     approved: "bg-emerald-50 text-emerald-700 ring-emerald-100",
     rejected: "bg-rose-50 text-rose-700 ring-rose-100",
     sent: "bg-cyan-50 text-cyan-700 ring-cyan-100",

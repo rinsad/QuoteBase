@@ -79,7 +79,12 @@ export default async function AdminAuditLogPage() {
                     </p>
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    {entry.user?.full_name ?? "System"}
+                    <div>{entry.user?.full_name ?? "System"}</div>
+                    {isSelfApproval(entry.metadata) ? (
+                      <div className="mt-1 text-xs font-semibold text-amber-700">
+                        Self-approval tracked
+                      </div>
+                    ) : null}
                   </div>
                   <div className="font-mono text-xs text-muted-foreground">
                     {new Date(entry.created_at).toLocaleString("en-US")}
@@ -95,6 +100,15 @@ export default async function AdminAuditLogPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function isSelfApproval(metadata: unknown) {
+  return (
+    typeof metadata === "object" &&
+    metadata !== null &&
+    "self_approval" in metadata &&
+    metadata.self_approval === true
   );
 }
 

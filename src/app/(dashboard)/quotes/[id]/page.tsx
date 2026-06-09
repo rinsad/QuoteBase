@@ -24,6 +24,7 @@ import {
   markQuoteAccepted,
   markQuoteDeclined,
   markQuoteSent,
+  requestQuoteChanges,
   rejectQuote,
   removeQuoteItem,
   sendCustomerQuoteEmail,
@@ -32,6 +33,7 @@ import {
 } from "@/app/(dashboard)/quotes/[id]/actions";
 import { Button } from "@/components/ui/button";
 import { QuoteNav } from "@/components/app-nav";
+import { QuoteStatusListener } from "@/components/quote-status-listener";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getNewQuoteContext } from "@/lib/quotes/new-quote";
 import {
@@ -66,10 +68,18 @@ export default async function QuoteDetailPage({
     notFound();
   }
 
-  const quoteContext = quote.status === "draft" ? await getNewQuoteContext(user) : null;
+  const editableUnapprovedStatuses: QuoteStatus[] = [
+    "draft",
+    "pending_approval",
+    "changes_requested",
+    "rejected",
+  ];
+  const canEditItems = editableUnapprovedStatuses.includes(quote.status);
+  const quoteContext = canEditItems ? await getNewQuoteContext(user) : null;
   const submitAction = submitQuoteForApproval.bind(null, quote.id);
   const approveAction = approveQuote.bind(null, quote.id);
   const rejectAction = rejectQuote.bind(null, quote.id);
+  const requestChangesAction = requestQuoteChanges.bind(null, quote.id);
   const sendAction = markQuoteSent.bind(null, quote.id);
   const acceptedAction = markQuoteAccepted.bind(null, quote.id);
   const declinedAction = markQuoteDeclined.bind(null, quote.id);
@@ -78,11 +88,10 @@ export default async function QuoteDetailPage({
   const generateDocumentAction = generateQuoteDocument.bind(null, quote.id);
   const sendEmailAction = sendCustomerQuoteEmail.bind(null, quote.id);
   const createRevisionAction = createQuoteRevisionAction.bind(null, quote.id);
-  const canSubmit = quote.status === "draft";
-  const canEditItems = quote.status === "draft";
+  const canSubmit =
+    quote.status === "draft" || quote.status === "changes_requested";
   const canApprove =
-    quote.status === "pending_approval" &&
-    (user.role === "admin" || user.role === "account_manager");
+    quote.status === "pending_approval" && user.role === "admin";
   const canSend =
     quote.status === "approved" &&
     (user.role === "admin" || user.role === "account_manager");
@@ -92,6 +101,10 @@ export default async function QuoteDetailPage({
   const canCreateCustomerLink =
     ["sent", "viewed", "accepted", "declined"].includes(quote.status) &&
     (user.role === "admin" || user.role === "account_manager");
+  const canSendCustomerEmail =
+    ["approved", "sent", "viewed", "accepted", "declined"].includes(
+      quote.status,
+    ) && (user.role === "admin" || user.role === "account_manager");
   const canGenerateDocument =
     ["approved", "sent", "viewed", "accepted", "declined"].includes(
       quote.status,
@@ -99,10 +112,11 @@ export default async function QuoteDetailPage({
   const canCreateRevision =
     ["approved", "sent", "viewed", "accepted", "declined", "expired"].includes(
       quote.status,
-    ) && (user.role === "admin" || user.role === "account_manager");
+    ) && user.role === "admin";
 
   return (
     <main className="app-background">
+      <QuoteStatusListener quoteId={quote.id} currentStatus={quote.status} />
       <div className="mx-auto w-full max-w-7xl">
         <header className="mac-window">
           <div className="mac-toolbar">
@@ -122,7 +136,7 @@ export default async function QuoteDetailPage({
                 </h1>
               </div>
             </div>
-            <QuoteNav quoteId={quote.id} includePrint />
+            <QuoteNav quoteId={quote.id} includePrint userRole={user.role} />
           </div>
         </header>
 
@@ -248,6 +262,21 @@ export default async function QuoteDetailPage({
                         Reject quote
                       </Button>
                     </form>
+                    <form action={requestChangesAction} className="space-y-3">
+                      <textarea
+                        name="change_request_comment"
+                        className="soft-control min-h-24 w-full resize-none py-3"
+                        placeholder="What needs to change?"
+                        required
+                      />
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        className="h-11 w-full rounded-full bg-amber-50 text-amber-800 hover:bg-amber-100"
+                      >
+                        Request changes
+                      </Button>
+                    </form>
                   </div>
                 ) : null}
                 {canSend ? (
@@ -298,24 +327,28 @@ export default async function QuoteDetailPage({
                 ) : null}
               </div>
             ) : null}
-            {canCreateCustomerLink ? (
+            {canSendCustomerEmail || canCreateCustomerLink ? (
               <div className="mt-3 grid gap-3">
-                <form action={sendEmailAction}>
-                  <Button type="submit" className="h-11 w-full rounded-full">
-                    <Send className="size-4" />
-                    Send customer email
-                  </Button>
-                </form>
-                <form action={createPublicLinkAction}>
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    className="h-11 w-full rounded-full bg-white/70"
-                  >
-                    <Share2 className="size-4" />
-                    Create customer link
-                  </Button>
-                </form>
+                {canSendCustomerEmail ? (
+                  <form action={sendEmailAction}>
+                    <Button type="submit" className="h-11 w-full rounded-full">
+                      <Send className="size-4" />
+                      Send PDF quote by email
+                    </Button>
+                  </form>
+                ) : null}
+                {canCreateCustomerLink ? (
+                  <form action={createPublicLinkAction}>
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      className="h-11 w-full rounded-full bg-white/70"
+                    >
+                      <Share2 className="size-4" />
+                      Create customer link
+                    </Button>
+                  </form>
+                ) : null}
               </div>
             ) : null}
             {canCreateRevision ? (
@@ -632,7 +665,7 @@ function QuoteItemRow({
         </p>
         <p className="mt-2 text-xs text-muted-foreground">
           Cost {formatCurrency(item.unit_cost)} | Markup{" "}
-          {item.markup_pct.toFixed(2)}% | Sell{" "}
+          {formatCurrency(item.markup_per_unit)} / {item.unit} | Sell{" "}
           {formatCurrency(item.material_unit_price)}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -708,6 +741,7 @@ function StatusPill({ status }: { status: QuoteStatus }) {
   const tone = {
     draft: "bg-blue-50 text-blue-700 ring-blue-100",
     pending_approval: "bg-amber-50 text-amber-700 ring-amber-100",
+    changes_requested: "bg-orange-50 text-orange-700 ring-orange-100",
     approved: "bg-emerald-50 text-emerald-700 ring-emerald-100",
     rejected: "bg-rose-50 text-rose-700 ring-rose-100",
     sent: "bg-cyan-50 text-cyan-700 ring-cyan-100",

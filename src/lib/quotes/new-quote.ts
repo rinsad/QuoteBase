@@ -10,16 +10,33 @@ import { createClient } from "@/lib/supabase/server";
 export type QuoteCustomerOption = {
   id: string;
   name: string;
+  company_name: string | null;
   contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  address: Record<string, unknown>;
+  payment_terms: string | null;
+  quote_history: QuoteCustomerQuoteHistory[];
+};
+
+export type QuoteCustomerQuoteHistory = {
+  id: string;
+  quote_number: string;
+  status: string;
+  total: number;
+  created_at: string;
 };
 
 export type QuoteJobSiteOption = {
   id: string;
   customer_id: string;
   name: string;
+  address: Record<string, unknown>;
   city: string;
   county: string;
   state: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 export type QuoteMaterialOption = {
@@ -44,6 +61,7 @@ export type QuoteVehicleOption = VehicleCapacity;
 
 export type NewQuoteContext = {
   quoteCreationEnabled: boolean;
+  competitiveIntelligenceEnabled: boolean;
   customers: QuoteCustomerOption[];
   jobSites: QuoteJobSiteOption[];
   materials: QuoteMaterialOption[];
@@ -57,6 +75,10 @@ type MaterialRecord = Omit<QuoteMaterialOption, "supplier_name"> & {
   suppliers: { name: string } | { name: string }[] | null;
 };
 
+type QuoteHistoryRecord = QuoteCustomerQuoteHistory & {
+  customer_id: string;
+};
+
 export async function getNewQuoteContext(
   user: AppUser,
 ): Promise<NewQuoteContext> {
@@ -67,39 +89,45 @@ export async function getNewQuoteContext(
   }
 
   const [
-    quoteCreationFlag,
+    competitiveIntelligenceFlag,
     customersResult,
     jobSitesResult,
     materialsResult,
     taxRatesResult,
     vehicleTypesResult,
     pricingConfigResult,
+    quoteHistoryResult,
   ] = await Promise.all([
     supabase
       .from("feature_flags")
       .select("is_enabled")
       .eq("organization_id", user.organization_id)
-      .eq("feature_name", "quote_creation")
+      .eq("feature_name", "competitive_intelligence_input")
       .single<{ is_enabled: boolean }>(),
     supabase
       .from("customers")
-      .select("id, name, contact_name")
+      .select("id, name, company_name, contact_name, phone, email, address, payment_terms")
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
       .order("name", { ascending: true })
       .returns<QuoteCustomerOption[]>(),
     supabase
       .from("job_sites")
-      .select("id, customer_id, name, city, county, state")
+      .select(
+        "id, customer_id, name, address, city, county, state, latitude, longitude",
+      )
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
       .order("name", { ascending: true })
       .returns<QuoteJobSiteOption[]>(),
     supabase
       .from("materials")
-      .select("id, supplier_id, name, tier, unit, cost_per_unit, suppliers(name)")
+      .select(
+        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name)",
+      )
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
+      .eq("suppliers.is_active", true)
       .order("name", { ascending: true })
       .returns<MaterialRecord[]>(),
     supabase
@@ -122,7 +150,32 @@ export async function getNewQuoteContext(
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
+    supabase
+      .from("quotes")
+      .select("id, customer_id, quote_number, status, total, created_at")
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(250)
+      .returns<QuoteHistoryRecord[]>(),
   ]);
+  const quoteHistoryByCustomer = new Map<string, QuoteCustomerQuoteHistory[]>();
+
+  for (const quote of quoteHistoryResult.data ?? []) {
+    const history = quoteHistoryByCustomer.get(quote.customer_id) ?? [];
+
+    if (history.length < 5) {
+      history.push({
+        id: quote.id,
+        quote_number: quote.quote_number,
+        status: quote.status,
+        total: Number(quote.total),
+        created_at: quote.created_at,
+      });
+    }
+
+    quoteHistoryByCustomer.set(quote.customer_id, history);
+  }
 
   const pricingConfig = pricingConfigResult.data
     ? normalizePricingConfig(pricingConfigResult.data)
@@ -143,9 +196,21 @@ export async function getNewQuoteContext(
       : null;
 
   return {
-    quoteCreationEnabled: quoteCreationFlag.data?.is_enabled ?? false,
-    customers: customersResult.data ?? [],
-    jobSites: jobSitesResult.data ?? [],
+    quoteCreationEnabled: true,
+    competitiveIntelligenceEnabled:
+      competitiveIntelligenceFlag.data?.is_enabled ?? false,
+    customers:
+      customersResult.data?.map((customer) => ({
+        ...customer,
+        address: customer.address ?? {},
+        quote_history: quoteHistoryByCustomer.get(customer.id) ?? [],
+      })) ?? [],
+    jobSites:
+      jobSitesResult.data?.map((site) => ({
+        ...site,
+        latitude: site.latitude === null ? null : Number(site.latitude),
+        longitude: site.longitude === null ? null : Number(site.longitude),
+      })) ?? [],
     materials:
       materialsResult.data?.map((material) => {
         const supplier = Array.isArray(material.suppliers)
@@ -210,6 +275,7 @@ export function normalizePricingConfig(config: PricingConfig): PricingConfig {
 function emptyContext(): NewQuoteContext {
   return {
     quoteCreationEnabled: false,
+    competitiveIntelligenceEnabled: false,
     customers: [],
     jobSites: [],
     materials: [],

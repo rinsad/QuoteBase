@@ -5,14 +5,20 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { apiOk, badRequest, serverError, unauthorized } from "@/lib/api/responses";
 import { parsePagination } from "@/lib/api/validation";
 import { logAction } from "@/lib/audit/log-action";
+import { pushCustomerToPipedrive } from "@/lib/integrations/pipedrive";
 import { createClient } from "@/lib/supabase/server";
 
 type CustomerApiRecord = {
   id: string;
   name: string;
+  company_name: string | null;
   contact_name: string | null;
   email: string | null;
   phone: string | null;
+  address: Record<string, unknown>;
+  payment_terms: string | null;
+  pricing_notes: string | null;
+  default_plant_id: string | null;
   is_active: boolean;
   job_sites:
     | {
@@ -31,17 +37,30 @@ type CustomerApiRecord = {
 type CreatedCustomerRecord = {
   id: string;
   name: string;
+  company_name: string | null;
   contact_name: string | null;
   email: string | null;
   phone: string | null;
+  address: Record<string, unknown>;
+  payment_terms: string | null;
+  pricing_notes: string | null;
+  default_plant_id: string | null;
   is_active: boolean;
 };
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+
 const createCustomerSchema = z.object({
   name: z.string().trim().min(1).max(160),
+  company_name: z.string().trim().max(160).optional().default(""),
   contact_name: z.string().trim().max(160).optional().default(""),
   email: z.string().trim().email().optional().or(z.literal("")),
   phone: z.string().trim().max(40).optional().default(""),
+  address: z.string().trim().max(240).optional().default(""),
+  payment_terms: z.string().trim().max(80).optional().default(""),
+  pricing_notes: z.string().trim().max(1000).optional().default(""),
+  default_plant_id: z.string().regex(UUID_PATTERN).optional().or(z.literal("")),
 });
 
 export async function GET(request: Request) {
@@ -69,7 +88,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("customers")
     .select(
-      "id, name, contact_name, email, phone, is_active, job_sites(id, name, city, county, state, latitude, longitude, is_active)",
+      "id, name, company_name, contact_name, email, phone, address, payment_terms, pricing_notes, default_plant_id, is_active, job_sites(id, name, city, county, state, latitude, longitude, is_active)",
       { count: "exact" },
     )
     .eq("organization_id", user.organization_id)
@@ -131,14 +150,21 @@ export async function POST(request: Request) {
       {
         organization_id: user.organization_id,
         name: parsed.value.name,
+        company_name: parsed.value.company_name || parsed.value.name,
         contact_name: parsed.value.contact_name || null,
         email: parsed.value.email || null,
         phone: parsed.value.phone || null,
+        address: {
+          line1: parsed.value.address || null,
+        },
+        payment_terms: parsed.value.payment_terms || null,
+        pricing_notes: parsed.value.pricing_notes || null,
+        default_plant_id: parsed.value.default_plant_id || null,
         is_active: true,
       },
       { onConflict: "organization_id,name" },
     )
-    .select("id, name, contact_name, email, phone, is_active")
+    .select("id, name, company_name, contact_name, email, phone, address, payment_terms, pricing_notes, default_plant_id, is_active")
     .single<CreatedCustomerRecord>();
 
   if (error || !customer) {
@@ -152,6 +178,12 @@ export async function POST(request: Request) {
     targetId: customer.id,
     before: null,
     after: customer,
+  });
+
+  await pushCustomerToPipedrive({
+    supabase,
+    user,
+    customerId: customer.id,
   });
 
   revalidatePath("/customers");

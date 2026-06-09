@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 export type QuoteStatus =
   | "draft"
   | "pending_approval"
+  | "changes_requested"
   | "approved"
   | "rejected"
   | "sent"
@@ -96,6 +97,7 @@ export type QuoteDetailItem = {
   quantity: number;
   unit: string;
   unit_cost: number;
+  markup_per_unit: number;
   markup_pct: number;
   material_unit_price: number;
   material_subtotal: number;
@@ -189,6 +191,7 @@ type QuoteItemRecord = {
   quantity: number;
   unit: string;
   unit_cost: number;
+  markup_per_unit: number | null;
   markup_pct: number;
   material_unit_price: number;
   material_subtotal: number;
@@ -311,7 +314,7 @@ export async function getQuoteDetail(
     supabase
       .from("quotes")
       .select(
-        "id, quote_number, status, parent_quote_id, revision_number, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), sales_tax_rates(city, state, rate), quote_items(id, quantity, unit, unit_cost, markup_pct, material_unit_price, material_subtotal, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, suppliers(name), materials(name, tier), vehicle_types(name))",
+        "id, quote_number, status, parent_quote_id, revision_number, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), sales_tax_rates(city, state, rate), quote_items(id, quantity, unit, unit_cost, markup_per_unit, markup_pct, material_unit_price, material_subtotal, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, suppliers(name), materials(name, tier), vehicle_types(name))",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", quoteId)
@@ -405,6 +408,7 @@ export async function getQuoteDetail(
           quantity: Number(item.quantity),
           unit: item.unit,
           unit_cost: Number(item.unit_cost),
+          markup_per_unit: Number(item.markup_per_unit ?? item.markup_pct),
           markup_pct: Number(item.markup_pct),
           material_unit_price: Number(item.material_unit_price),
           material_subtotal: Number(item.material_subtotal),

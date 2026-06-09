@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { logAction } from "@/lib/audit/log-action";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { isAlwaysOnFeature } from "@/lib/features/flags";
 import { createClient } from "@/lib/supabase/server";
 
 const UUID_PATTERN =
@@ -45,6 +46,12 @@ export async function updateFeatureFlag(formData: FormData) {
 
   if (beforeError || !before) {
     throw new Error(beforeError?.message ?? "Feature flag was not found.");
+  }
+  const featureName =
+    typeof before.feature_name === "string" ? before.feature_name : "";
+
+  if (isAlwaysOnFeature(featureName) && !payload.is_enabled) {
+    throw new Error(`${featureName} is always on and cannot be disabled.`);
   }
 
   const { data: after, error } = await supabase

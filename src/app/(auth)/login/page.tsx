@@ -2,12 +2,21 @@ import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/app/(auth)/login/login-form";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { isLocalSupabase } from "@/lib/env";
+import { isLocalSupabase, isSupabaseReachable } from "@/lib/env";
 
-export default async function LoginPage() {
-  const user = await getCurrentUser();
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ dev_login?: string }>;
+}) {
+  const query = await searchParams;
+  const localSupabase = isLocalSupabase();
+  const supabaseReachable = localSupabase
+    ? await isSupabaseReachable()
+    : true;
+  const user = supabaseReachable ? await getCurrentUser() : null;
   const showDevSignIn =
-    process.env.NODE_ENV !== "production" && isLocalSupabase();
+    process.env.NODE_ENV !== "production" && localSupabase;
 
   if (user) {
     redirect("/dashboard");
@@ -47,6 +56,13 @@ export default async function LoginPage() {
                 a magic link; local development can use the Rinsad shortcut.
               </p>
               <LoginForm showDevSignIn={showDevSignIn} />
+              {query.dev_login === "unavailable" || !supabaseReachable ? (
+                <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-100">
+                  Local Supabase is not running, so the Rinsad shortcut is
+                  unavailable. Start Supabase locally or use the magic-link
+                  flow.
+                </p>
+              ) : null}
             </div>
 
             <aside className="border-t border-white/70 bg-white/40 p-6 sm:p-8 lg:border-l lg:border-t-0 lg:p-10">

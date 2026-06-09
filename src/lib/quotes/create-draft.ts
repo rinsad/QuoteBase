@@ -2,6 +2,8 @@ import { randomUUID } from "crypto";
 
 import type { AppUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
+import { isFeatureEnabled } from "@/lib/features/flags";
+import { pushCustomerToPipedrive } from "@/lib/integrations/pipedrive";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -11,7 +13,9 @@ import {
   type PlantSelectionMaterial,
 } from "@/lib/quotes/plant-selection";
 import {
+  calculateQuoteDraft,
   type PricingConfig,
+  type TruckRateKey,
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
 import type { createClient } from "@/lib/supabase/server";
@@ -21,9 +25,12 @@ type SupabaseClient = NonNullable<Awaited<ReturnType<typeof createClient>>>;
 export type CreateQuoteDraftInput = {
   customerId: string;
   customerName: string;
+  companyName: string;
   contactName: string;
   contactEmail: string;
   contactPhone: string;
+  customerAddress: string;
+  paymentTerms: string;
   jobSiteId: string;
   siteName: string;
   siteAddress: string;
@@ -36,6 +43,14 @@ export type CreateQuoteDraftInput = {
   taxRateId: string;
   quantity: number;
   notes: string;
+  useSelectedPlant: boolean;
+  materialUnitPriceOverride: number | null;
+  truckRateOverride: TruckRateKey | null;
+  materialMinimumOverride: number | null;
+  truckingMinimumOverride: number | null;
+  competitorPrice: number | null;
+  manualRouteDistanceMiles: number | null;
+  manualDeadheadDistanceMiles: number | null;
 };
 
 export type CreatedQuoteDraft = {
@@ -46,6 +61,11 @@ export type CreatedQuoteDraft = {
 type CustomerRecord = {
   id: string;
   name: string;
+};
+
+type ResolvedCustomer = {
+  customer: CustomerRecord;
+  isNew: boolean;
 };
 
 type JobSiteRecord = {
@@ -73,20 +93,28 @@ export async function createQuoteDraftRecord({
   user: AppUser;
   input: CreateQuoteDraftInput;
 }): Promise<CreatedQuoteDraft> {
-  const { data: flag } = await supabase
-    .from("feature_flags")
-    .select("is_enabled")
-    .eq("organization_id", user.organization_id)
-    .eq("feature_name", "quote_creation")
-    .single<{ is_enabled: boolean }>();
-
-  if (!flag?.is_enabled) {
+  if (
+    !(await isFeatureEnabled({
+      supabase,
+      organizationId: user.organization_id,
+      featureName: "quote_creation",
+      defaultValue: true,
+    }))
+  ) {
     throw new Error("Quote creation is not enabled for this organization.");
+  }
+  const competitiveIntelligenceEnabled = await isFeatureEnabled({
+    supabase,
+    organizationId: user.organization_id,
+    featureName: "competitive_intelligence_input",
+  });
+
+  if (input.competitorPrice !== null && !competitiveIntelligenceEnabled) {
+    throw new Error("Competitive intelligence input is not enabled.");
   }
 
   const [
     materialResult,
-    taxRateResult,
     pricingConfigResult,
     vehicleTypesResult,
     existingCustomerResult,
@@ -95,18 +123,13 @@ export async function createQuoteDraftRecord({
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers(name, latitude, longitude)",
+        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", input.materialId)
       .eq("is_active", true)
+      .eq("suppliers.is_active", true)
       .single<PlantSelectionMaterial>(),
-    supabase
-      .from("sales_tax_rates")
-      .select("id, rate")
-      .eq("organization_id", user.organization_id)
-      .eq("id", input.taxRateId)
-      .single<TaxRateRecord>(),
     supabase
       .from("pricing_config")
       .select(
@@ -141,23 +164,27 @@ export async function createQuoteDraftRecord({
       : Promise.resolve({ data: null }),
   ]);
 
-  if (!materialResult.data || !taxRateResult.data || !pricingConfigResult.data) {
+  if (!materialResult.data || !pricingConfigResult.data) {
     throw new Error("Material, tax, or pricing configuration is missing.");
   }
 
-  const customer = await resolveCustomer({
+  const resolvedCustomer = await resolveCustomer({
     supabase,
     organizationId: user.organization_id,
     existingCustomer: existingCustomerResult.data,
     customerName: input.customerName,
+    companyName: input.companyName,
     contactName: input.contactName,
     contactEmail: input.contactEmail,
     contactPhone: input.contactPhone,
+    customerAddress: input.customerAddress,
+    paymentTerms: input.paymentTerms,
   });
 
-  if (!customer) {
+  if (!resolvedCustomer) {
     throw new Error("Select an existing customer or enter a new customer name.");
   }
+  const customer = resolvedCustomer.customer;
 
   const jobSite = await resolveJobSite({
     supabase,
@@ -181,10 +208,22 @@ export async function createQuoteDraftRecord({
     throw new Error("The selected job site does not belong to the selected customer.");
   }
 
+  const taxRate = await resolveSalesTaxRate({
+    supabase,
+    organizationId: user.organization_id,
+    taxRateId: input.taxRateId,
+    city: jobSite.city,
+    county: jobSite.county,
+    state: jobSite.state,
+  });
+
+  if (!taxRate) {
+    throw new Error("No sales tax rate was found for the delivery city.");
+  }
+
   const pricingConfig = normalizePricingConfig(pricingConfigResult.data);
   const vehicleTypes = normalizeVehicleTypes(vehicleTypesResult.data ?? []);
   const requestedMaterial = materialResult.data;
-  const taxRate = taxRateResult.data;
   const recommendation = await selectBestPlantForQuote({
     supabase,
     organizationId: user.organization_id,
@@ -196,10 +235,35 @@ export async function createQuoteDraftRecord({
     taxRate: Number(taxRate.rate),
     quantity: input.quantity,
     pricingConfig,
-    vehicleTypes,
+  vehicleTypes,
+  useRequestedPlant: input.useSelectedPlant,
+  materialUnitPriceOverride: input.materialUnitPriceOverride,
+  truckRateOverride: input.truckRateOverride,
+  materialMinimumOverride: input.materialMinimumOverride,
+    truckingMinimumOverride: input.truckingMinimumOverride,
+    paymentTerms: input.paymentTerms,
+    manualRouteDistanceMiles: input.manualRouteDistanceMiles,
+    manualDeadheadDistanceMiles: input.manualDeadheadDistanceMiles,
   });
   const material = recommendation.material;
   const calculation = recommendation.calculation;
+  const itemCalculation = calculateQuoteDraft({
+    costPerUnit: Number(material.cost_per_unit),
+    quantity: input.quantity,
+    tier: material.tier,
+    unit: material.unit,
+    taxRate: Number(taxRate.rate),
+    pricingConfig,
+    vehicleTypes,
+    routeDurationSeconds: recommendation.routeDistance?.durationSeconds ?? null,
+    deadheadDurationSeconds: recommendation.deadheadDistance?.durationSeconds ?? null,
+    materialUnitPriceOverride: input.materialUnitPriceOverride,
+    truckRateOverride: input.truckRateOverride,
+    materialMinimumOverride: input.materialMinimumOverride,
+    truckingMinimumOverride: input.truckingMinimumOverride,
+    paymentTerms: input.paymentTerms,
+    applyCreditCardSurcharge: false,
+  });
   const quoteNumber = createQuoteNumber();
 
   const { data: quote, error: quoteError } = await supabase
@@ -235,15 +299,16 @@ export async function createQuoteDraftRecord({
     quantity: input.quantity,
     unit: material.unit,
     unit_cost: Number(material.cost_per_unit),
-    markup_pct: calculation.markupPct,
-    material_unit_price: calculation.materialUnitPrice,
-    material_subtotal: calculation.materialSubtotal,
-    vehicle_type_id: calculation.vehicleTypeId,
-    load_count: calculation.loadCount,
-    trucking_rate_per_unit: calculation.truckingRatePerUnit,
-    trucking_subtotal: calculation.truckingSubtotal,
-    fees_subtotal: calculation.feesSubtotal,
-    line_total: calculation.total,
+    markup_per_unit: itemCalculation.markupPerUnit,
+    markup_pct: itemCalculation.markupPct,
+    material_unit_price: itemCalculation.materialUnitPrice,
+    material_subtotal: itemCalculation.materialSubtotal,
+    vehicle_type_id: itemCalculation.vehicleTypeId,
+    load_count: itemCalculation.loadCount,
+    trucking_rate_per_unit: itemCalculation.truckingRatePerUnit,
+    trucking_subtotal: itemCalculation.truckingSubtotal,
+    fees_subtotal: itemCalculation.feesSubtotal,
+    line_total: itemCalculation.total,
     is_active: true,
   });
 
@@ -276,6 +341,21 @@ export async function createQuoteDraftRecord({
       job_site_id: jobSite.id,
       material_id: material.id,
       requested_material_id: requestedMaterial.id,
+      new_customer: resolvedCustomer.isNew,
+      plant_override: input.useSelectedPlant,
+      price_override: input.materialUnitPriceOverride !== null,
+      material_unit_price_override: input.materialUnitPriceOverride,
+      truck_rate_override: input.truckRateOverride,
+      material_minimum_override: input.materialMinimumOverride,
+      trucking_minimum_override: input.truckingMinimumOverride,
+      minimum_override:
+        input.materialMinimumOverride !== null ||
+        input.truckingMinimumOverride !== null,
+      competitor_price: competitiveIntelligenceEnabled
+        ? input.competitorPrice
+        : null,
+      truck_rate_key: calculation.truckingRateKey,
+      truck_hourly_rate: calculation.truckingHourlyRate,
       selected_supplier_id: material.supplier_id,
       selected_supplier_name: recommendation.supplierName,
       plant_selection_reason: recommendation.selectionReason,
@@ -288,8 +368,18 @@ export async function createQuoteDraftRecord({
         recommendation.deadheadDistance?.distanceMiles ?? null,
       deadhead_distance_source:
         recommendation.deadheadDistance?.source ?? null,
+      manual_route_distance_miles: input.manualRouteDistanceMiles,
+      manual_deadhead_distance_miles: input.manualDeadheadDistanceMiles,
     },
   });
+
+  if (resolvedCustomer.isNew) {
+    await pushCustomerToPipedrive({
+      supabase,
+      user,
+      customerId: customer.id,
+    });
+  }
 
   return quote;
 }
@@ -299,20 +389,29 @@ async function resolveCustomer({
   organizationId,
   existingCustomer,
   customerName,
+  companyName,
   contactName,
   contactEmail,
   contactPhone,
+  customerAddress,
+  paymentTerms,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
   existingCustomer: CustomerRecord | null;
   customerName: string;
+  companyName: string;
   contactName: string;
   contactEmail: string;
   contactPhone: string;
-}): Promise<CustomerRecord | null> {
+  customerAddress: string;
+  paymentTerms: string;
+}): Promise<ResolvedCustomer | null> {
   if (existingCustomer) {
-    return existingCustomer;
+    return {
+      customer: existingCustomer,
+      isNew: false,
+    };
   }
 
   if (!customerName) {
@@ -325,9 +424,14 @@ async function resolveCustomer({
       {
         organization_id: organizationId,
         name: customerName,
+        company_name: companyName || customerName,
         contact_name: contactName || null,
         email: contactEmail || null,
         phone: contactPhone || null,
+        address: {
+          line1: customerAddress || null,
+        },
+        payment_terms: paymentTerms || null,
         is_active: true,
       },
       { onConflict: "organization_id,name" },
@@ -335,7 +439,12 @@ async function resolveCustomer({
     .select("id, name")
     .single<CustomerRecord>();
 
-  return data ?? null;
+  return data
+    ? {
+        customer: data,
+        isNew: true,
+      }
+    : null;
 }
 
 async function resolveJobSite({
@@ -395,6 +504,87 @@ async function resolveJobSite({
     )
     .select("id, customer_id, name, city, county, state, latitude, longitude")
     .single<JobSiteRecord>();
+
+  return data ?? null;
+}
+
+async function resolveSalesTaxRate({
+  supabase,
+  organizationId,
+  taxRateId,
+  city,
+  county,
+  state,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  taxRateId: string;
+  city: string;
+  county: string;
+  state: string;
+}): Promise<TaxRateRecord | null> {
+  if (taxRateId) {
+    const { data } = await supabase
+      .from("sales_tax_rates")
+      .select("id, rate")
+      .eq("organization_id", organizationId)
+      .eq("id", taxRateId)
+      .single<TaxRateRecord>();
+
+    return data ?? null;
+  }
+
+  const exact = await findSalesTaxRate({
+    supabase,
+    organizationId,
+    city,
+    county,
+    state,
+    includeCounty: true,
+  });
+
+  return (
+    exact ??
+    (await findSalesTaxRate({
+      supabase,
+      organizationId,
+      city,
+      county,
+      state,
+      includeCounty: false,
+    }))
+  );
+}
+
+async function findSalesTaxRate({
+  supabase,
+  organizationId,
+  city,
+  county,
+  state,
+  includeCounty,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  city: string;
+  county: string;
+  state: string;
+  includeCounty: boolean;
+}): Promise<TaxRateRecord | null> {
+  let query = supabase
+    .from("sales_tax_rates")
+    .select("id, rate")
+    .eq("organization_id", organizationId)
+    .ilike("city", city)
+    .ilike("state", state)
+    .order("effective_date", { ascending: false })
+    .limit(1);
+
+  if (includeCounty) {
+    query = query.ilike("county", county);
+  }
+
+  const { data } = await query.maybeSingle<TaxRateRecord>();
 
   return data ?? null;
 }

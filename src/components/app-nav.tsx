@@ -17,10 +17,18 @@ export function WorkspaceNav({ role }: { role: AppRole }) {
       <Link href="/customers" className="mac-link">
         Customers
       </Link>
+      <Link href="/audit-log" className="mac-link">
+        Audit log
+      </Link>
       {role === "admin" || role === "account_manager" ? (
-        <Link href="/admin/material-prices" className="mac-link">
-          Material prices
-        </Link>
+        <>
+          <Link href="/admin/plants" className="mac-link">
+            Plants
+          </Link>
+          <Link href="/admin/material-prices" className="mac-link">
+            Material prices
+          </Link>
+        </>
       ) : null}
       {role === "admin" ? <AdminMenu /> : null}
     </nav>
@@ -44,9 +52,11 @@ export function AdminNav() {
 export function QuoteNav({
   quoteId,
   includePrint = false,
+  userRole,
 }: {
   quoteId?: string;
   includePrint?: boolean;
+  userRole?: AppRole;
 }) {
   return (
     <nav className="toolbar-nav" aria-label="Quote navigation">
@@ -59,6 +69,14 @@ export function QuoteNav({
       <Link href="/quotes" className="mac-link">
         Quotes
       </Link>
+      <Link href="/quotes/approved" className="mac-link">
+        Approved
+      </Link>
+      {userRole === "admin" ? (
+        <Link href="/quotes/approvals" className="mac-link">
+          Approvals
+        </Link>
+      ) : null}
       {includePrint && quoteId ? (
         <Link href={`/quotes/${quoteId}/print`} className="mac-link">
           Print
@@ -85,7 +103,7 @@ function AdminMenu() {
         <NavGroup
           title="Pricing"
           links={[
-            { href: "/admin/pricing", label: "Pricing config" },
+            { href: "/admin/pricing", label: "Pricing rules" },
             { href: "/admin/tax-rates", label: "Tax rates" },
             { href: "/admin/material-prices", label: "Material prices" },
           ]}
@@ -93,7 +111,14 @@ function AdminMenu() {
         <NavGroup
           title="Workspace"
           links={[
+            { href: "/admin/reports", label: "Reports" },
             { href: "/admin/feature-flags", label: "Features" },
+            { href: "/admin/integrations/gmail", label: "Gmail integration" },
+            {
+              href: "/admin/integrations/pipedrive",
+              label: "Pipedrive integration",
+            },
+            { href: "/admin/integrations/slack", label: "Slack integration" },
             { href: "/admin/users", label: "Users" },
             { href: "/admin/audit-log", label: "Audit log" },
             { href: "/admin/system-check", label: "System check" },

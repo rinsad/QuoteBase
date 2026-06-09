@@ -33,6 +33,9 @@ type TaxRateRecord = {
 type JobSiteRecord = {
   id: string;
   name: string;
+  city: string;
+  county: string;
+  state: string;
   latitude: number | null;
   longitude: number | null;
 };
@@ -40,11 +43,50 @@ type JobSiteRecord = {
 const calculateQuoteSchema = z
   .object({
     material_id: z.string().regex(UUID_PATTERN),
-    tax_rate_id: z.string().regex(UUID_PATTERN),
+    tax_rate_id: z.string().regex(UUID_PATTERN).optional().or(z.literal("")),
     quantity: z.coerce.number().positive().max(100000),
     job_site_id: z.string().regex(UUID_PATTERN).optional().or(z.literal("")),
+    site_city: z.string().trim().max(120).optional().default(""),
+    site_county: z.string().trim().max(120).optional().default(""),
+    site_state: z.string().trim().min(2).max(2).optional().default("CA"),
     site_latitude: z.coerce.number().min(-90).max(90).nullable().optional(),
     site_longitude: z.coerce.number().min(-180).max(180).nullable().optional(),
+    manual_route_distance_miles: z.coerce
+      .number()
+      .min(0)
+      .max(10000)
+      .nullable()
+      .optional(),
+    manual_deadhead_distance_miles: z.coerce
+      .number()
+      .min(0)
+      .max(10000)
+      .nullable()
+      .optional(),
+    payment_terms: z.string().trim().max(80).optional().default(""),
+    use_selected_plant: z.boolean().optional().default(false),
+    material_unit_price_override: z.coerce
+      .number()
+      .positive()
+      .max(1000000)
+      .nullable()
+      .optional(),
+    truck_rate_override: z
+      .enum(["floor", "standard", "target", "premium", "stretch"])
+      .nullable()
+      .optional(),
+    material_minimum_override: z.coerce
+      .number()
+      .min(0)
+      .max(1000000)
+      .nullable()
+      .optional(),
+    trucking_minimum_override: z.coerce
+      .number()
+      .min(0)
+      .max(1000000)
+      .nullable()
+      .optional(),
   })
   .superRefine((value, context) => {
     const hasLatitude =
@@ -82,7 +124,6 @@ export async function POST(request: Request) {
 
   const [
     materialResult,
-    taxRateResult,
     pricingConfigResult,
     vehicleTypesResult,
     jobSiteResult,
@@ -90,18 +131,13 @@ export async function POST(request: Request) {
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers(name, latitude, longitude)",
+        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", parsed.value.material_id)
       .eq("is_active", true)
+      .eq("suppliers.is_active", true)
       .single<PlantSelectionMaterial>(),
-    supabase
-      .from("sales_tax_rates")
-      .select("id, city, county, state, rate")
-      .eq("organization_id", user.organization_id)
-      .eq("id", parsed.value.tax_rate_id)
-      .single<TaxRateRecord>(),
     supabase
       .from("pricing_config")
       .select(
@@ -119,7 +155,7 @@ export async function POST(request: Request) {
     parsed.value.job_site_id
       ? supabase
           .from("job_sites")
-          .select("id, name, latitude, longitude")
+          .select("id, name, city, county, state, latitude, longitude")
           .eq("organization_id", user.organization_id)
           .eq("id", parsed.value.job_site_id)
           .eq("is_active", true)
@@ -127,7 +163,7 @@ export async function POST(request: Request) {
       : Promise.resolve({ data: null }),
   ]);
 
-  if (!materialResult.data || !taxRateResult.data || !pricingConfigResult.data) {
+  if (!materialResult.data || !pricingConfigResult.data) {
     return badRequest("Material, tax, or pricing configuration is missing.");
   }
 
@@ -147,6 +183,18 @@ export async function POST(request: Request) {
         ? nullableNumber(jobSiteResult.data?.longitude ?? null)
         : roundCoordinate(parsed.value.site_longitude),
   };
+  const taxRate = await resolveSalesTaxRate({
+    supabase,
+    organizationId: user.organization_id,
+    taxRateId: parsed.value.tax_rate_id ?? "",
+    city: jobSiteResult.data?.city ?? parsed.value.site_city,
+    county: jobSiteResult.data?.county ?? parsed.value.site_county,
+    state: jobSiteResult.data?.state ?? parsed.value.site_state,
+  });
+
+  if (!taxRate) {
+    return badRequest("No sales tax rate was found for the delivery city.");
+  }
 
   try {
     const recommendation = await selectBestPlantForQuote({
@@ -154,10 +202,24 @@ export async function POST(request: Request) {
       organizationId: user.organization_id,
       requestedMaterial: materialResult.data,
       jobSite: jobSiteCoordinates,
-      taxRate: Number(taxRateResult.data.rate),
+      taxRate: Number(taxRate.rate),
       quantity: parsed.value.quantity,
       pricingConfig: normalizePricingConfig(pricingConfigResult.data),
       vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
+      useRequestedPlant: parsed.value.use_selected_plant,
+      materialUnitPriceOverride:
+        parsed.value.material_unit_price_override ?? null,
+      truckRateOverride:
+        user.role === "admin" ? (parsed.value.truck_rate_override ?? null) : null,
+      materialMinimumOverride:
+        parsed.value.material_minimum_override ?? null,
+      truckingMinimumOverride:
+        parsed.value.trucking_minimum_override ?? null,
+      paymentTerms: parsed.value.payment_terms,
+      manualRouteDistanceMiles:
+        parsed.value.manual_route_distance_miles ?? null,
+      manualDeadheadDistanceMiles:
+        parsed.value.manual_deadhead_distance_miles ?? null,
     });
     const calculation = recommendation.calculation;
 
@@ -172,17 +234,31 @@ export async function POST(request: Request) {
         unit: recommendation.material.unit,
         quantity: parsed.value.quantity,
         tax_rate: {
-          id: taxRateResult.data.id,
-          city: taxRateResult.data.city,
-          county: taxRateResult.data.county,
-          state: taxRateResult.data.state,
-          rate: Number(taxRateResult.data.rate),
+          id: taxRate.id,
+          city: taxRate.city,
+          county: taxRate.county,
+          state: taxRate.state,
+          rate: Number(taxRate.rate),
         },
         vehicle_type_id: calculation.vehicleTypeId,
         vehicle_name: calculation.vehicleName,
         load_count: calculation.loadCount,
+        trucking_rate_key: calculation.truckingRateKey,
+        trucking_hourly_rate: calculation.truckingHourlyRate,
         unit_cost: Number(recommendation.material.cost_per_unit),
+        markup_per_unit: calculation.markupPerUnit,
         markup_pct: calculation.markupPct,
+        price_override: parsed.value.material_unit_price_override !== undefined &&
+          parsed.value.material_unit_price_override !== null,
+        material_minimum_override:
+          parsed.value.material_minimum_override ?? null,
+        trucking_minimum_override:
+          parsed.value.trucking_minimum_override ?? null,
+        minimum_override:
+          parsed.value.material_minimum_override !== undefined &&
+            parsed.value.material_minimum_override !== null ||
+          parsed.value.trucking_minimum_override !== undefined &&
+            parsed.value.trucking_minimum_override !== null,
         material_unit_price: calculation.materialUnitPrice,
         material_subtotal: calculation.materialSubtotal,
         trucking_rate_per_unit: calculation.truckingRatePerUnit,
@@ -225,6 +301,95 @@ async function parseCalculateQuoteBody(
   }
 
   return { ok: true, value: result.data };
+}
+
+async function resolveSalesTaxRate({
+  supabase,
+  organizationId,
+  taxRateId,
+  city,
+  county,
+  state,
+}: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  organizationId: string;
+  taxRateId: string;
+  city: string;
+  county: string;
+  state: string;
+}): Promise<TaxRateRecord | null> {
+  if (!supabase) {
+    return null;
+  }
+
+  if (taxRateId) {
+    const { data } = await supabase
+      .from("sales_tax_rates")
+      .select("id, city, county, state, rate")
+      .eq("organization_id", organizationId)
+      .eq("id", taxRateId)
+      .single<TaxRateRecord>();
+
+    return data ?? null;
+  }
+
+  const exact = await findSalesTaxRate({
+    supabase,
+    organizationId,
+    city,
+    county,
+    state,
+    includeCounty: true,
+  });
+
+  return (
+    exact ??
+    (await findSalesTaxRate({
+      supabase,
+      organizationId,
+      city,
+      county,
+      state,
+      includeCounty: false,
+    }))
+  );
+}
+
+async function findSalesTaxRate({
+  supabase,
+  organizationId,
+  city,
+  county,
+  state,
+  includeCounty,
+}: {
+  supabase: NonNullable<Awaited<ReturnType<typeof createClient>>>;
+  organizationId: string;
+  city: string;
+  county: string;
+  state: string;
+  includeCounty: boolean;
+}): Promise<TaxRateRecord | null> {
+  if (!city || !state || (includeCounty && !county)) {
+    return null;
+  }
+
+  let query = supabase
+    .from("sales_tax_rates")
+    .select("id, city, county, state, rate")
+    .eq("organization_id", organizationId)
+    .ilike("city", city)
+    .ilike("state", state)
+    .order("effective_date", { ascending: false })
+    .limit(1);
+
+  if (includeCounty) {
+    query = query.ilike("county", county);
+  }
+
+  const { data } = await query.maybeSingle<TaxRateRecord>();
+
+  return data ?? null;
 }
 
 function nullableNumber(value: number | null): number | null {

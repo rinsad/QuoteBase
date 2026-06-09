@@ -14,6 +14,7 @@ export type AdminSupplier = {
     tier: "R1" | "R2" | "R3" | "R4";
     unit: string;
     cost_per_unit: number;
+    last_price_update: string | null;
     is_active: boolean;
   }[];
 };
@@ -65,7 +66,7 @@ export async function getAdminPlantsSummary(
     admin
       .from("suppliers")
       .select(
-        "id, name, parent_company, address, latitude, longitude, is_active, materials(id, name, tier, unit, cost_per_unit, is_active)",
+        "id, name, parent_company, address, latitude, longitude, is_active, materials(id, name, tier, unit, cost_per_unit, last_price_update, is_active)",
       )
       .eq("organization_id", organizationId)
       .order("name", { ascending: true })

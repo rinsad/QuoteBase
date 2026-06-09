@@ -1,8 +1,16 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BadgeDollarSign, Clock3, PackageOpen, Save } from "lucide-react";
+import {
+  BadgeDollarSign,
+  Clock3,
+  FileUp,
+  PackageOpen,
+  Save,
+} from "lucide-react";
 
-import { updateMaterialPrice } from "@/app/(dashboard)/admin/material-prices/actions";
+import {
+  updateMaterialPrice,
+  uploadMaterialPriceCsv,
+} from "@/app/(dashboard)/admin/material-prices/actions";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { getAdminMaterialPrices } from "@/lib/admin/material-prices";
@@ -170,11 +178,13 @@ export default async function AdminMaterialPricesPage({
 
             <div className="mt-6 grid gap-3 md:grid-cols-2">
               {data.materials.map((material) => (
-                <Link
+                <form
                   key={material.id}
-                  href={`/admin/material-prices?material=${material.id}`}
-                  className="soft-row block px-4 py-4 transition hover:bg-white/80"
+                  action={updateMaterialPrice}
+                  className="soft-row px-4 py-4"
                 >
+                  <input type="hidden" name="material_id" value={material.id} />
+                  <input type="hidden" name="price_date" value={today()} />
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <h3 className="truncate font-semibold">
@@ -186,18 +196,73 @@ export default async function AdminMaterialPricesPage({
                     </div>
                     <TierBadge tier={material.tier} />
                   </div>
-                  <div className="mt-4 flex items-center justify-between gap-3">
-                    <span className="font-mono text-lg font-semibold">
-                      {formatCurrency(material.cost_per_unit)}
-                    </span>
-                    <span className="text-sm text-muted-foreground">
-                      per {material.unit}
-                    </span>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                    <label>
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Current price per {material.unit}
+                      </span>
+                      <input
+                        name="new_price"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        defaultValue={material.cost_per_unit}
+                        className="soft-control mt-1 w-full font-mono text-sm"
+                        required
+                      />
+                    </label>
+                    <Button type="submit" className="h-10 rounded-full">
+                      <Save className="size-4" />
+                      Save
+                    </Button>
                   </div>
-                </Link>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Last updated {formatDate(material.last_price_update)}
+                  </p>
+                </form>
               ))}
             </div>
           </section>
+        </section>
+
+        <section className="mt-6 glass-panel p-5 sm:p-6">
+          <div className="flex items-center gap-3">
+            <div className="icon-well text-blue-700">
+              <FileUp className="size-5" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">
+                Bulk Update
+              </p>
+              <h2 className="text-xl font-semibold">Upload price CSV</h2>
+            </div>
+          </div>
+
+          <form
+            action={uploadMaterialPriceCsv}
+            className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto]"
+          >
+            <label>
+              <span className="text-sm font-medium text-muted-foreground">
+                CSV file
+              </span>
+              <input
+                name="price_csv"
+                type="file"
+                accept=".csv,text/csv"
+                className="soft-control mt-2 w-full"
+                required
+              />
+            </label>
+            <Button type="submit" className="h-11 self-end rounded-full">
+              <FileUp className="size-4" />
+              Upload CSV
+            </Button>
+          </form>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Header: material_id,new_price,price_date,notes. Uploads are capped
+            at 100 rows.
+          </p>
         </section>
 
         <section className="mt-6 glass-panel p-5 sm:p-6">
@@ -275,4 +340,8 @@ function formatCurrency(value: number) {
 
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function formatDate(value: string | null) {
+  return value ? new Date(value).toLocaleDateString("en-US") : "not recorded";
 }
