@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { Mail } from "lucide-react";
 
 import {
-  devSignInAsRinsad,
+  devSignInAsTestUser,
   sendMagicLink,
   type LoginState,
 } from "@/app/(auth)/login/actions";
@@ -14,6 +14,14 @@ const initialState: LoginState = {
   message: "",
   status: "idle",
 };
+
+const devUsers = [
+  { key: "rinsad", label: "Rinsad", role: "Admin" },
+  { key: "judd", label: "Judd", role: "Admin" },
+  { key: "gloria", label: "Gloria", role: "Account Manager" },
+  { key: "claudina", label: "Claudina", role: "Estimator" },
+  { key: "john-tenant-b", label: "John", role: "Tenant B Admin" },
+];
 
 export function LoginForm({ showDevSignIn }: { showDevSignIn: boolean }) {
   const [state, formAction, isPending] = useActionState(
@@ -65,15 +73,27 @@ export function LoginForm({ showDevSignIn }: { showDevSignIn: boolean }) {
             </div>
           </div>
 
-          <Button
-            formAction={devSignInAsRinsad}
-            formNoValidate
-            type="submit"
-            variant="outline"
-            className="h-11 w-full rounded-full bg-white/70"
-          >
-            Continue as Rinsad
-          </Button>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {devUsers.map((user) => (
+              <Button
+                key={user.key}
+                formAction={devSignInAsTestUser}
+                formNoValidate
+                name="dev_user"
+                value={user.key}
+                type="submit"
+                variant="outline"
+                className="h-auto min-h-11 rounded-full bg-white/70 px-4 py-2"
+              >
+                <span className="grid text-left leading-tight">
+                  <span>Continue as {user.label}</span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {user.role}
+                  </span>
+                </span>
+              </Button>
+            ))}
+          </div>
         </div>
       ) : null}
 

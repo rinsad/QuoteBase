@@ -58,7 +58,7 @@ export default async function LoginPage({
               <LoginForm showDevSignIn={showDevSignIn} />
               {query.dev_login === "unavailable" || !supabaseReachable ? (
                 <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-100">
-                  Local Supabase is not running, so the Rinsad shortcut is
+                  Local Supabase is not running, so the test-user shortcuts are
                   unavailable. Start Supabase locally or use the magic-link
                   flow.
                 </p>

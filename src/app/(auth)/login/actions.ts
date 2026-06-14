@@ -10,8 +10,45 @@ import { getBaseUrl, isLocalSupabase, isSupabaseReachable } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
-const DEV_LOGIN_EMAIL = "rinsad@gmail.com";
-const DEV_LOGIN_PASSWORD = "local-dev-rinsad-password";
+type DevLoginUser = {
+  key: string;
+  email: string;
+  password: string;
+  fullName: string;
+};
+
+const DEV_LOGIN_USERS: DevLoginUser[] = [
+  {
+    key: "rinsad",
+    email: "rinsad@gmail.com",
+    password: "local-dev-rinsad-password",
+    fullName: "Rinsad",
+  },
+  {
+    key: "judd",
+    email: "admin@westernmaterials.net",
+    password: "local-dev-judd-password",
+    fullName: "Judd",
+  },
+  {
+    key: "gloria",
+    email: "estimate@westernmaterials.net",
+    password: "local-dev-gloria-password",
+    fullName: "Gloria",
+  },
+  {
+    key: "claudina",
+    email: "dispatch@westernmaterials.net",
+    password: "local-dev-claudina-password",
+    fullName: "Claudina",
+  },
+  {
+    key: "john-tenant-b",
+    email: "john@westernmaterials.net",
+    password: "local-dev-john-password",
+    fullName: "John Tenant B",
+  },
+];
 
 export type LoginState = {
   message: string;
@@ -78,7 +115,7 @@ export async function signOut() {
   redirect("/login");
 }
 
-export async function devSignInAsRinsad() {
+export async function devSignInAsTestUser(formData: FormData) {
   if (process.env.NODE_ENV === "production" || !isLocalSupabase()) {
     redirect("/login?dev_login=unavailable");
   }
@@ -94,6 +131,13 @@ export async function devSignInAsRinsad() {
     redirect("/login?dev_login=unavailable");
   }
 
+  const devUserKeyValue = formData.get("dev_user");
+  const devUserKey =
+    typeof devUserKeyValue === "string" ? devUserKeyValue : "rinsad";
+  const devUser =
+    DEV_LOGIN_USERS.find((candidate) => candidate.key === devUserKey) ??
+    DEV_LOGIN_USERS[0];
+
   try {
     const { data: usersData, error: usersError } =
       await admin.auth.admin.listUsers({
@@ -106,16 +150,16 @@ export async function devSignInAsRinsad() {
     }
 
     let authUser = usersData.users.find(
-      (user) => user.email?.toLowerCase() === DEV_LOGIN_EMAIL,
+      (user) => user.email?.toLowerCase() === devUser.email,
     );
 
     if (!authUser) {
       const { data, error } = await admin.auth.admin.createUser({
-        email: DEV_LOGIN_EMAIL,
-        password: DEV_LOGIN_PASSWORD,
+        email: devUser.email,
+        password: devUser.password,
         email_confirm: true,
         user_metadata: {
-          full_name: "Rinsad",
+          full_name: devUser.fullName,
         },
       });
 
@@ -126,10 +170,10 @@ export async function devSignInAsRinsad() {
       authUser = data.user;
     } else {
       const { data, error } = await admin.auth.admin.updateUserById(authUser.id, {
-        password: DEV_LOGIN_PASSWORD,
+        password: devUser.password,
         email_confirm: true,
         user_metadata: {
-          full_name: "Rinsad",
+          full_name: devUser.fullName,
         },
       });
 
@@ -143,7 +187,7 @@ export async function devSignInAsRinsad() {
     const { data: invite, error: inviteError } = await admin
       .from("user_invites")
       .select("organization_id, email, full_name, role")
-      .eq("email", DEV_LOGIN_EMAIL)
+      .eq("email", devUser.email)
       .eq("is_active", true)
       .single<{
         organization_id: string;
@@ -171,8 +215,8 @@ export async function devSignInAsRinsad() {
     );
 
     const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: DEV_LOGIN_EMAIL,
-      password: DEV_LOGIN_PASSWORD,
+      email: devUser.email,
+      password: devUser.password,
     });
 
     if (signInError) {
