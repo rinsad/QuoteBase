@@ -52,8 +52,8 @@ export default async function LoginPage({
                 Sign in to QuoteBase.
               </h1>
               <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
-                Use your allowlisted Western Materials email. Supabase will send
-                a magic link; local development can use the Rinsad shortcut.
+                Use an approved company account. Supabase will send a magic
+                link; local development can use the developer shortcut.
               </p>
               <LoginForm showDevSignIn={showDevSignIn} />
               {query.dev_login === "unavailable" || !supabaseReachable ? (
@@ -67,28 +67,18 @@ export default async function LoginPage({
 
             <aside className="border-t border-white/70 bg-white/40 p-6 sm:p-8 lg:border-l lg:border-t-0 lg:p-10">
               <p className="text-sm font-medium text-muted-foreground">
-                Access list
+                Access
               </p>
               <h2 className="mt-1 text-2xl font-semibold">
-                Approved test users
+                Approved roles
               </h2>
               <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
-                <UserEmail email="john@westernmaterials.net" role="Admin" />
-                <UserEmail email="admin@westernmaterials.net" role="Admin" />
-                <UserEmail
-                  email="estimate@westernmaterials.net"
-                  role="Account Manager"
-                />
-                <UserEmail
-                  email="bid@westernmaterials.net"
-                  role="Account Manager"
-                />
-                <UserEmail
-                  email="dispatch@westernmaterials.net"
-                  role="Estimator"
-                />
-                <UserEmail email="info@westernmaterials.net" role="Estimator" />
-                <UserEmail email="rinsad@gmail.com" role="Test Admin" />
+                <AccessRole label="Operations admin" role="Admin" />
+                <AccessRole label="Pricing manager" role="Account Manager" />
+                <AccessRole label="Estimator workspace" role="Estimator" />
+                {showDevSignIn ? (
+                  <AccessRole label="Local developer shortcut" role="Dev" />
+                ) : null}
               </div>
             </aside>
           </div>
@@ -98,13 +88,13 @@ export default async function LoginPage({
   );
 }
 
-function UserEmail({ email, role }: { email: string; role: string }) {
+function AccessRole({ label, role }: { label: string; role: string }) {
   return (
     <div className="soft-row flex items-center justify-between gap-4 px-4 py-3">
       <span className="min-w-0 truncate font-medium text-foreground">
-        {email}
+        {label}
       </span>
-      <span className="soft-chip shrink-0 bg-slate-100 text-slate-700 ring-slate-200">
+      <span className="soft-chip shrink-0 bg-[#ecf2ed] text-[#3d6652] ring-[#d7ded5]">
         {role}
       </span>
     </div>

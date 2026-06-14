@@ -95,6 +95,7 @@ const DEFAULT_API_BASE_URL = "https://api.pipedrive.com/v1";
 const PIPEDRIVE_TIMEOUT_MS = 7000;
 const PIPEDRIVE_PAGE_LIMIT = 500;
 const MAX_PIPEDRIVE_PAGES = 20;
+const DEFAULT_OUTBOUND_BATCH_LIMIT = 25;
 
 export async function getPipedriveIntegration({
   supabase,
@@ -154,13 +155,135 @@ export async function pushCustomerToPipedrive({
   user: AppUser;
   customerId: string;
 }): Promise<"pushed" | "skipped" | "failed"> {
+  try {
+    return await pushCustomerToPipedriveInternal({
+      supabase,
+      user,
+      customerId,
+    });
+  } catch (error) {
+    console.error("Pipedrive customer push failed before sync could run.", error);
+
+    await safeLogPipedriveSyncEvent({
+      supabase,
+      organizationId: user.organization_id,
+      userId: user.id,
+      action: "customer.pipedrive_push_failed",
+      targetId: customerId,
+      metadata: {
+        message: error instanceof Error ? error.message : "Unknown error.",
+      },
+    });
+
+    return "failed";
+  }
+}
+
+export async function pushUnsyncedQuoteBaseCustomersToPipedrive({
+  supabase,
+  user,
+  limit = DEFAULT_OUTBOUND_BATCH_LIMIT,
+}: {
+  supabase: SupabaseClient;
+  user: AppUser;
+  limit?: number;
+}): Promise<{
+  eligible: number;
+  attempted: number;
+  pushed: number;
+  skipped: number;
+  failed: number;
+}> {
+  const { count, error: countError } = await supabase
+    .from("customers")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", user.organization_id)
+    .eq("is_active", true)
+    .is("pipedrive_person_id", null);
+
+  if (countError) {
+    throw new Error(countError.message);
+  }
+
+  const { data: customers, error } = await supabase
+    .from("customers")
+    .select("id")
+    .eq("organization_id", user.organization_id)
+    .eq("is_active", true)
+    .is("pipedrive_person_id", null)
+    .order("created_at", { ascending: true })
+    .limit(limit)
+    .returns<Array<{ id: string }>>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  let pushed = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const customer of customers ?? []) {
+    const result = await pushCustomerToPipedrive({
+      supabase,
+      user,
+      customerId: customer.id,
+    });
+
+    if (result === "pushed") {
+      pushed += 1;
+    } else if (result === "skipped") {
+      skipped += 1;
+    } else {
+      failed += 1;
+    }
+  }
+
+  await safeLogPipedriveSyncEvent({
+    supabase,
+    organizationId: user.organization_id,
+    userId: user.id,
+    action: "customer.pipedrive_outbound_batch",
+    targetId: null,
+    after: {
+      eligible: count ?? 0,
+      attempted: customers?.length ?? 0,
+      pushed,
+      skipped,
+      failed,
+    },
+    metadata: {
+      source: "admin",
+      direction: "quotebase_to_pipedrive",
+      limit,
+    },
+  });
+
+  return {
+    eligible: count ?? 0,
+    attempted: customers?.length ?? 0,
+    pushed,
+    skipped,
+    failed,
+  };
+}
+
+async function pushCustomerToPipedriveInternal({
+  supabase,
+  user,
+  customerId,
+}: {
+  supabase: SupabaseClient;
+  user: AppUser;
+  customerId: string;
+}): Promise<"pushed" | "skipped" | "failed"> {
   const integration = await getPipedriveIntegration({
     supabase,
     organizationId: user.organization_id,
   });
 
   if (!integration?.isEnabled || !integration.apiToken) {
-    await logPipedriveSyncEvent({
+    await safeLogPipedriveSyncEvent({
       supabase,
       organizationId: user.organization_id,
       userId: user.id,
@@ -210,7 +333,7 @@ export async function pushCustomerToPipedrive({
       .eq("organization_id", user.organization_id)
       .eq("id", customer.id);
 
-    await logPipedriveSyncEvent({
+    await safeLogPipedriveSyncEvent({
       supabase,
       organizationId: user.organization_id,
       userId: user.id,
@@ -224,7 +347,7 @@ export async function pushCustomerToPipedrive({
 
     return "pushed";
   } catch (error) {
-    await logPipedriveSyncEvent({
+    await safeLogPipedriveSyncEvent({
       supabase,
       organizationId: user.organization_id,
       userId: user.id,
@@ -267,10 +390,37 @@ export async function upsertPipedriveCustomers({
     pipedrive_synced_at: new Date().toISOString(),
     sync_source: "pipedrive",
   }));
+  const pipedrivePersonIds = rows.map((row) => row.pipedrive_person_id);
+  const { data: existingCustomers, error: existingError } = await supabase
+    .from("customers")
+    .select("id, pipedrive_person_id")
+    .eq("organization_id", organizationId)
+    .in("pipedrive_person_id", pipedrivePersonIds)
+    .returns<Array<{ id: string; pipedrive_person_id: string }>>();
+
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
+  const existingIdByPipedrivePerson = new Map(
+    (existingCustomers ?? []).map((customer) => [
+      customer.pipedrive_person_id,
+      customer.id,
+    ]),
+  );
 
   const { data, error } = await supabase
     .from("customers")
-    .upsert(rows, { onConflict: "organization_id,pipedrive_person_id" })
+    .upsert(
+      rows.map((row) => {
+        const existingId = existingIdByPipedrivePerson.get(
+          row.pipedrive_person_id,
+        );
+
+        return existingId ? { ...row, id: existingId } : row;
+      }),
+      { onConflict: "id" },
+    )
     .select("id");
 
   if (error) {
@@ -632,6 +782,16 @@ async function logPipedriveSyncEvent({
     after_value: after ?? null,
     metadata: metadata ?? null,
   });
+}
+
+async function safeLogPipedriveSyncEvent(
+  input: Parameters<typeof logPipedriveSyncEvent>[0],
+): Promise<void> {
+  try {
+    await logPipedriveSyncEvent(input);
+  } catch (error) {
+    console.error("Could not write Pipedrive sync audit event.", error);
+  }
 }
 
 function addressLine(address: Record<string, unknown> | null): string | null {

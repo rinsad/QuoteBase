@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
@@ -22,7 +23,65 @@ type JobSiteRecord = {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export async function createCustomer(formData: FormData) {
+const customerSchema = z.object({
+  name: z.string().trim().min(1, "Customer name is required.").max(160),
+  company_name: z.string().trim().max(160).optional().default(""),
+  contact_name: z.string().trim().max(160).optional().default(""),
+  email: z.string().trim().email("Enter a valid email.").optional().or(z.literal("")),
+  phone: z.string().trim().max(40).optional().default(""),
+  address: z.string().trim().max(240).optional().default(""),
+  payment_terms: z.string().trim().max(80).optional().default(""),
+  pricing_notes: z.string().trim().max(1000).optional().default(""),
+  default_plant_id: z
+    .string()
+    .regex(UUID_PATTERN, "Select a valid default plant.")
+    .optional()
+    .or(z.literal("")),
+});
+
+const jobSiteSchema = z.object({
+  customer_id: z
+    .string()
+    .regex(UUID_PATTERN, "Select a customer."),
+  name: z.string().trim().min(1, "Site name is required.").max(160),
+  line1: z.string().trim().max(240).optional().default(""),
+  city: z.string().trim().min(1, "City is required.").max(120),
+  county: z.string().trim().min(1, "County is required.").max(120),
+  state: z
+    .string()
+    .trim()
+    .min(2, "Use a 2-letter state code.")
+    .max(2, "Use a 2-letter state code.")
+    .transform((value) => value.toUpperCase()),
+  latitude: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(""))
+    .transform((value) => optionalNumber(value, -90, 90))
+    .refine((value) => value !== undefined, "Latitude must be between -90 and 90."),
+  longitude: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(""))
+    .transform((value) => optionalNumber(value, -180, 180))
+    .refine(
+      (value) => value !== undefined,
+      "Longitude must be between -180 and 180.",
+    ),
+});
+
+export type CustomerFormState = {
+  message: string;
+  status: "idle" | "error";
+  fieldErrors: Record<string, string>;
+};
+
+export async function createCustomer(
+  _previousState: CustomerFormState,
+  formData: FormData,
+): Promise<CustomerFormState> {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -32,22 +91,26 @@ export async function createCustomer(formData: FormData) {
   const supabase = await createClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured for this workspace.");
+    return formError("Supabase is not configured for this workspace.");
   }
 
-  const name = getString(formData, "name");
-  const companyName = getString(formData, "company_name");
-  const contactName = getString(formData, "contact_name");
-  const email = getString(formData, "email");
-  const phone = getString(formData, "phone");
-  const addressLine = getString(formData, "address");
-  const paymentTerms = getString(formData, "payment_terms");
-  const pricingNotes = getString(formData, "pricing_notes");
-  const defaultPlantId = optionalUuid(formData, "default_plant_id");
+  const parsed = customerSchema.safeParse(formDataObject(formData));
 
-  if (!name) {
-    throw new Error("Customer name is required.");
+  if (!parsed.success) {
+    return formError("Fix the highlighted customer fields.", parsed.error);
   }
+
+  const {
+    name,
+    company_name: companyName,
+    contact_name: contactName,
+    email,
+    phone,
+    address: addressLine,
+    payment_terms: paymentTerms,
+    pricing_notes: pricingNotes,
+    default_plant_id: defaultPlantId,
+  } = parsed.data;
 
   const { data: customer, error } = await supabase
     .from("customers")
@@ -73,7 +136,7 @@ export async function createCustomer(formData: FormData) {
     .single<CustomerRecord>();
 
   if (error || !customer) {
-    throw new Error(error?.message ?? "Could not save customer.");
+    return formError(error?.message ?? "Could not save customer.");
   }
 
   await logAction({
@@ -104,7 +167,10 @@ export async function createCustomer(formData: FormData) {
   redirect("/customers");
 }
 
-export async function createJobSite(formData: FormData) {
+export async function createJobSite(
+  _previousState: CustomerFormState,
+  formData: FormData,
+): Promise<CustomerFormState> {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -114,21 +180,28 @@ export async function createJobSite(formData: FormData) {
   const supabase = await createClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured for this workspace.");
+    return formError("Supabase is not configured for this workspace.");
   }
 
-  const customerId = requiredUuid(formData, "customer_id");
-  const name = getString(formData, "name");
-  const line1 = getString(formData, "line1");
-  const city = getString(formData, "city");
-  const county = getString(formData, "county");
-  const state = getString(formData, "state") || "CA";
-  const latitude = optionalCoordinate(formData, "latitude", -90, 90);
-  const longitude = optionalCoordinate(formData, "longitude", -180, 180);
+  const parsed = jobSiteSchema.safeParse({
+    ...formDataObject(formData),
+    state: getString(formData, "state") || "CA",
+  });
 
-  if (!customerId || !name || !city || !county) {
-    throw new Error("Customer, site name, city, and county are required.");
+  if (!parsed.success) {
+    return formError("Fix the highlighted job site fields.", parsed.error);
   }
+
+  const {
+    customer_id: customerId,
+    name,
+    line1,
+    city,
+    county,
+    state,
+    latitude,
+    longitude,
+  } = parsed.data;
 
   const { data: customer } = await supabase
     .from("customers")
@@ -139,7 +212,9 @@ export async function createJobSite(formData: FormData) {
     .single<{ id: string }>();
 
   if (!customer) {
-    throw new Error("Selected customer was not found.");
+    return formError("Selected customer was not found.", undefined, {
+      customer_id: "Select an active customer.",
+    });
   }
 
   const { data: jobSite, error } = await supabase
@@ -168,7 +243,7 @@ export async function createJobSite(formData: FormData) {
     .single<JobSiteRecord>();
 
   if (error || !jobSite) {
-    throw new Error(error?.message ?? "Could not save job site.");
+    return formError(error?.message ?? "Could not save job site.");
   }
 
   await logAction({
@@ -191,40 +266,48 @@ export async function createJobSite(formData: FormData) {
   redirect("/customers");
 }
 
+function formDataObject(formData: FormData): Record<string, FormDataEntryValue> {
+  return Object.fromEntries(formData.entries());
+}
+
+function formError(
+  message: string,
+  error?: z.ZodError,
+  fieldErrors: Record<string, string> = {},
+): CustomerFormState {
+  return {
+    message,
+    status: "error",
+    fieldErrors: {
+      ...fieldErrors,
+      ...(error ? flattenFieldErrors(error) : {}),
+    },
+  };
+}
+
+function flattenFieldErrors(error: z.ZodError): Record<string, string> {
+  const fieldErrors: Record<string, string> = {};
+
+  for (const issue of error.issues) {
+    const field = String(issue.path[0] ?? "form");
+
+    fieldErrors[field] ??= issue.message;
+  }
+
+  return fieldErrors;
+}
+
 function getString(formData: FormData, key: string): string {
   const value = formData.get(key);
 
   return typeof value === "string" ? value.trim() : "";
 }
 
-function requiredUuid(formData: FormData, key: string): string {
-  const value = getString(formData, key);
-
-  return UUID_PATTERN.test(value) ? value : "";
-}
-
-function optionalUuid(formData: FormData, key: string): string | null {
-  const value = getString(formData, key);
-
-  if (!value) {
-    return null;
-  }
-
-  if (!UUID_PATTERN.test(value)) {
-    throw new Error(`${key} is invalid.`);
-  }
-
-  return value;
-}
-
-function optionalCoordinate(
-  formData: FormData,
-  key: string,
+function optionalNumber(
+  value: string | undefined,
   min: number,
   max: number,
-): number | null {
-  const value = getString(formData, key);
-
+): number | null | undefined {
   if (!value) {
     return null;
   }
@@ -232,7 +315,7 @@ function optionalCoordinate(
   const numberValue = Number(value);
 
   if (!Number.isFinite(numberValue) || numberValue < min || numberValue > max) {
-    throw new Error(`${key} is out of range.`);
+    return undefined;
   }
 
   return Math.round((numberValue + Number.EPSILON) * 10000000) / 10000000;

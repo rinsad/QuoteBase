@@ -21,6 +21,10 @@ type QuoteStatusNotificationInput = {
   note?: string;
 };
 
+export type SlackNotificationResult = {
+  warning: string | null;
+};
+
 type QuoteApprovalContext = {
   customerName: string;
   jobSite: string;
@@ -102,14 +106,50 @@ export async function notifySlackQuoteStatusChange({
   from,
   to,
   note,
-}: QuoteStatusNotificationInput): Promise<void> {
+}: QuoteStatusNotificationInput): Promise<SlackNotificationResult> {
+  try {
+    return await notifySlackQuoteStatusChangeInternal({
+      supabase,
+      user,
+      quote,
+      action,
+      from,
+      to,
+      note,
+    });
+  } catch (error) {
+    console.error("Slack quote status notification failed.", error);
+
+    return {
+      warning:
+        "Quote was updated, but Slack could not be notified. Check the Slack integration settings.",
+    };
+  }
+}
+
+async function notifySlackQuoteStatusChangeInternal({
+  supabase,
+  user,
+  quote,
+  action,
+  from,
+  to,
+  note,
+}: QuoteStatusNotificationInput): Promise<SlackNotificationResult> {
   const integration = await getSlackIntegration({
     supabase,
     organizationId: user.organization_id,
   });
 
+  if (integration?.isEnabled && integration.credentialsInvalid) {
+    return {
+      warning:
+        "Quote was updated, but saved Slack credentials cannot be read with the current encryption key. Re-enter the Slack webhook URL and signing secret in integration settings.",
+    };
+  }
+
   if (!integration?.isEnabled) {
-    return;
+    return { warning: null };
   }
 
   const { data: flag } = await supabase
@@ -120,7 +160,7 @@ export async function notifySlackQuoteStatusChange({
     .single<{ is_enabled: boolean }>();
 
   if (!flag?.is_enabled) {
-    return;
+    return { warning: null };
   }
 
   const approvalContext =
@@ -172,6 +212,8 @@ export async function notifySlackQuoteStatusChange({
       note,
     });
   }
+
+  return { warning: null };
 }
 
 function createQuotePayload({

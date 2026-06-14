@@ -169,6 +169,13 @@ export async function PATCH(
       return badRequest(message);
     }
 
+    if (
+      message.includes("Slack") ||
+      message.includes("Connect and enable Slack")
+    ) {
+      return badRequest(message);
+    }
+
     if (message.toLowerCase().includes("not found")) {
       return notFound("Quote not found.");
     }

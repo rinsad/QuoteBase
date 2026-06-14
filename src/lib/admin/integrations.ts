@@ -26,6 +26,7 @@ export type AdminPipedriveIntegration = {
   api_base_url: string;
   sync_interval_minutes: number;
   api_token_configured: boolean;
+  unsynced_customer_count: number;
   updated_at: string | null;
 };
 
@@ -108,15 +109,28 @@ export async function getAdminPipedriveIntegration(
     return emptyPipedriveIntegration();
   }
 
-  const { data } = await supabase
-    .from("organization_integrations")
-    .select("id, is_enabled, config, credentials_last4, updated_at")
-    .eq("organization_id", organizationId)
-    .eq("provider", "pipedrive")
-    .maybeSingle<OrganizationIntegrationRecord>();
+  const [integrationResult, unsyncedCustomersResult] = await Promise.all([
+    supabase
+      .from("organization_integrations")
+      .select("id, is_enabled, config, credentials_last4, updated_at")
+      .eq("organization_id", organizationId)
+      .eq("provider", "pipedrive")
+      .maybeSingle<OrganizationIntegrationRecord>(),
+    supabase
+      .from("customers")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("is_active", true)
+      .is("pipedrive_person_id", null),
+  ]);
+  const data = integrationResult.data;
+  const unsyncedCustomerCount = unsyncedCustomersResult.count ?? 0;
 
   if (!data) {
-    return emptyPipedriveIntegration();
+    return {
+      ...emptyPipedriveIntegration(),
+      unsynced_customer_count: unsyncedCustomerCount,
+    };
   }
 
   return {
@@ -126,6 +140,7 @@ export async function getAdminPipedriveIntegration(
       stringValue(data.config?.api_base_url) ?? "https://api.pipedrive.com/v1",
     sync_interval_minutes: numberValue(data.config?.sync_interval_minutes) ?? 30,
     api_token_configured: Boolean(data.credentials_last4?.api_token),
+    unsynced_customer_count: unsyncedCustomerCount,
     updated_at: data.updated_at,
   };
 }
@@ -161,6 +176,7 @@ function emptyPipedriveIntegration(): AdminPipedriveIntegration {
     api_base_url: "https://api.pipedrive.com/v1",
     sync_interval_minutes: 30,
     api_token_configured: false,
+    unsynced_customer_count: 0,
     updated_at: null,
   };
 }

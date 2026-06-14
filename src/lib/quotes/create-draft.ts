@@ -3,7 +3,6 @@ import { randomUUID } from "crypto";
 import type { AppUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
 import { isFeatureEnabled } from "@/lib/features/flags";
-import { pushCustomerToPipedrive } from "@/lib/integrations/pipedrive";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -24,21 +23,7 @@ type SupabaseClient = NonNullable<Awaited<ReturnType<typeof createClient>>>;
 
 export type CreateQuoteDraftInput = {
   customerId: string;
-  customerName: string;
-  companyName: string;
-  contactName: string;
-  contactEmail: string;
-  contactPhone: string;
-  customerAddress: string;
-  paymentTerms: string;
   jobSiteId: string;
-  siteName: string;
-  siteAddress: string;
-  siteCity: string;
-  siteCounty: string;
-  siteState: string;
-  siteLatitude: number | null;
-  siteLongitude: number | null;
   materialId: string;
   taxRateId: string;
   quantity: number;
@@ -61,11 +46,7 @@ export type CreatedQuoteDraft = {
 type CustomerRecord = {
   id: string;
   name: string;
-};
-
-type ResolvedCustomer = {
-  customer: CustomerRecord;
-  isNew: boolean;
+  payment_terms: string | null;
 };
 
 type JobSiteRecord = {
@@ -147,7 +128,7 @@ export async function createQuoteDraftRecord({
     input.customerId
       ? supabase
           .from("customers")
-          .select("id, name")
+          .select("id, name, payment_terms")
           .eq("organization_id", user.organization_id)
           .eq("id", input.customerId)
           .eq("is_active", true)
@@ -168,41 +149,16 @@ export async function createQuoteDraftRecord({
     throw new Error("Material, tax, or pricing configuration is missing.");
   }
 
-  const resolvedCustomer = await resolveCustomer({
-    supabase,
-    organizationId: user.organization_id,
-    existingCustomer: existingCustomerResult.data,
-    customerName: input.customerName,
-    companyName: input.companyName,
-    contactName: input.contactName,
-    contactEmail: input.contactEmail,
-    contactPhone: input.contactPhone,
-    customerAddress: input.customerAddress,
-    paymentTerms: input.paymentTerms,
-  });
-
-  if (!resolvedCustomer) {
-    throw new Error("Select an existing customer or enter a new customer name.");
+  if (!existingCustomerResult.data) {
+    throw new Error("Select an existing customer before creating a quote.");
   }
-  const customer = resolvedCustomer.customer;
+  const customer = existingCustomerResult.data;
+  const paymentTerms = customer.payment_terms ?? "";
 
-  const jobSite = await resolveJobSite({
-    supabase,
-    organizationId: user.organization_id,
-    customerId: customer.id,
-    existingJobSite: existingJobSiteResult.data,
-    siteName: input.siteName,
-    siteAddress: input.siteAddress,
-    siteCity: input.siteCity,
-    siteCounty: input.siteCounty,
-    siteState: input.siteState,
-    siteLatitude: input.siteLatitude,
-    siteLongitude: input.siteLongitude,
-  });
-
-  if (!jobSite) {
-    throw new Error("Select an existing job site or enter the new site details.");
+  if (!existingJobSiteResult.data) {
+    throw new Error("Select an existing job site before creating a quote.");
   }
+  const jobSite = existingJobSiteResult.data;
 
   if (jobSite.customer_id !== customer.id) {
     throw new Error("The selected job site does not belong to the selected customer.");
@@ -235,13 +191,13 @@ export async function createQuoteDraftRecord({
     taxRate: Number(taxRate.rate),
     quantity: input.quantity,
     pricingConfig,
-  vehicleTypes,
-  useRequestedPlant: input.useSelectedPlant,
-  materialUnitPriceOverride: input.materialUnitPriceOverride,
-  truckRateOverride: input.truckRateOverride,
-  materialMinimumOverride: input.materialMinimumOverride,
+    vehicleTypes,
+    useRequestedPlant: input.useSelectedPlant,
+    materialUnitPriceOverride: input.materialUnitPriceOverride,
+    truckRateOverride: input.truckRateOverride,
+    materialMinimumOverride: input.materialMinimumOverride,
     truckingMinimumOverride: input.truckingMinimumOverride,
-    paymentTerms: input.paymentTerms,
+    paymentTerms,
     manualRouteDistanceMiles: input.manualRouteDistanceMiles,
     manualDeadheadDistanceMiles: input.manualDeadheadDistanceMiles,
   });
@@ -261,7 +217,7 @@ export async function createQuoteDraftRecord({
     truckRateOverride: input.truckRateOverride,
     materialMinimumOverride: input.materialMinimumOverride,
     truckingMinimumOverride: input.truckingMinimumOverride,
-    paymentTerms: input.paymentTerms,
+    paymentTerms,
     applyCreditCardSurcharge: false,
   });
   const quoteNumber = createQuoteNumber();
@@ -341,7 +297,7 @@ export async function createQuoteDraftRecord({
       job_site_id: jobSite.id,
       material_id: material.id,
       requested_material_id: requestedMaterial.id,
-      new_customer: resolvedCustomer.isNew,
+      new_customer: false,
       plant_override: input.useSelectedPlant,
       price_override: input.materialUnitPriceOverride !== null,
       material_unit_price_override: input.materialUnitPriceOverride,
@@ -373,139 +329,7 @@ export async function createQuoteDraftRecord({
     },
   });
 
-  if (resolvedCustomer.isNew) {
-    await pushCustomerToPipedrive({
-      supabase,
-      user,
-      customerId: customer.id,
-    });
-  }
-
   return quote;
-}
-
-async function resolveCustomer({
-  supabase,
-  organizationId,
-  existingCustomer,
-  customerName,
-  companyName,
-  contactName,
-  contactEmail,
-  contactPhone,
-  customerAddress,
-  paymentTerms,
-}: {
-  supabase: SupabaseClient;
-  organizationId: string;
-  existingCustomer: CustomerRecord | null;
-  customerName: string;
-  companyName: string;
-  contactName: string;
-  contactEmail: string;
-  contactPhone: string;
-  customerAddress: string;
-  paymentTerms: string;
-}): Promise<ResolvedCustomer | null> {
-  if (existingCustomer) {
-    return {
-      customer: existingCustomer,
-      isNew: false,
-    };
-  }
-
-  if (!customerName) {
-    return null;
-  }
-
-  const { data } = await supabase
-    .from("customers")
-    .upsert(
-      {
-        organization_id: organizationId,
-        name: customerName,
-        company_name: companyName || customerName,
-        contact_name: contactName || null,
-        email: contactEmail || null,
-        phone: contactPhone || null,
-        address: {
-          line1: customerAddress || null,
-        },
-        payment_terms: paymentTerms || null,
-        is_active: true,
-      },
-      { onConflict: "organization_id,name" },
-    )
-    .select("id, name")
-    .single<CustomerRecord>();
-
-  return data
-    ? {
-        customer: data,
-        isNew: true,
-      }
-    : null;
-}
-
-async function resolveJobSite({
-  supabase,
-  organizationId,
-  customerId,
-  existingJobSite,
-  siteName,
-  siteAddress,
-  siteCity,
-  siteCounty,
-  siteState,
-  siteLatitude,
-  siteLongitude,
-}: {
-  supabase: SupabaseClient;
-  organizationId: string;
-  customerId: string;
-  existingJobSite: JobSiteRecord | null;
-  siteName: string;
-  siteAddress: string;
-  siteCity: string;
-  siteCounty: string;
-  siteState: string;
-  siteLatitude: number | null;
-  siteLongitude: number | null;
-}): Promise<JobSiteRecord | null> {
-  if (existingJobSite) {
-    return existingJobSite;
-  }
-
-  if (!siteName || !siteCity || !siteCounty) {
-    return null;
-  }
-
-  const { data } = await supabase
-    .from("job_sites")
-    .upsert(
-      {
-        organization_id: organizationId,
-        customer_id: customerId,
-        name: siteName,
-        address: {
-          line1: siteAddress || siteName,
-          city: siteCity,
-          county: siteCounty,
-          state: siteState,
-        },
-        city: siteCity,
-        county: siteCounty,
-        state: siteState,
-        latitude: siteLatitude,
-        longitude: siteLongitude,
-        is_active: true,
-      },
-      { onConflict: "organization_id,customer_id,name" },
-    )
-    .select("id, customer_id, name, city, county, state, latitude, longitude")
-    .single<JobSiteRecord>();
-
-  return data ?? null;
 }
 
 async function resolveSalesTaxRate({

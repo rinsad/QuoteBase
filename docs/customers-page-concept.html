@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuoteBase Customers Concept</title>
+  <style>
+    :root {
+      --bg: #fafaf7;
+      --surface: #ffffff;
+      --ink: #14201d;
+      --muted: #5e6962;
+      --faint: #8b948e;
+      --line: #e4e8e3;
+      --line-soft: #eef1ec;
+      --green: #3d6652;
+      --green-soft: #ecf2ed;
+      --amber: #b47b22;
+      --amber-soft: #f7eedc;
+      --blue: #2c4a66;
+      --blue-soft: #e5ecf3;
+      --red: #a8402f;
+      --red-soft: #f6e4e0;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 240px 1fr;
+    }
+
+    aside {
+      background: var(--surface);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brand {
+      padding: 18px 18px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand strong { font-size: 18px; }
+    .brand strong span { color: var(--green); }
+    .brand p { margin: 4px 0 0; color: var(--faint); font-size: 12px; }
+
+    nav {
+      padding: 10px;
+      display: grid;
+      gap: 2px;
+      flex: 1;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 7px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .nav-item.active,
+    .nav-item:hover {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .nav-sub {
+      margin-left: 30px;
+      display: grid;
+      gap: 2px;
+      margin-bottom: 6px;
+    }
+
+    .nav-sub a {
+      padding: 7px 10px;
+      border-radius: 6px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .nav-sub a:hover { background: var(--green-soft); color: var(--green); }
+
+    .user {
+      margin: 12px;
+      padding: 12px;
+      border-radius: 7px;
+      background: var(--green-soft);
+      font-size: 13px;
+    }
+
+    .user strong { display: block; }
+    .user span { color: var(--muted); }
+
+    main { min-width: 0; }
+
+    .topbar {
+      height: 56px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      gap: 16px;
+    }
+
+    .global-search {
+      width: min(420px, 45vw);
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      color: var(--faint);
+      font-size: 14px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      background: var(--green-soft);
+      color: var(--green);
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .content {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .page-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      font-weight: 800;
+      letter-spacing: .06em;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 32px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .page-head p.description {
+      margin: 10px 0 0;
+      color: var(--muted);
+      max-width: 760px;
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .button {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--green);
+      height: 42px;
+      padding: 0 16px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 6px 16px rgba(20, 32, 29, .05);
+    }
+
+    .button.primary {
+      background: var(--green);
+      color: white;
+      border-color: var(--green);
+      box-shadow: 0 12px 26px rgba(61, 102, 82, .22);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 390px;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 16px 44px rgba(20, 32, 29, .07);
+      overflow: hidden;
+    }
+
+    .toolbar {
+      border-bottom: 1px solid var(--line);
+      background: #fbfcf8;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .summary-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .summary-strip strong { color: var(--ink); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+    .table-tools {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .search {
+      height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      color: var(--faint);
+      font-size: 14px;
+    }
+
+    .filters { display: flex; gap: 6px; flex-wrap: wrap; justify-content: end; }
+
+    .filter {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 12px;
+      padding: 7px 9px;
+      border-radius: 6px;
+    }
+
+    .filter.active { background: var(--ink); color: var(--bg); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th {
+      text-align: left;
+      padding: 10px 14px;
+      color: var(--faint);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      font-weight: 800;
+      border-bottom: 1px solid var(--line-soft);
+      background: var(--surface);
+    }
+
+    td {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line-soft);
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    tr.selected { background: var(--green-soft); }
+    tr:hover { background: #f3f5f1; }
+
+    .name {
+      font-weight: 800;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sub {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .pill.ok { background: var(--green-soft); color: var(--green); }
+    .pill.warn { background: var(--amber-soft); color: var(--amber); }
+    .pill.info { background: var(--blue-soft); color: var(--blue); }
+    .pill.off { background: #f1f4f0; color: var(--muted); }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .detail {
+      display: grid;
+      gap: 16px;
+      position: sticky;
+      top: 76px;
+    }
+
+    .detail-head {
+      padding: 18px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcf8;
+    }
+
+    .detail-head .status-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: start;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .detail-body { padding: 16px 18px 18px; display: grid; gap: 16px; }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .field {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 10px;
+      background: var(--bg);
+    }
+
+    .field label {
+      display: block;
+      color: var(--faint);
+      font-size: 11px;
+      text-transform: uppercase;
+      font-weight: 800;
+      margin-bottom: 6px;
+    }
+
+    .field div { font-size: 13px; font-weight: 700; color: var(--ink); }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-weight: 800;
+    }
+
+    .mini-list { display: grid; gap: 8px; }
+
+    .mini-card {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--bg);
+      padding: 10px;
+    }
+
+    .mini-card strong { font-size: 13px; display: block; }
+    .mini-card span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .actions .button { width: 100%; }
+
+    .drawer {
+      padding: 16px 18px;
+    }
+
+    details summary {
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      font-weight: 800;
+      color: var(--ink);
+    }
+
+    details summary::-webkit-details-marker { display: none; }
+
+    .form-grid {
+      margin-top: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .form-grid input,
+    .form-grid select,
+    .form-grid textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      border-radius: 7px;
+      min-height: 40px;
+      padding: 0 10px;
+      font: inherit;
+    }
+
+    .form-grid textarea {
+      min-height: 72px;
+      padding-top: 10px;
+      resize: vertical;
+    }
+
+    @media (max-width: 1100px) {
+      .app { grid-template-columns: 1fr; }
+      aside { display: none; }
+      .workspace { grid-template-columns: 1fr; }
+      .detail { position: static; }
+    }
+
+    @media (max-width: 760px) {
+      .content { padding: 16px; }
+      .page-head { display: grid; }
+      .table-tools { grid-template-columns: 1fr; }
+      .filters { justify-content: start; }
+      table { min-width: 860px; }
+      .panel.table-wrap { overflow-x: auto; }
+      .field-grid { grid-template-columns: 1fr; }
+      .actions { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <div class="brand">
+        <strong>Quote<span>Base</span></strong>
+        <p>Western Materials</p>
+      </div>
+      <nav>
+        <a class="nav-item" href="#">▦ Dashboard</a>
+        <a class="nav-item" href="#">▤ Quotes</a>
+        <div class="nav-sub">
+          <a href="#">All quotes</a>
+          <a href="#">New quote</a>
+          <a href="#">Approved</a>
+        </div>
+        <a class="nav-item active" href="#">☷ Customers</a>
+        <a class="nav-item" href="#">✓ Approvals</a>
+        <a class="nav-item" href="#">□ Pricing</a>
+        <a class="nav-item" href="#">▱ Operations</a>
+        <a class="nav-item" href="#">↯ Integrations</a>
+        <div class="nav-sub">
+          <a href="#">Gmail</a>
+          <a href="#">Slack</a>
+          <a href="#">Pipedrive</a>
+        </div>
+        <a class="nav-item" href="#">⚙ Admin</a>
+      </nav>
+      <div class="user">
+        <strong>Rinsad</strong>
+        <span>Admin</span>
+      </div>
+    </aside>
+
+    <main>
+      <div class="topbar">
+        <div class="global-search">Search quotes, customers, job sites, audit events</div>
+        <div class="top-actions">
+          <span class="chip">Tenant-safe workspace</span>
+          <button class="button">Sign out</button>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">CRM workspace</p>
+            <h1>Customers</h1>
+            <p class="description">
+              Customer-first workspace for contact records, quote history, pricing readiness, and job sites that belong to the selected customer.
+            </p>
+          </div>
+          <div class="top-actions">
+            <button class="button">Sync Pipedrive</button>
+            <button class="button primary">Add customer</button>
+          </div>
+        </div>
+
+        <div class="workspace">
+          <section class="panel table-wrap">
+            <div class="toolbar">
+              <div class="summary-strip">
+                <span><strong>114</strong> customers</span>
+                <span><strong>98</strong> active</span>
+                <span><strong>86</strong> need pricing</span>
+                <span><strong>7</strong> Pipedrive linked</span>
+              </div>
+              <div class="table-tools">
+                <div class="search">Search customer, contact, email, city, or county</div>
+                <div class="filters">
+                  <button class="filter active">All</button>
+                  <button class="filter">Active</button>
+                  <button class="filter">Needs pricing</button>
+                  <button class="filter">Not linked</button>
+                </div>
+              </div>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 28%">Customer</th>
+                  <th style="width: 22%">Contact</th>
+                  <th style="width: 12%">Job Sites</th>
+                  <th style="width: 14%">Pricing</th>
+                  <th style="width: 14%">Pipedrive</th>
+                  <th style="width: 10%">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="selected">
+                  <td>
+                    <div class="name">Acme Siteworks</div>
+                    <div class="sub">Address pending</div>
+                  </td>
+                  <td>
+                    <div>Maya Lopez</div>
+                    <div class="sub">maya@example.test · 555-0101</div>
+                  </td>
+                  <td><span class="mono">1</span></td>
+                  <td><span class="pill warn">Missing</span></td>
+                  <td><span class="pill off">Not linked</span></td>
+                  <td><span class="pill ok">Active</span></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="name">E2E API Customer 1781194078425</div>
+                    <div class="sub">500 API Test Yard · Net 10</div>
+                  </td>
+                  <td>
+                    <div>Updated API Contact</div>
+                    <div class="sub">555-0303</div>
+                  </td>
+                  <td><span class="mono">0</span></td>
+                  <td><span class="pill warn">Missing</span></td>
+                  <td><span class="pill off">Not linked</span></td>
+                  <td><span class="pill off">Inactive</span></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="name">Burbank Retail Supply</div>
+                    <div class="sub">300 Magnolia Blvd, Burbank, CA</div>
+                  </td>
+                  <td>
+                    <div>Operations Desk</div>
+                    <div class="sub">555-0188</div>
+                  </td>
+                  <td><span class="mono">3</span></td>
+                  <td><span class="pill ok">Ready</span></td>
+                  <td><span class="pill info">Linked</span></td>
+                  <td><span class="pill ok">Active</span></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="name">Camino Verde Landscape</div>
+                    <div class="sub">Los Angeles, CA</div>
+                  </td>
+                  <td>
+                    <div>Lena Park</div>
+                    <div class="sub">lena@example.test</div>
+                  </td>
+                  <td><span class="mono">2</span></td>
+                  <td><span class="pill ok">Ready</span></td>
+                  <td><span class="pill info">Linked</span></td>
+                  <td><span class="pill ok">Active</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section class="detail">
+            <div class="panel">
+              <div class="detail-head">
+                <div class="status-line">
+                  <div>
+                    <p class="eyebrow">Selected customer</p>
+                    <h2>Acme Siteworks</h2>
+                    <p class="sub">Maya Lopez · maya@example.test · 555-0101</p>
+                  </div>
+                  <span class="pill ok">Active</span>
+                </div>
+              </div>
+
+              <div class="detail-body">
+                <div class="field-grid">
+                  <div class="field">
+                    <label>Pricing</label>
+                    <div style="color: var(--amber)">Missing context</div>
+                  </div>
+                  <div class="field">
+                    <label>Pipedrive</label>
+                    <div>Not linked</div>
+                  </div>
+                  <div class="field">
+                    <label>Payment terms</label>
+                    <div>Pending</div>
+                  </div>
+                  <div class="field">
+                    <label>Default plant</label>
+                    <div>Pending</div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="section-title">
+                    <span>Job sites</span>
+                    <button class="button" style="height: 30px; padding: 0 10px;">Add</button>
+                  </div>
+                  <div class="mini-list">
+                    <div class="mini-card">
+                      <strong>Burbank Retail Pad</strong>
+                      <span>300 Magnolia Blvd, Burbank, CA</span>
+                      <span>Los Angeles County · active</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="section-title">
+                    <span>Quote history</span>
+                    <span>No quotes yet</span>
+                  </div>
+                  <div class="mini-card">
+                    <strong>No quote history</strong>
+                    <span>Create the first quote once pricing context and a delivery site are ready.</span>
+                  </div>
+                </div>
+
+                <div class="actions">
+                  <button class="button primary">Create quote</button>
+                  <button class="button">Edit customer</button>
+                  <button class="button">Add job site</button>
+                  <button class="button">Link Pipedrive</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel drawer">
+              <details>
+                <summary>
+                  <span>Add customer</span>
+                  <span>⌄</span>
+                </summary>
+                <div class="form-grid">
+                  <input placeholder="Customer name" />
+                  <input placeholder="Company" />
+                  <input placeholder="Contact name" />
+                  <input placeholder="Email" />
+                  <input placeholder="Phone" />
+                  <select>
+                    <option>No default plant</option>
+                    <option>Acton</option>
+                    <option>Sun Valley</option>
+                  </select>
+                  <textarea placeholder="Pricing notes"></textarea>
+                  <button class="button primary">Save customer</button>
+                </div>
+              </details>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

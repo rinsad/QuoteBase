@@ -21,11 +21,18 @@ export async function GET() {
     redirect("/admin/integrations/gmail?error=google_not_configured");
   }
 
-  const authorizationUrl = await createGmailAuthorizationUrl({
-    supabase,
-    organizationId: user.organization_id,
-    userId: user.id,
-  });
+  let authorizationUrl: string | null = null;
+
+  try {
+    authorizationUrl = await createGmailAuthorizationUrl({
+      supabase,
+      organizationId: user.organization_id,
+      userId: user.id,
+    });
+  } catch (error) {
+    console.error("Gmail authorization URL could not be created.", error);
+    redirect("/admin/integrations/gmail?error=oauth_settings_unreadable");
+  }
 
   if (!authorizationUrl) {
     redirect("/admin/integrations/gmail?error=google_not_configured");

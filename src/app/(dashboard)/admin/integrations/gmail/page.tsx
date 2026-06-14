@@ -241,6 +241,8 @@ function gmailErrorMessage(error: string): string {
     invalid_state: "Google returned an invalid connection state.",
     missing_code: "Google did not return an authorization code.",
     oauth_failed: "Gmail connection failed during OAuth.",
+    oauth_settings_unreadable:
+      "Saved Google OAuth app credentials cannot be read with the current encryption key. Re-enter the Client ID and Client secret, save, then connect Gmail.",
     unauthorized: "You must be an admin to connect Gmail.",
   };
 

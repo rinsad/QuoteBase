@@ -46,6 +46,11 @@ export type CustomerDeskSummary = {
   customers: CustomerSummary[];
   jobSites: JobSiteSummary[];
   plants: CustomerPlantOption[];
+  locationOptions: {
+    cities: string[];
+    counties: string[];
+    states: string[];
+  };
   counts: {
     customers: number;
     jobSites: number;
@@ -64,7 +69,6 @@ type CustomerRecord = Omit<
   "job_sites" | "quote_history" | "default_plant_name"
 > & {
   job_sites: JobSiteSummary[] | null;
-  suppliers: { name: string } | { name: string }[] | null;
 };
 
 type QuoteHistoryRecord = CustomerQuoteHistoryItem;
@@ -90,7 +94,7 @@ export async function getCustomerDeskSummary(
   let customerQuery = supabase
     .from("customers")
     .select(
-      "id, name, company_name, contact_name, email, phone, address, payment_terms, pricing_notes, default_plant_id, pipedrive_person_id, pipedrive_synced_at, is_active, suppliers(name), job_sites(id, customer_id, name, city, county, state, address, latitude, longitude, is_active)",
+      "id, name, company_name, contact_name, email, phone, address, payment_terms, pricing_notes, default_plant_id, pipedrive_person_id, pipedrive_synced_at, is_active, job_sites(id, customer_id, name, city, county, state, address, latitude, longitude, is_active)",
     )
     .eq("organization_id", user.organization_id)
     .order("name", { ascending: true });
@@ -115,6 +119,27 @@ export async function getCustomerDeskSummary(
     customerQuery.returns<CustomerRecord[]>(),
     jobSiteQuery.returns<JobSiteSummary[]>(),
   ]);
+  const directCustomers = customersResult.data?.filter(isCustomerRecord) ?? [];
+  const customerIdsFromMatchedJobSites = new Set(
+    (jobSitesResult.data ?? [])
+      .filter(isJobSiteSummary)
+      .map((site) => site.customer_id),
+  );
+  const missingCustomerIds = [...customerIdsFromMatchedJobSites].filter(
+    (customerId) =>
+      !directCustomers.some((customer) => customer.id === customerId),
+  );
+  const jobSiteCustomerResult =
+    normalizedSearch && missingCustomerIds.length
+      ? await supabase
+          .from("customers")
+          .select(
+            "id, name, company_name, contact_name, email, phone, address, payment_terms, pricing_notes, default_plant_id, pipedrive_person_id, pipedrive_synced_at, is_active, job_sites(id, customer_id, name, city, county, state, address, latitude, longitude, is_active)",
+          )
+          .eq("organization_id", user.organization_id)
+          .in("id", missingCustomerIds)
+          .returns<CustomerRecord[]>()
+      : { data: [], error: null };
   const plantsResult = await supabase
     .from("suppliers")
     .select("id, name")
@@ -130,7 +155,51 @@ export async function getCustomerDeskSummary(
     .order("created_at", { ascending: false })
     .limit(100)
     .returns<QuoteHistoryRecord[]>();
+  const locationOptionsResult = await supabase
+    .from("job_sites")
+    .select("city, county, state")
+    .eq("organization_id", user.organization_id)
+    .eq("is_active", true)
+    .returns<Array<{ city: string; county: string; state: string }>>();
+
+  if (customersResult.error) {
+    console.error("Could not load customers for customer desk.", customersResult.error);
+  }
+
+  if (jobSitesResult.error) {
+    console.error("Could not load job sites for customer desk.", jobSitesResult.error);
+  }
+
+  if (jobSiteCustomerResult.error) {
+    console.error(
+      "Could not load customers for matched job sites.",
+      jobSiteCustomerResult.error,
+    );
+  }
+
+  if (plantsResult.error) {
+    console.error("Could not load plants for customer desk.", plantsResult.error);
+  }
+
+  if (quoteHistoryResult.error) {
+    console.error(
+      "Could not load quote history for customer desk.",
+      quoteHistoryResult.error,
+    );
+  }
+
+  if (locationOptionsResult.error) {
+    console.error(
+      "Could not load job site location options.",
+      locationOptionsResult.error,
+    );
+  }
+
   const quoteHistoryByCustomer = new Map<string, CustomerQuoteHistoryItem[]>();
+  const plants = plantsResult.data?.filter(isPlantOption) ?? [];
+  const plantNameById = new Map(
+    plants.map((plant) => [plant.id, plant.name] as const),
+  );
 
   for (const quote of quoteHistoryResult.data ?? []) {
     const history = quoteHistoryByCustomer.get(quote.customer_id) ?? [];
@@ -145,26 +214,43 @@ export async function getCustomerDeskSummary(
     quoteHistoryByCustomer.set(quote.customer_id, history);
   }
 
+  const customerRecords = [
+    ...directCustomers,
+    ...((jobSiteCustomerResult.data ?? []).filter(isCustomerRecord)),
+  ];
   const customers =
-    customersResult.data?.map((customer) => {
-      const supplier = Array.isArray(customer.suppliers)
-        ? customer.suppliers[0]
-        : customer.suppliers;
-
+    customerRecords.map((customer) => {
       return {
         ...customer,
-        address: customer.address ?? {},
-        default_plant_name: supplier?.name ?? null,
-        job_sites: customer.job_sites ?? [],
+        address: objectRecord(customer.address),
+        default_plant_name: customer.default_plant_id
+          ? (plantNameById.get(customer.default_plant_id) ?? null)
+          : null,
+        job_sites: (customer.job_sites ?? []).filter(isJobSiteSummary).map(
+          (site) => ({
+            ...site,
+            address: objectRecord(site.address),
+          }),
+        ),
         quote_history: quoteHistoryByCustomer.get(customer.id) ?? [],
       };
-    }) ?? [];
-  const jobSites = jobSitesResult.data ?? [];
+    });
+  const jobSites =
+    jobSitesResult.data?.filter(isJobSiteSummary).map((site) => ({
+      ...site,
+      address: objectRecord(site.address),
+    })) ?? [];
+  const locationRows = locationOptionsResult.data ?? [];
 
   return {
     customers,
     jobSites,
-    plants: plantsResult.data ?? [],
+    plants,
+    locationOptions: {
+      cities: uniqueStrings(locationRows.map((site) => site.city)),
+      counties: uniqueStrings(locationRows.map((site) => site.county)),
+      states: uniqueStrings(locationRows.map((site) => site.state)),
+    },
     counts: {
       customers: customers.length,
       jobSites: jobSites.length,
@@ -174,11 +260,64 @@ export async function getCustomerDeskSummary(
   };
 }
 
+function isCustomerRecord(value: CustomerRecord | null): value is CustomerRecord {
+  return Boolean(
+    value &&
+      typeof value.id === "string" &&
+      typeof value.name === "string" &&
+      typeof value.is_active === "boolean",
+  );
+}
+
+function isJobSiteSummary(
+  value: JobSiteSummary | null,
+): value is JobSiteSummary {
+  return Boolean(
+    value &&
+      typeof value.id === "string" &&
+      typeof value.customer_id === "string" &&
+      typeof value.name === "string" &&
+      typeof value.city === "string" &&
+      typeof value.county === "string" &&
+      typeof value.state === "string" &&
+      typeof value.is_active === "boolean",
+  );
+}
+
+function isPlantOption(
+  value: CustomerPlantOption | null,
+): value is CustomerPlantOption {
+  return Boolean(
+    value && typeof value.id === "string" && typeof value.name === "string",
+  );
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value?.trim() ?? "")
+        .filter((value) => value.length > 0),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+}
+
 function emptySummary(): CustomerDeskSummary {
   return {
     customers: [],
     jobSites: [],
     plants: [],
+    locationOptions: {
+      cities: [],
+      counties: [],
+      states: [],
+    },
     counts: {
       customers: 0,
       jobSites: 0,

@@ -50,6 +50,30 @@ export async function pushQuoteToQuoterDraft({
   user: AppUser;
   quoteId: string;
 }): Promise<void> {
+  try {
+    await pushQuoteToQuoterDraftInternal({ supabase, user, quoteId });
+  } catch (error) {
+    console.error("Quoter draft push failed before sync could run.", error);
+
+    await logQuoterResult({
+      supabase,
+      user,
+      quoteId,
+      status: "failed",
+      reason: error instanceof Error ? error.message : "Quoter push failed.",
+    });
+  }
+}
+
+async function pushQuoteToQuoterDraftInternal({
+  supabase,
+  user,
+  quoteId,
+}: {
+  supabase: SupabaseClient;
+  user: AppUser;
+  quoteId: string;
+}): Promise<void> {
   const quoterEnabled = await isFeatureEnabled({
     supabase,
     organizationId: user.organization_id,
@@ -230,19 +254,23 @@ async function logQuoterResult({
   reason: string;
   quoterId?: string | null;
 }) {
-  await logAction({
-    supabase,
-    user,
-    action: "quote.quoter_draft_push",
-    targetTable: "quotes",
-    targetId: quoteId,
-    before: null,
-    after: {
-      status,
-      reason,
-      quoter_id: quoterId ?? null,
-    },
-  });
+  try {
+    await logAction({
+      supabase,
+      user,
+      action: "quote.quoter_draft_push",
+      targetTable: "quotes",
+      targetId: quoteId,
+      before: null,
+      after: {
+        status,
+        reason,
+        quoter_id: quoterId ?? null,
+      },
+    });
+  } catch (error) {
+    console.error("Could not write Quoter integration audit log.", error);
+  }
 }
 
 async function parseJsonObject(response: Response): Promise<Record<string, unknown> | null> {

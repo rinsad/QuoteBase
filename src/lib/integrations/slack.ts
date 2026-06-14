@@ -11,6 +11,7 @@ export type SlackIntegration = {
   id: string;
   isEnabled: boolean;
   approverEmail: string | null;
+  credentialsInvalid: boolean;
   webhookUrl: string | null;
   signingSecret: string | null;
   botToken: string | null;
@@ -50,14 +51,23 @@ export async function getSlackIntegration({
     return null;
   }
 
-  const credentials = decryptSecretPayload<SlackCredentials>(
-    data.credentials_encrypted,
-  );
+  let credentials: SlackCredentials | null = null;
+  let credentialsInvalid = false;
+
+  try {
+    credentials = decryptSecretPayload<SlackCredentials>(
+      data.credentials_encrypted,
+    );
+  } catch (error) {
+    credentialsInvalid = true;
+    console.error("Slack integration credentials could not be decrypted.", error);
+  }
 
   return {
     id: data.id,
     isEnabled: data.is_enabled,
     approverEmail: stringValue(data.config?.approver_email),
+    credentialsInvalid,
     webhookUrl: stringValue(credentials?.webhookUrl),
     signingSecret: stringValue(credentials?.signingSecret),
     botToken: stringValue(credentials?.botToken),

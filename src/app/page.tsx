@@ -1,223 +1,428 @@
 import {
+  AlertTriangle,
   BadgeCheck,
+  Bell,
+  BookOpen,
   CheckCircle2,
   ClipboardList,
+  Columns3,
   Database,
+  FileCheck2,
+  FileClock,
+  FilePlus2,
+  FileText,
   Flag,
+  Gauge,
   KeyRound,
+  LayoutDashboard,
   LockKeyhole,
-  Route,
+  Mail,
+  MessageSquare,
+  Search,
+  Settings,
   ShieldCheck,
+  Truck,
+  Users,
+  Workflow,
+  Zap,
 } from "lucide-react";
 import Link from "next/link";
 
-const setupItems = [
-  { label: "Next.js 15 app scaffold", status: "Done" },
-  { label: "Supabase local auth", status: "Done" },
-  { label: "Tenant dashboard", status: "Done" },
-  { label: "Day 2 business schema", status: "Done" },
-  { label: "Admin plants console", status: "Done" },
-  { label: "Quote workflow builder", status: "Next" },
+type NavItem = {
+  label: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+};
+
+const primaryNav: NavItem[] = [
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Quotes", href: "/quotes", icon: FileText },
+  { label: "Customers", href: "/customers", icon: Users },
+  { label: "Approvals", href: "/quotes/approvals", icon: FileCheck2 },
+  { label: "Pricing", href: "/admin/pricing", icon: BookOpen },
+  { label: "Operations", href: "/admin/plants", icon: Truck },
+  { label: "Integrations", href: "/admin/integrations/gmail", icon: Zap },
+  { label: "Admin", href: "/admin/system-check", icon: Settings },
+];
+
+const quoteStages = [
+  {
+    label: "Draft intake",
+    detail: "Customer, job site, materials, trucking, taxes, and fees.",
+    status: "Configured",
+    icon: FilePlus2,
+  },
+  {
+    label: "Approval workflow",
+    detail: "Pending approval, changes requested, approved, and rejected.",
+    status: "Active",
+    icon: Workflow,
+  },
+  {
+    label: "Customer delivery",
+    detail: "PDF quote delivery, public links, sent/viewed response states.",
+    status: "Ready",
+    icon: Mail,
+  },
+  {
+    label: "Revision history",
+    detail: "Parent quote tracking and immutable revision records.",
+    status: "Tracked",
+    icon: FileClock,
+  },
+];
+
+const attentionItems = [
+  {
+    label: "Pending approvals",
+    detail: "Admin review queue for quotes waiting on approval.",
+    href: "/quotes/approvals",
+    icon: FileCheck2,
+  },
+  {
+    label: "Approved queue",
+    detail: "Quotes ready for customer delivery or follow-up.",
+    href: "/quotes/approved",
+    icon: BadgeCheck,
+  },
+  {
+    label: "Integration health",
+    detail: "Gmail, Slack, and Pipedrive connection status.",
+    href: "/admin/integrations/gmail",
+    icon: MessageSquare,
+  },
+];
+
+const kpis = [
+  { label: "Quote workflow", value: "9 states", sub: "Draft to accepted" },
+  { label: "Pricing controls", value: "4 tiers", sub: "R1-R4 framework" },
+  { label: "Config modules", value: "8", sub: "Materials, fees, taxes" },
+  { label: "Audit coverage", value: "Required", sub: "State changes logged" },
+  { label: "Tenant model", value: "Scoped", sub: "Organization records" },
+  { label: "Integrations", value: "3", sub: "Gmail, Slack, Pipedrive" },
 ];
 
 const guardrails = [
   {
     icon: Database,
-    title: "Multi-tenant",
-    detail: "Every business table and query is scoped by organization_id.",
+    title: "Tenant-scoped data",
+    detail: "Business records are designed around organization-owned data.",
   },
   {
     icon: LockKeyhole,
-    title: "RLS + auth",
-    detail: "Policies protect the database; API routes verify role and org.",
+    title: "Role-aware access",
+    detail: "Admin, account manager, and estimator workflows stay separated.",
   },
   {
     icon: ClipboardList,
     title: "Audit trail",
-    detail: "State-changing actions write immutable audit_log entries.",
+    detail: "Quote, pricing, and admin state changes are reviewable.",
   },
   {
     icon: Flag,
     title: "Feature gates",
-    detail: "Capabilities turn on per organization without code deploys.",
+    detail: "Capabilities can be enabled per organization as rollout changes.",
   },
 ];
 
-const nextTasks = [
-  "Create the quote intake flow with customer and job-site details.",
-  "Load materials from the organization-scoped pricing catalog.",
-  "Read taxes, fees, and tier rules from pricing configuration.",
-  "Write every quote state change into audit_log.",
-  "Keep admin-only setup tools behind role checks.",
-  "Add focused tests around quote calculations and tenant scoping.",
+const configAreas = [
+  { label: "Plants", href: "/admin/plants" },
+  { label: "Suppliers", href: "/admin/suppliers" },
+  { label: "Yards", href: "/admin/yards" },
+  { label: "Vehicle types", href: "/admin/vehicle-types" },
+  { label: "Material prices", href: "/admin/material-prices" },
+  { label: "Tax rates", href: "/admin/tax-rates" },
 ];
 
 export default function Home() {
   return (
-    <main className="app-background overflow-hidden">
-      <div className="mx-auto flex w-full max-w-7xl flex-col px-4 py-4 sm:px-6 lg:px-8">
-        <header className="mac-window sticky top-4 z-10">
-          <div className="mac-toolbar">
-            <div className="flex items-center gap-3">
-              <div className="mac-controls">
-                <span className="mac-control-red" />
-                <span className="mac-control-yellow" />
-                <span className="mac-control-green" />
-              </div>
-              <div className="h-5 w-px bg-border" />
-              <p className="text-sm font-medium text-muted-foreground">
-                QuoteBase
+    <main className="min-h-screen bg-background text-foreground">
+      <div className="grid min-h-screen lg:grid-cols-[15rem_1fr]">
+        <aside className="border-b border-border bg-card lg:border-b-0 lg:border-r">
+          <div className="flex items-center justify-between border-b border-border px-4 py-4 lg:block">
+            <div>
+              <p className="text-lg font-semibold tracking-tight">
+                Quote<span className="text-primary">Base</span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Western Materials
               </p>
             </div>
-            <div className="hidden items-center gap-2 rounded-full border border-white/70 bg-white/60 px-3 py-1.5 text-sm shadow-sm sm:flex">
-              <ShieldCheck className="size-4 text-emerald-600" />
-              <span className="font-medium">Memory loaded</span>
+            <Link href="/login" className="mac-button-primary h-9 lg:hidden">
+              Login
+            </Link>
+          </div>
+
+          <nav
+            className="flex gap-1 overflow-x-auto p-2 lg:block"
+            aria-label="Product navigation"
+          >
+            {primaryNav.map((item) => {
+              const Icon = item.icon;
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="flex min-w-fit items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition hover:bg-secondary hover:text-primary lg:mb-0.5"
+                >
+                  <Icon className="size-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="hidden border-t border-border p-3 lg:block">
+            <div className="flex items-center gap-2 rounded-md bg-secondary px-3 py-2">
+              <div className="flex size-7 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">
+                WM
+              </div>
+              <div>
+                <p className="text-sm font-medium">Workspace</p>
+                <p className="text-xs text-muted-foreground">Role protected</p>
+              </div>
             </div>
           </div>
-        </header>
+        </aside>
 
-        <section className="grid gap-6 py-8 lg:grid-cols-[1.1fr_0.9fr] lg:py-10">
-          <div className="glass-panel p-6 sm:p-8 lg:p-10">
-            <p className="text-sm font-medium text-muted-foreground">
-              Western Materials Quoting App
-            </p>
-            <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-normal text-balance sm:text-5xl lg:text-6xl">
-              A calm command center for the QuoteBase build.
-            </h1>
-            <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
-              The foundation is set up as a professional internal product from
-              day one: multi-tenant, auditable, configurable, and ready for the
-              Western Materials quoting workflow.
-            </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link href="/login" className="mac-button-primary">
+        <section className="min-w-0">
+          <header className="flex min-h-14 items-center justify-between gap-4 border-b border-border bg-card px-4 sm:px-6">
+            <div className="hidden min-w-0 items-center gap-3 rounded-md border border-border bg-background px-3 py-2 sm:flex sm:w-80">
+              <Search className="size-4 text-muted-foreground" />
+              <span className="truncate text-sm text-muted-foreground">
+                Search quotes, customers, jobs, audit events
+              </span>
+            </div>
+            <div className="flex items-center gap-2 sm:ml-auto">
+              <span className="hidden items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-primary sm:inline-flex">
+                <ShieldCheck className="size-3.5" />
+                Tenant-safe workspace
+              </span>
+              <button
+                type="button"
+                className="rounded-md border border-border bg-card p-2 text-muted-foreground"
+                aria-label="Notifications"
+              >
+                <Bell className="size-4" />
+              </button>
+              <Link href="/login" className="mac-button-primary hidden h-9 sm:flex">
                 Open login
               </Link>
-              <Link href="/dashboard" className="mac-link h-11 px-5">
-                View dashboard
+            </div>
+          </header>
+
+          <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+            <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold uppercase text-muted-foreground">
+                  Quote operations
+                </p>
+                <h1 className="mt-1 text-3xl font-semibold tracking-normal sm:text-4xl">
+                  A command center for quoting, pricing, approvals, and follow-up.
+                </h1>
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+                  The public first screen now mirrors the product experience:
+                  module navigation, operational queues, pricing configuration,
+                  integrations, and tenant-safe audit controls.
+                </p>
+              </div>
+              <Link href="/quotes/new" className="mac-button-primary h-11">
+                <FilePlus2 className="size-4" />
+                New quote
               </Link>
             </div>
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              <Metric label="Phase" value="Day 2" />
-              <Metric label="Stack" value="Next 15" />
-              <Metric label="Mode" value="MVP" />
-            </div>
-          </div>
+            <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+              {kpis.map((item) => (
+                <MetricCard key={item.label} {...item} />
+              ))}
+            </section>
 
-          <aside className="glass-panel p-5 sm:p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Setup Progress
-                </p>
-              <h2 className="accent-title mt-1 text-2xl font-semibold">
-                Foundation
-              </h2>
-              </div>
-              <div className="icon-well text-emerald-700">
-                <BadgeCheck className="size-5" />
-              </div>
-            </div>
-
-            <div className="mt-6 space-y-2.5">
-              {setupItems.map((item) => (
-                <div
-                  key={item.label}
-                  className="soft-row flex min-h-12 items-center justify-between gap-3 px-4"
-                >
-                  <span className="text-sm font-medium">{item.label}</span>
-                  <StatusPill status={item.status} />
+            <section className="mt-6 grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
+              <div className="glass-panel overflow-hidden">
+                <div className="flex items-center justify-between border-b border-border bg-[#fbfcf8] px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Quote workspace
+                    </p>
+                    <h2 className="text-xl font-semibold">
+                      Workflow modules
+                    </h2>
+                  </div>
+                  <Columns3 className="size-5 text-primary" />
                 </div>
-              ))}
-            </div>
-          </aside>
-        </section>
 
-        <section className="grid gap-6 pb-8 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="glass-panel p-5 sm:p-6">
-            <div className="flex items-center gap-3">
-              <div className="icon-well text-blue-700">
-                <Route className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Next Build Step
-                </p>
-                <h2 className="text-xl font-semibold">
-                  Quote workflow and pricing guardrails
-                </h2>
-              </div>
-            </div>
+                <div className="grid gap-3 p-4 md:grid-cols-2">
+                  {quoteStages.map((stage) => {
+                    const Icon = stage.icon;
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              {nextTasks.map((task) => (
-                <ChecklistItem key={task} text={task} />
-              ))}
-            </div>
+                    return (
+                      <div key={stage.label} className="soft-row p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="icon-well text-primary">
+                            <Icon className="size-5" />
+                          </div>
+                          <StatusPill label={stage.status} />
+                        </div>
+                        <h3 className="mt-4 text-sm font-semibold">
+                          {stage.label}
+                        </h3>
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                          {stage.detail}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <aside className="glass-panel overflow-hidden">
+                <div className="border-b border-border bg-[#fbfcf8] px-4 py-3">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Needs attention
+                  </p>
+                  <h2 className="text-xl font-semibold">Daily queues</h2>
+                </div>
+                <div className="space-y-2 p-4">
+                  {attentionItems.map((item) => {
+                    const Icon = item.icon;
+
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className="soft-row block p-4 transition hover:border-[#cfd8ce] hover:bg-secondary"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Icon className="size-4 text-primary" />
+                          <span className="text-sm font-semibold">
+                            {item.label}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                          {item.detail}
+                        </p>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </aside>
+            </section>
+
+            <section className="mt-6 grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+              <div className="glass-panel p-5">
+                <div className="flex items-center gap-3">
+                  <div className="icon-well text-amber-700">
+                    <Gauge className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Pricing and configuration
+                    </p>
+                    <h2 className="text-xl font-semibold">
+                      Admin setup areas
+                    </h2>
+                  </div>
+                </div>
+                <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                  {configAreas.map((area) => (
+                    <Link
+                      key={area.href}
+                      href={area.href}
+                      className="soft-row flex min-h-11 items-center justify-between gap-3 px-3 text-sm font-medium transition hover:bg-secondary"
+                    >
+                      {area.label}
+                      <CheckCircle2 className="size-4 text-primary" />
+                    </Link>
+                  ))}
+                </div>
+              </div>
+
+              <div className="glass-panel overflow-hidden">
+                <div className="flex items-center justify-between border-b border-border bg-[#fbfcf8] px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Governance
+                    </p>
+                    <h2 className="text-xl font-semibold">
+                      SaaS guardrails
+                    </h2>
+                  </div>
+                  <AlertTriangle className="size-5 text-amber-700" />
+                </div>
+                <div className="grid gap-3 p-4 sm:grid-cols-2">
+                  {guardrails.map((item) => {
+                    const Icon = item.icon;
+
+                    return (
+                      <div key={item.title} className="soft-row p-4">
+                        <Icon className="size-5 text-foreground" />
+                        <h3 className="mt-4 text-sm font-semibold">
+                          {item.title}
+                        </h3>
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                          {item.detail}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+
+            <section className="mt-6 glass-panel p-5">
+              <div className="flex items-center gap-3">
+                <div className="icon-well text-primary">
+                  <KeyRound className="size-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Local environment
+                  </p>
+                  <h2 className="text-xl font-semibold">
+                    Supabase and workflow readiness
+                  </h2>
+                </div>
+              </div>
+              <div className="mt-5 grid gap-2 md:grid-cols-3">
+                <EnvRow name="NEXT_PUBLIC_SUPABASE_URL" />
+                <EnvRow name="NEXT_PUBLIC_SUPABASE_ANON_KEY" />
+                <EnvRow name="SUPABASE_SERVICE_ROLE_KEY" />
+              </div>
+            </section>
           </div>
-
-          <aside className="glass-panel p-5 sm:p-6">
-            <div className="flex items-center gap-3">
-              <div className="icon-well text-amber-700">
-                <KeyRound className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Local Environment
-                </p>
-                <h2 className="text-xl font-semibold">Supabase ready</h2>
-              </div>
-            </div>
-            <p className="mt-4 text-sm leading-6 text-muted-foreground">
-              The local stack is configured for auth, migrations, and admin
-              verification.
-            </p>
-            <div className="mt-5 space-y-2.5">
-              <EnvRow name="NEXT_PUBLIC_SUPABASE_URL" />
-              <EnvRow name="NEXT_PUBLIC_SUPABASE_ANON_KEY" />
-              <EnvRow name="SUPABASE_SERVICE_ROLE_KEY" />
-            </div>
-          </aside>
-        </section>
-
-        <section className="grid gap-4 pb-10 md:grid-cols-2 lg:grid-cols-4">
-          {guardrails.map((item) => {
-            const Icon = item.icon;
-
-            return (
-              <div key={item.title} className="glass-tile p-5">
-                <Icon className="size-5 text-foreground" />
-                <h3 className="mt-4 text-sm font-semibold">{item.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {item.detail}
-                </p>
-              </div>
-            );
-          })}
         </section>
       </div>
     </main>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function MetricCard({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+}) {
   return (
-    <div className="soft-row px-4 py-3">
+    <div className="glass-tile min-h-28 p-4">
       <p className="text-xs font-medium uppercase text-muted-foreground">
         {label}
       </p>
-      <p className="mt-1 text-lg font-semibold">{value}</p>
+      <p className="mt-3 font-mono text-2xl font-semibold">{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
     </div>
   );
 }
 
-function ChecklistItem({ text }: { text: string }) {
+function StatusPill({ label }: { label: string }) {
   return (
-    <div className="soft-row flex gap-3 p-4">
-      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
-      <p className="text-sm leading-6 text-muted-foreground">{text}</p>
-    </div>
+    <span className="soft-chip bg-[#ecf2ed] text-[#3d6652] ring-[#d7ded5]">
+      {label}
+    </span>
   );
 }
 
@@ -229,22 +434,5 @@ function EnvRow({ name }: { name: string }) {
         set
       </span>
     </div>
-  );
-}
-
-function StatusPill({ status }: { status: string }) {
-  const className =
-    status === "Done"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-      : status === "Next"
-        ? "bg-blue-50 text-blue-700 ring-blue-100"
-      : "bg-amber-50 text-amber-700 ring-amber-100";
-
-  return (
-    <span
-      className={`soft-chip ${className}`}
-    >
-      {status}
-    </span>
   );
 }

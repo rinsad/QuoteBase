@@ -2,11 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 
 import { logAction } from "@/lib/audit/log-action";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { encryptedPipedriveCredentials } from "@/lib/integrations/pipedrive";
+import {
+  encryptedPipedriveCredentials,
+  pushUnsyncedQuoteBaseCustomersToPipedrive,
+  syncPipedriveCustomersForOrganization,
+} from "@/lib/integrations/pipedrive";
 import { decryptSecretPayload } from "@/lib/security/secret-box";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 type PipedriveCredentials = {
@@ -22,6 +28,18 @@ type ExistingIntegration = {
   credentials_last4: Record<string, unknown> | null;
   updated_at: string;
 };
+
+const pipedriveSettingsSchema = z.object({
+  is_enabled: z.boolean(),
+  api_base_url: z
+    .string()
+    .trim()
+    .url("Enter a valid Pipedrive API base URL.")
+    .default("https://api.pipedrive.com/v1"),
+  sync_interval_minutes: z.coerce.number().int().min(1).max(1440).default(30),
+  api_token: z.string().trim().optional().default(""),
+});
+const OUTBOUND_PUSH_LIMIT = 500;
 
 export async function savePipedriveIntegration(formData: FormData) {
   const user = await getCurrentUser();
@@ -40,15 +58,24 @@ export async function savePipedriveIntegration(formData: FormData) {
     throw new Error("Supabase is not configured for this workspace.");
   }
 
-  const isEnabled = formData.get("is_enabled") === "on";
-  const apiBaseUrl =
-    getString(formData, "api_base_url") || "https://api.pipedrive.com/v1";
-  const syncIntervalMinutes = getPositiveInteger(
-    formData,
-    "sync_interval_minutes",
-    30,
-  );
-  const apiToken = getString(formData, "api_token");
+  const parsed = pipedriveSettingsSchema.safeParse({
+    is_enabled: formData.get("is_enabled") === "on",
+    api_base_url:
+      getString(formData, "api_base_url") || "https://api.pipedrive.com/v1",
+    sync_interval_minutes: getString(formData, "sync_interval_minutes") || 30,
+    api_token: getString(formData, "api_token"),
+  });
+
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid Pipedrive settings.");
+  }
+
+  const {
+    is_enabled: isEnabled,
+    api_base_url: apiBaseUrl,
+    sync_interval_minutes: syncIntervalMinutes,
+    api_token: apiToken,
+  } = parsed.data;
 
   const { data: before } = await supabase
     .from("organization_integrations")
@@ -126,22 +153,63 @@ export async function savePipedriveIntegration(formData: FormData) {
   redirect("/admin/integrations/pipedrive?saved=1");
 }
 
+export async function syncPipedriveNow() {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (user.role !== "admin") {
+    throw new Error("Only admins can sync Pipedrive customers.");
+  }
+
+  const admin = createAdminClient();
+
+  if (!admin) {
+    throw new Error("Supabase admin client is not configured.");
+  }
+
+  const pullResult = await syncPipedriveCustomersForOrganization({
+    supabase: admin,
+    organizationId: user.organization_id,
+  });
+  const pushResult = await pushUnsyncedQuoteBaseCustomersToPipedrive({
+    supabase: admin,
+    user,
+    limit: OUTBOUND_PUSH_LIMIT,
+  });
+  const result = {
+    pull: pullResult,
+    push: pushResult,
+  };
+
+  await logAction({
+    user,
+    action: "integration.pipedrive.manual_sync",
+    targetTable: "organization_integrations",
+    after: result,
+  });
+
+  revalidatePath("/customers");
+  revalidatePath("/quotes/new");
+  revalidatePath("/admin/integrations/pipedrive");
+
+  const params = new URLSearchParams({
+    synced: "1",
+    imported: String(pullResult.imported),
+    skipped: pullResult.skipped ? "1" : "0",
+    pushed: String(pushResult.pushed),
+    attempted: String(pushResult.attempted),
+    failed: String(pushResult.failed),
+    eligible: String(pushResult.eligible),
+  });
+
+  redirect(`/admin/integrations/pipedrive?${params.toString()}`);
+}
+
 function getString(formData: FormData, key: string): string {
   const value = formData.get(key);
 
   return typeof value === "string" ? value.trim() : "";
-}
-
-function getPositiveInteger(
-  formData: FormData,
-  key: string,
-  fallback: number,
-): number {
-  const value = Number(getString(formData, key));
-
-  if (!Number.isInteger(value) || value <= 0 || value > 1440) {
-    return fallback;
-  }
-
-  return value;
 }

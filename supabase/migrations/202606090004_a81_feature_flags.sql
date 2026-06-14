@@ -1,6 +1,6 @@
 -- A.8.1: ensure Phase 1 feature toggles are present for existing tenants.
 insert into public.feature_flags (organization_id, feature_name, is_enabled, config)
-select organization_id, feature_name, is_enabled, null::jsonb
+select organizations.id, feature_name, is_enabled, null::jsonb
 from (
   values
     ('pricing_engine', true),

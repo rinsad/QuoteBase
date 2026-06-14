@@ -28,22 +28,8 @@ type QuoteApiRecord = {
 
 const createQuoteSchema = z
   .object({
-    customer_id: z.string().regex(UUID_PATTERN).optional().or(z.literal("")),
-    customer_name: z.string().trim().max(160).optional().default(""),
-    company_name: z.string().trim().max(160).optional().default(""),
-    contact_name: z.string().trim().max(160).optional().default(""),
-    contact_email: z.string().trim().email().optional().or(z.literal("")),
-    contact_phone: z.string().trim().max(40).optional().default(""),
-    customer_address: z.string().trim().max(240).optional().default(""),
-    payment_terms: z.string().trim().max(80).optional().default(""),
-    job_site_id: z.string().regex(UUID_PATTERN).optional().or(z.literal("")),
-    site_name: z.string().trim().max(160).optional().default(""),
-    site_address: z.string().trim().max(240).optional().default(""),
-    site_city: z.string().trim().max(120).optional().default(""),
-    site_county: z.string().trim().max(120).optional().default(""),
-    site_state: z.string().trim().min(2).max(2).optional().default("CA"),
-    site_latitude: z.coerce.number().min(-90).max(90).nullable().optional(),
-    site_longitude: z.coerce.number().min(-180).max(180).nullable().optional(),
+    customer_id: z.string().regex(UUID_PATTERN),
+    job_site_id: z.string().regex(UUID_PATTERN),
     manual_route_distance_miles: z.coerce
       .number()
       .min(0)
@@ -89,27 +75,6 @@ const createQuoteSchema = z
       .max(1000000)
       .nullable()
       .optional(),
-  })
-  .superRefine((value, context) => {
-    if (!value.customer_id && !value.customer_name) {
-      context.addIssue({
-        code: "custom",
-        message: "customer_id or customer_name is required.",
-        path: ["customer_name"],
-      });
-    }
-
-    if (!value.job_site_id) {
-      for (const key of ["site_name", "site_city", "site_county"] as const) {
-        if (!value[key]) {
-          context.addIssue({
-            code: "custom",
-            message: `${key} is required when job_site_id is not provided.`,
-            path: [key],
-          });
-        }
-      }
-    }
   });
 
 export async function GET(request: Request) {
@@ -217,22 +182,8 @@ export async function POST(request: Request) {
       supabase,
       user,
       input: {
-        customerId: parsed.value.customer_id ?? "",
-        customerName: parsed.value.customer_name,
-        companyName: parsed.value.company_name,
-        contactName: parsed.value.contact_name,
-        contactEmail: parsed.value.contact_email ?? "",
-        contactPhone: parsed.value.contact_phone,
-        customerAddress: parsed.value.customer_address,
-        paymentTerms: parsed.value.payment_terms,
-        jobSiteId: parsed.value.job_site_id ?? "",
-        siteName: parsed.value.site_name,
-        siteAddress: parsed.value.site_address,
-        siteCity: parsed.value.site_city,
-        siteCounty: parsed.value.site_county,
-        siteState: parsed.value.site_state,
-        siteLatitude: roundCoordinate(parsed.value.site_latitude ?? null),
-        siteLongitude: roundCoordinate(parsed.value.site_longitude ?? null),
+        customerId: parsed.value.customer_id,
+        jobSiteId: parsed.value.job_site_id,
         manualRouteDistanceMiles:
           parsed.value.manual_route_distance_miles ?? null,
         manualDeadheadDistanceMiles:
@@ -299,14 +250,6 @@ async function parseCreateQuoteBody(
   }
 
   return { ok: true, value: result.data };
-}
-
-function roundCoordinate(value: number | null): number | null {
-  if (value === null) {
-    return null;
-  }
-
-  return Math.round((value + Number.EPSILON) * 10000000) / 10000000;
 }
 
 function relationOne<T>(value: T | T[] | null): T | null {

@@ -37,7 +37,7 @@ export function LoginForm({ showDevSignIn }: { showDevSignIn: boolean }) {
             name="email"
             type="email"
             autoComplete="email"
-            placeholder="john@westernmaterials.net"
+            placeholder="name@company.com"
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             required
           />
@@ -67,6 +67,7 @@ export function LoginForm({ showDevSignIn }: { showDevSignIn: boolean }) {
 
           <Button
             formAction={devSignInAsRinsad}
+            formNoValidate
             type="submit"
             variant="outline"
             className="h-11 w-full rounded-full bg-white/70"

@@ -11,7 +11,7 @@ import { getBaseUrl } from "@/lib/env";
 export default async function AdminSlackIntegrationPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string }>;
+  searchParams: Promise<{ error?: string; saved?: string }>;
 }) {
   const user = await getCurrentUser();
 
@@ -55,6 +55,12 @@ export default async function AdminSlackIntegrationPage({
         {params.saved ? (
           <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
             Slack integration settings saved for this organization.
+          </div>
+        ) : null}
+
+        {params.error ? (
+          <div className="mt-6 rounded-[20px] border border-rose-100 bg-rose-50/80 px-5 py-4 text-sm font-medium text-rose-800 shadow-sm">
+            {params.error}
           </div>
         ) : null}
 

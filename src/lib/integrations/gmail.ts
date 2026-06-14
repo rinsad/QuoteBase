@@ -239,9 +239,23 @@ export async function sendGmailQuoteEmail({
     };
   }
 
-  let credentials = decryptSecretPayload<GmailCredentials>(
-    integration.credentials_encrypted,
-  );
+  let credentials: GmailCredentials | null = null;
+
+  try {
+    credentials = decryptSecretPayload<GmailCredentials>(
+      integration.credentials_encrypted,
+    );
+  } catch (error) {
+    console.error("Gmail credentials could not be decrypted.", error);
+
+    return {
+      status: "failed",
+      provider: "gmail",
+      messageId: null,
+      reason:
+        "Saved Gmail credentials cannot be read with the current encryption key. Reconnect Gmail in integration settings.",
+    };
+  }
 
   if (!credentials?.refreshToken || !credentials.clientId || !credentials.clientSecret) {
     return {
@@ -430,12 +444,46 @@ async function gmailFetch(
     });
 
     if (!response.ok) {
-      throw new Error(`Gmail API returned HTTP ${response.status}.`);
+      const details = await gmailErrorDetails(response);
+      throw new Error(
+        details
+          ? `Gmail API returned HTTP ${response.status}: ${details}`
+          : `Gmail API returned HTTP ${response.status}.`,
+      );
     }
 
     return response;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function gmailErrorDetails(response: Response): Promise<string | null> {
+  try {
+    const payload: unknown = await response.json();
+
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+
+    const error = (payload as { error?: unknown }).error;
+
+    if (typeof error === "string" && error.trim()) {
+      return error;
+    }
+
+    if (!error || typeof error !== "object") {
+      return null;
+    }
+
+    const message = (error as { message?: unknown }).message;
+    const status = (error as { status?: unknown }).status;
+
+    return [status, message]
+      .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+      .join(" - ");
+  } catch {
+    return null;
   }
 }
 
@@ -515,9 +563,15 @@ export function encryptedGmailOAuthSettings({
 }: GmailOAuthSettings & {
   existingCredentials?: string | null;
 }): string {
-  const existing = decryptSecretPayload<Partial<GmailCredentials>>(
-    existingCredentials ?? null,
-  );
+  let existing: Partial<GmailCredentials> | null = null;
+
+  try {
+    existing = decryptSecretPayload<Partial<GmailCredentials>>(
+      existingCredentials ?? null,
+    );
+  } catch (error) {
+    console.error("Existing Gmail credentials could not be decrypted.", error);
+  }
 
   return encryptSecretPayload({
     ...existing,
@@ -536,9 +590,15 @@ export function encryptedGmailOAuthSettingsWithoutMailbox(
   encrypted: string | null;
   last4: Record<string, unknown>;
 } {
-  const existing = decryptSecretPayload<Partial<GmailCredentials>>(
-    existingCredentials,
-  );
+  let existing: Partial<GmailCredentials> | null = null;
+
+  try {
+    existing = decryptSecretPayload<Partial<GmailCredentials>>(
+      existingCredentials,
+    );
+  } catch (error) {
+    console.error("Existing Gmail credentials could not be decrypted.", error);
+  }
 
   if (!existing?.clientId || !existing.clientSecret) {
     return {

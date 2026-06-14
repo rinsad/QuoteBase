@@ -50,7 +50,7 @@ export async function saveSlackIntegration(formData: FormData) {
   const botToken = getString(formData, "bot_token");
 
   if (isEnabled && !approverEmail) {
-    throw new Error("Approver email is required when Slack is enabled.");
+    redirectSlackError("Approver email is required when Slack is enabled.");
   }
 
   if (approverEmail) {
@@ -64,7 +64,7 @@ export async function saveSlackIntegration(formData: FormData) {
       .maybeSingle<{ id: string }>();
 
     if (!approver) {
-      throw new Error(
+      redirectSlackError(
         "Approver email must belong to an active admin in this organization.",
       );
     }
@@ -79,17 +79,27 @@ export async function saveSlackIntegration(formData: FormData) {
     .eq("provider", "slack")
     .maybeSingle<ExistingIntegration>();
 
-  const previousCredentials = decryptSecretPayload<SlackCredentials>(
+  const previousCredentialsResult = getPreviousSlackCredentials(
     before?.credentials_encrypted ?? null,
   );
+  const previousCredentials = previousCredentialsResult.credentials;
   const credentials = {
     webhookUrl: webhookUrl || previousCredentials?.webhookUrl,
     signingSecret: signingSecret || previousCredentials?.signingSecret,
     botToken: botToken || previousCredentials?.botToken,
   };
 
+  if (
+    previousCredentialsResult.invalid &&
+    (!webhookUrl || !signingSecret)
+  ) {
+    redirectSlackError(
+      "Saved Slack credentials cannot be read with the current encryption key. Re-enter the incoming webhook URL and signing secret, then save again.",
+    );
+  }
+
   if (isEnabled && (!credentials.webhookUrl || !credentials.signingSecret)) {
-    throw new Error(
+    redirectSlackError(
       "Webhook URL and signing secret are required when Slack is enabled.",
     );
   }
@@ -126,7 +136,7 @@ export async function saveSlackIntegration(formData: FormData) {
     .single<Record<string, unknown>>();
 
   if (error || !after) {
-    throw new Error(error?.message ?? "Could not save Slack integration.");
+    redirectSlackError(error?.message ?? "Could not save Slack integration.");
   }
 
   await logAction({
@@ -163,4 +173,25 @@ function normalizeChannelName(value: string): string {
   }
 
   return value.startsWith("#") ? value : `#${value}`;
+}
+
+function getPreviousSlackCredentials(value: string | null): {
+  credentials: SlackCredentials | null;
+  invalid: boolean;
+} {
+  try {
+    return {
+      credentials: decryptSecretPayload<SlackCredentials>(value),
+      invalid: false,
+    };
+  } catch {
+    return {
+      credentials: null,
+      invalid: Boolean(value),
+    };
+  }
+}
+
+function redirectSlackError(message: string): never {
+  redirect(`/admin/integrations/slack?error=${encodeURIComponent(message)}`);
 }

@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuoteBase — Interactive Prototype</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>window.react = window.React; window.reactDom = window.ReactDOM;</script>
+<script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>html,body,#root{margin:0;padding:0}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+
+const { useState, useMemo, createContext, useContext } = React;
+const _L = window.LucideReact || {};
+const _FallbackIcon = (p) => (
+  <svg width={p.size||16} height={p.size||16} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2" style={p.style} className={p.className}>
+    <circle cx="12" cy="12" r="9" />
+  </svg>
+);
+const _icon = (n) => _L[n] || _FallbackIcon;
+const LayoutDashboard = _icon("LayoutDashboard");
+const FileText = _icon("FileText");
+const BookOpen = _icon("BookOpen");
+const Users = _icon("Users");
+const Settings = _icon("Settings");
+const Search = _icon("Search");
+const Plus = _icon("Plus");
+const ChevronLeft = _icon("ChevronLeft");
+const Clock = _icon("Clock");
+const Send = _icon("Send");
+const Trash2 = _icon("Trash2");
+const ArrowUpRight = _icon("ArrowUpRight");
+const Bell = _icon("Bell");
+const CheckCircle2 = _icon("CheckCircle2");
+const XCircle = _icon("XCircle");
+const Mail = _icon("Mail");
+const Sun = _icon("Sun");
+const Moon = _icon("Moon");
+const Columns = _icon("Columns");
+const Zap = _icon("Zap");
+const Play = _icon("Play");
+const Pause = _icon("Pause");
+const Reply = _icon("Reply");
+const Flame = _icon("Flame");
+const Sparkles = _icon("Sparkles");
+const Phone = _icon("Phone");
+const MessageSquare = _icon("MessageSquare");
+const Eye = _icon("Eye");
+
+
+/* ---------- themes ---------- */
+const THEMES = {
+  light: {
+    bg: "#FAFAF7", surface: "#FFFFFF", ink: "#14201D", mute: "#5E6962",
+    faint: "#8B948E", line: "#E4E8E3", lineSoft: "#EEF1EC",
+    green: "#3D6652", greenSoft: "#ECF2ED", greenBar: "#5F7E6C",
+    amber: "#B47B22", amberSoft: "#F7EEDC", amberLine: "#EADBB8",
+    blue: "#2C4A66", blueSoft: "#E5ECF3",
+    red: "#A8402F", redSoft: "#F6E4E0",
+    costBar: "#CDD4CD", rowHover: "#F3F5F1", inputBg: "#FAFAF7",
+    avatarBg: "#14201D", avatarFg: "#FFFFFF",
+  },
+  dark: {
+    bg: "#121715", surface: "#1A211D", ink: "#E9EDEA", mute: "#9AA59E",
+    faint: "#6E7A72", line: "#2A332D", lineSoft: "#222A25",
+    green: "#7FAE95", greenSoft: "#1E2F26", greenBar: "#5F8E76",
+    amber: "#DCA855", amberSoft: "#332A18", amberLine: "#4A3D22",
+    blue: "#84A9C9", blueSoft: "#1E2A38",
+    red: "#E07A66", redSoft: "#382220",
+    costBar: "#39433D", rowHover: "#212924", inputBg: "#121715",
+    avatarBg: "#E9EDEA", avatarFg: "#14201D",
+  },
+};
+const ThemeCtx = createContext(THEMES.light);
+const useC = () => useContext(ThemeCtx);
+
+const display = { fontFamily: "'Geist', system-ui, sans-serif" };
+const mono = { fontFamily: "'Geist Mono', ui-monospace, monospace" };
+
+/* ---------- seed data ---------- */
+const PRICE_BOOK = [
+  { id: "p1", name: "Washed Concrete Sand", unit: "ton", cost: 18.5, markup: 32 },
+  { id: "p2", name: '3/4" Crushed Gravel', unit: "ton", cost: 21.0, markup: 30 },
+  { id: "p3", name: "Class II Road Base", unit: "ton", cost: 14.75, markup: 28 },
+  { id: "p4", name: "Decomposed Granite", unit: "ton", cost: 26.0, markup: 35 },
+  { id: "p5", name: "Pea Gravel", unit: "ton", cost: 24.5, markup: 33 },
+  { id: "p6", name: "Fill Dirt — Screened", unit: "yd³", cost: 9.25, markup: 40 },
+  { id: "p7", name: "Rip Rap 6–12\"", unit: "ton", cost: 31.0, markup: 27 },
+  { id: "p8", name: "Freight — End Dump (per load)", unit: "load", cost: 285.0, markup: 18 },
+];
+
+const seedQuotes = [
+  { id: "Q-1042", customer: "Pacific Grading Co.", contact: "Maria Soto", status: "Follow-up due",
+    sent: "Jun 4", age: "5 days", signals: { views: 9, calls: 2, texts: 3, emails: 4 },
+    items: [{ pid: "p3", qty: 480, cost: 14.75, markup: 28 }, { pid: "p8", qty: 20, cost: 285, markup: 18 }] },
+  { id: "Q-1041", customer: "Hillside Builders", contact: "Dan Reyes", status: "Sent",
+    sent: "Jun 6", age: "3 days", signals: { views: 6, calls: 1, texts: 0, emails: 2 },
+    items: [{ pid: "p1", qty: 120, cost: 18.5, markup: 32 }, { pid: "p2", qty: 90, cost: 21.0, markup: 30 }] },
+  { id: "Q-1040", customer: "Camino Verde Landscape", contact: "Lena Park", status: "Won",
+    sent: "Jun 2", age: "7 days", signals: { views: 4, calls: 1, texts: 1, emails: 2 },
+    items: [{ pid: "p4", qty: 65, cost: 26.0, markup: 35 }, { pid: "p5", qty: 40, cost: 24.5, markup: 33 }] },
+  { id: "Q-1039", customer: "Summit Civil Inc.", contact: "Greg Han", status: "Draft",
+    sent: "—", age: "today", signals: { views: 0, calls: 0, texts: 0, emails: 0 },
+    items: [{ pid: "p7", qty: 210, cost: 31.0, markup: 27 }] },
+  { id: "Q-1038", customer: "Oak & Iron Construction", contact: "Priya Nair", status: "Lost",
+    sent: "May 28", age: "12 days", signals: { views: 2, calls: 0, texts: 0, emails: 1 },
+    items: [{ pid: "p3", qty: 350, cost: 14.75, markup: 31 }, { pid: "p6", qty: 80, cost: 9.25, markup: 40 }] },
+  { id: "Q-1037", customer: "Westline Paving", contact: "Tom Alvarez", status: "Won",
+    sent: "May 26", age: "14 days", signals: { views: 7, calls: 3, texts: 2, emails: 5 },
+    items: [{ pid: "p2", qty: 600, cost: 21.0, markup: 29 }, { pid: "p8", qty: 25, cost: 285, markup: 18 }] },
+];
+
+const heatScore = (q) =>
+  q.signals ? q.signals.views + 2 * (q.signals.calls + q.signals.texts + q.signals.emails) : 0;
+
+/* ---------- helpers ---------- */
+const money = (n) =>
+  n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const money2 = (n) =>
+  n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 });
+
+function quoteTotals(items) {
+  let cost = 0, sell = 0;
+  items.forEach((it) => {
+    const lineCost = it.cost * it.qty;
+    cost += lineCost;
+    sell += lineCost * (1 + it.markup / 100);
+  });
+  const marginPct = sell > 0 ? ((sell - cost) / sell) * 100 : 0;
+  return { cost, sell, margin: sell - cost, marginPct };
+}
+
+/* ---------- shared bits ---------- */
+function StatusPill({ status }) {
+  const C = useC();
+  const map = {
+    Draft: { fg: C.mute, bg: C.lineSoft, icon: FileText },
+    Sent: { fg: C.blue, bg: C.blueSoft, icon: Send },
+    "Follow-up due": { fg: C.amber, bg: C.amberSoft, icon: Clock },
+    Won: { fg: C.green, bg: C.greenSoft, icon: CheckCircle2 },
+    Lost: { fg: C.red, bg: C.redSoft, icon: XCircle },
+  };
+  const s = map[status];
+  const Icon = s.icon;
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap"
+      style={{ color: s.fg, background: s.bg, ...display }}>
+      <Icon size={11} strokeWidth={2.4} /> {status}
+    </span>
+  );
+}
+
+/* Signature element: cost vs margin split, visible everywhere */
+function MarginBar({ marginPct, width = 120 }) {
+  const C = useC();
+  const m = Math.max(0, Math.min(100, marginPct));
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 rounded-full overflow-hidden flex" style={{ width, background: C.costBar }}>
+        <div style={{ width: `${100 - m}%` }} />
+        <div style={{ width: `${m}%`, background: C.greenBar }} />
+      </div>
+      <span className="text-xs tabular-nums" style={{ ...mono, color: m < 22 ? C.red : C.green }}>
+        {m.toFixed(1)}%
+      </span>
+    </div>
+  );
+}
+
+function Kpi({ label, value, sub, accent }) {
+  const C = useC();
+  return (
+    <div className="rounded-lg p-4 border" style={{ background: C.surface, borderColor: C.line }}>
+      <div className="text-xs uppercase tracking-wide mb-1.5" style={{ color: C.faint, ...display, letterSpacing: "0.08em" }}>
+        {label}
+      </div>
+      <div className="text-2xl font-semibold tabular-nums" style={{ ...mono, color: accent || C.ink }}>
+        {value}
+      </div>
+      {sub && <div className="text-xs mt-1" style={{ color: C.mute }}>{sub}</div>}
+    </div>
+  );
+}
+
+/* ---------- AI assistant (conversational layer preview) ---------- */
+function AiAssistant({ quotes, onOpen }) {
+  const C = useC();
+  const [input, setInput] = useState("");
+  const [msgs, setMsgs] = useState([
+    { role: "ai", text: "Ask me anything about your quotes — try \u201Cwhat\u2019s our win rate\u201D, \u201Cshow hot quotes\u201D, or \u201Cbiggest open quote\u201D." },
+  ]);
+
+  const answer = (q) => {
+    const s = q.toLowerCase();
+    const open = quotes.filter((r) => ["Sent", "Follow-up due", "Draft"].includes(r.status));
+    const decided = quotes.filter((r) => ["Won", "Lost"].includes(r.status));
+    const won = quotes.filter((r) => r.status === "Won");
+    if (s.includes("win")) {
+      const rate = decided.length ? Math.round((won.length / decided.length) * 100) : 0;
+      return `Your win rate is ${rate}% — ${won.length} won of ${decided.length} decided, worth ${money(won.reduce((t, r) => t + quoteTotals(r.items).sell, 0))}.`;
+    }
+    if (s.includes("hot")) {
+      const hot = [...open].sort((a, b) => heatScore(b) - heatScore(a))[0];
+      return hot
+        ? `Hottest quote right now: ${hot.id} — ${hot.customer} (${money(quoteTotals(hot.items).sell)}). ${hot.signals.views} views, ${hot.signals.calls} calls, ${hot.signals.texts} texts, ${hot.signals.emails} emails. They\u2019re engaged — worth a call today.`
+        : "No open quotes with engagement signals yet.";
+    }
+    if (s.includes("big") || s.includes("largest") || s.includes("valuable")) {
+      const big = [...open].sort((a, b) => quoteTotals(b.items).sell - quoteTotals(a.items).sell)[0];
+      return big ? `Biggest open quote: ${big.id} — ${big.customer} at ${money(quoteTotals(big.items).sell)} (${quoteTotals(big.items).marginPct.toFixed(1)}% margin), ${big.age} old.` : "No open quotes.";
+    }
+    if (s.includes("open")) {
+      return `${open.length} open quotes worth ${money(open.reduce((t, r) => t + quoteTotals(r.items).sell, 0))} total.`;
+    }
+    if (s.includes("follow")) {
+      const due = quotes.filter((r) => r.status === "Follow-up due");
+      return due.length ? `${due.length} follow-up${due.length > 1 ? "s" : ""} due: ${due.map((d) => `${d.id} (${d.customer})`).join(", ")}. Drafts are waiting for your approval.` : "No follow-ups due. The agent is watching open quotes.";
+    }
+    if (s.includes("margin")) {
+      const avg = quotes.reduce((t, r) => t + quoteTotals(r.items).marginPct, 0) / quotes.length;
+      return `Average margin across all quotes is ${avg.toFixed(1)}%. Lowest is ${[...quotes].sort((a, b) => quoteTotals(a.items).marginPct - quoteTotals(b.items).marginPct)[0].id}.`;
+    }
+    if (s.includes("lost")) {
+      const lost = quotes.filter((r) => r.status === "Lost");
+      return `${lost.length} lost, worth ${money(lost.reduce((t, r) => t + quoteTotals(r.items).sell, 0))}. The 60-day win-back sequence can re-engage them automatically.`;
+    }
+    return "In the full build I\u2019ll run real tool calls — create quotes, send follow-ups, search 20,000 records. In this preview, try: win rate \u00B7 hot quotes \u00B7 biggest open quote \u00B7 follow-ups due \u00B7 average margin \u00B7 lost quotes.";
+  };
+
+  const ask = () => {
+    if (!input.trim()) return;
+    setMsgs([...msgs, { role: "user", text: input }, { role: "ai", text: answer(input) }]);
+    setInput("");
+  };
+
+  return (
+    <div className="rounded-lg border mb-6 overflow-hidden" style={{ background: C.surface, borderColor: C.line }}>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b" style={{ borderColor: C.lineSoft }}>
+        <Sparkles size={14} style={{ color: C.green }} />
+        <span className="text-sm font-medium" style={{ ...display, color: C.ink }}>Ask QuoteBase</span>
+        <span className="text-xs ml-auto" style={{ color: C.faint }}>AI assistant · connected to your quotes</span>
+      </div>
+      <div className="px-4 py-3 space-y-2 max-h-48 overflow-y-auto">
+        {msgs.map((m, i) => (
+          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div className="max-w-md px-3 py-2 rounded-lg text-sm leading-relaxed"
+              style={m.role === "user"
+                ? { background: C.green, color: "#fff" }
+                : { background: C.greenSoft, color: C.ink }}>
+              {m.text}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2 px-4 py-3 border-t" style={{ borderColor: C.lineSoft }}>
+        <input value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && ask()}
+          placeholder="Ask about quotes, customers, margins…"
+          className="flex-1 px-3 py-2 text-sm rounded-md border outline-none"
+          style={{ borderColor: C.line, color: C.ink, background: C.inputBg }} />
+        <button onClick={ask}
+          className="px-3.5 py-2 rounded-md text-sm font-medium text-white inline-flex items-center gap-1.5"
+          style={{ background: C.green, ...display }}>
+          <Send size={13} /> Ask
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Hot & Big quotes ---------- */
+function SignalChip({ icon: Icon, n }) {
+  const C = useC();
+  return (
+    <span className="inline-flex items-center gap-1 text-xs tabular-nums" style={{ ...mono, color: n > 0 ? C.mute : C.faint }}>
+      <Icon size={11} /> {n}
+    </span>
+  );
+}
+
+function HotAndBig({ quotes, onOpen }) {
+  const C = useC();
+  const open = quotes.filter((r) => ["Sent", "Follow-up due", "Draft"].includes(r.status));
+  const hot = [...open].filter((q) => heatScore(q) > 0).sort((a, b) => heatScore(b) - heatScore(a)).slice(0, 3);
+  const big = [...open].sort((a, b) => quoteTotals(b.items).sell - quoteTotals(a.items).sell).slice(0, 3);
+
+  const Card = ({ title, icon: Icon, color, rows, render }) => (
+    <div className="rounded-lg border overflow-hidden" style={{ background: C.surface, borderColor: C.line }}>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b" style={{ borderColor: C.lineSoft }}>
+        <Icon size={14} style={{ color }} />
+        <span className="text-sm font-medium" style={{ ...display, color: C.ink }}>{title}</span>
+      </div>
+      <div>
+        {rows.map((q) => (
+          <button key={q.id} onClick={() => onOpen(q.id)}
+            className="w-full flex items-center justify-between gap-3 px-4 py-2.5 border-t text-left qb-row"
+            style={{ borderColor: C.lineSoft }}>
+            {render(q)}
+          </button>
+        ))}
+        {rows.length === 0 && <div className="px-4 py-6 text-center text-xs" style={{ color: C.faint }}>Nothing here yet.</div>}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="grid lg:grid-cols-2 gap-3 mb-6">
+      <Card title="Hot quotes" icon={Flame} color={C.amber} rows={hot}
+        render={(q) => (
+          <>
+            <div className="min-w-0">
+              <div className="text-sm font-medium truncate" style={{ color: C.ink }}>{q.customer}</div>
+              <div className="flex items-center gap-3 mt-0.5">
+                <SignalChip icon={Eye} n={q.signals.views} />
+                <SignalChip icon={Phone} n={q.signals.calls} />
+                <SignalChip icon={MessageSquare} n={q.signals.texts} />
+                <SignalChip icon={Mail} n={q.signals.emails} />
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-sm tabular-nums font-medium" style={{ ...mono, color: C.ink }}>{money(quoteTotals(q.items).sell)}</div>
+              <div className="text-xs" style={{ color: C.amber }}>heat {heatScore(q)}</div>
+            </div>
+          </>
+        )} />
+      <Card title="Big quotes" icon={ArrowUpRight} color={C.green} rows={big}
+        render={(q) => (
+          <>
+            <div className="min-w-0">
+              <div className="text-sm font-medium truncate" style={{ color: C.ink }}>{q.customer}</div>
+              <div className="text-xs mt-0.5" style={{ color: C.faint }}>{q.id} · {q.age} · {q.status}</div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-sm tabular-nums font-medium" style={{ ...mono, color: C.ink }}>{money(quoteTotals(q.items).sell)}</div>
+              <div className="text-xs tabular-nums" style={{ ...mono, color: C.green }}>{quoteTotals(q.items).marginPct.toFixed(1)}%</div>
+            </div>
+          </>
+        )} />
+    </div>
+  );
+}
+
+/* ---------- views ---------- */
+function Dashboard({ quotes, onOpen, onNew }) {
+  const C = useC();
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState("All");
+
+  const rows = useMemo(() => {
+    return quotes.filter((r) => {
+      const matchQ = (r.customer + r.id + r.contact).toLowerCase().includes(q.toLowerCase());
+      const matchF = filter === "All" || r.status === filter;
+      return matchQ && matchF;
+    });
+  }, [quotes, q, filter]);
+
+  const open = quotes.filter((r) => ["Sent", "Follow-up due", "Draft"].includes(r.status));
+  const openValue = open.reduce((s, r) => s + quoteTotals(r.items).sell, 0);
+  const wonQuotes = quotes.filter((r) => r.status === "Won");
+  const lostQuotes = quotes.filter((r) => r.status === "Lost");
+  const wonValue = wonQuotes.reduce((s, r) => s + quoteTotals(r.items).sell, 0);
+  const lostValue = lostQuotes.reduce((s, r) => s + quoteTotals(r.items).sell, 0);
+  const quotedValue = quotes.reduce((s, r) => s + quoteTotals(r.items).sell, 0);
+  const decided = quotes.filter((r) => ["Won", "Lost"].includes(r.status));
+  const winRate = decided.length ? (wonQuotes.length / decided.length) * 100 : 0;
+  const dueCount = quotes.filter((r) => r.status === "Follow-up due").length;
+
+  return (
+    <div>
+      <div className="flex items-end justify-between mb-5">
+        <div>
+          <h1 className="text-xl font-semibold" style={{ ...display, color: C.ink }}>Quotes</h1>
+          <p className="text-sm mt-0.5" style={{ color: C.mute }}>Tuesday, June 9 · {open.length} open</p>
+        </div>
+        <button onClick={onNew}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-sm font-medium"
+          style={{ background: C.green, color: C.surface === "#FFFFFF" ? "#fff" : "#10231B", ...display }}>
+          <Plus size={15} /> New quote
+        </button>
+      </div>
+
+      <AiAssistant quotes={quotes} onOpen={onOpen} />
+
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+        <Kpi label="Amount quoted" value={money(quotedValue)} sub={`${quotes.length} quotes · 30d`} />
+        <Kpi label="Open" value={money(openValue)} sub={`${open.length} in play`} />
+        <Kpi label="Won" value={money(wonValue)} sub={`${wonQuotes.length} quotes`} accent={C.green} />
+        <Kpi label="Lost" value={money(lostValue)} sub={`${lostQuotes.length} quotes`} accent={C.red} />
+        <Kpi label="Win rate" value={`${winRate.toFixed(0)}%`} sub={`${decided.length} decided`} />
+        <Kpi label="Follow-ups" value={dueCount} sub="drafts ready" accent={dueCount ? C.amber : C.ink} />
+      </div>
+
+      <HotAndBig quotes={quotes} onOpen={onOpen} />
+
+      <div className="rounded-lg border overflow-hidden" style={{ background: C.surface, borderColor: C.line }}>
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b" style={{ borderColor: C.lineSoft }}>
+          <div className="relative flex-1 min-w-48">
+            <Search size={14} className="absolute left-2.5 top-2.5" style={{ color: C.faint }} />
+            <input value={q} onChange={(e) => setQ(e.target.value)}
+              placeholder="Search customer or quote #"
+              className="w-full pl-8 pr-3 py-1.5 text-sm rounded-md border outline-none"
+              style={{ borderColor: C.line, color: C.ink, background: C.inputBg }} />
+          </div>
+          {["All", "Draft", "Sent", "Follow-up due", "Won", "Lost"].map((f) => (
+            <button key={f} onClick={() => setFilter(f)}
+              className="px-2.5 py-1 rounded-md text-xs font-medium"
+              style={{ ...display,
+                background: filter === f ? C.ink : "transparent",
+                color: filter === f ? C.bg : C.mute }}>
+              {f}
+            </button>
+          ))}
+        </div>
+
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase" style={{ color: C.faint, ...display, letterSpacing: "0.07em" }}>
+              <th className="px-4 py-2.5 font-medium">Quote</th>
+              <th className="px-4 py-2.5 font-medium">Customer</th>
+              <th className="px-4 py-2.5 font-medium">Status</th>
+              <th className="px-4 py-2.5 font-medium text-right">Value</th>
+              <th className="px-4 py-2.5 font-medium">Margin</th>
+              <th className="px-4 py-2.5 font-medium text-right">Age</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const t = quoteTotals(r.items);
+              return (
+                <tr key={r.id} onClick={() => onOpen(r.id)}
+                  className="cursor-pointer border-t qb-row" style={{ borderColor: C.lineSoft }}>
+                  <td className="px-4 py-3 tabular-nums" style={{ ...mono, color: C.ink }}>{r.id}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium" style={{ color: C.ink }}>{r.customer}</div>
+                    <div className="text-xs" style={{ color: C.faint }}>{r.contact}</div>
+                  </td>
+                  <td className="px-4 py-3"><StatusPill status={r.status} /></td>
+                  <td className="px-4 py-3 text-right tabular-nums font-medium" style={{ ...mono, color: C.ink }}>
+                    {money(t.sell)}
+                  </td>
+                  <td className="px-4 py-3"><MarginBar marginPct={t.marginPct} /></td>
+                  <td className="px-4 py-3 text-right text-xs" style={{ color: C.mute }}>{r.age}</td>
+                </tr>
+              );
+            })}
+            {rows.length === 0 && (
+              <tr><td colSpan={6} className="px-4 py-10 text-center text-sm" style={{ color: C.faint }}>
+                No quotes match. Clear the search or create a new quote.
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function QuoteBuilder({ quote, onBack, onChange }) {
+  const C = useC();
+  const [followUpOpen, setFollowUpOpen] = useState(quote.status === "Follow-up due");
+  const t = quoteTotals(quote.items);
+
+  const setItem = (idx, patch) => {
+    const items = quote.items.map((it, i) => (i === idx ? { ...it, ...patch } : it));
+    onChange({ ...quote, items });
+  };
+  const removeItem = (idx) => onChange({ ...quote, items: quote.items.filter((_, i) => i !== idx) });
+  const addItem = (pid) => {
+    const p = PRICE_BOOK.find((x) => x.id === pid);
+    if (!p) return;
+    onChange({ ...quote, items: [...quote.items, { pid: p.id, qty: 1, cost: p.cost, markup: p.markup }] });
+  };
+
+  return (
+    <div>
+      <button onClick={onBack} className="inline-flex items-center gap-1 text-sm mb-4" style={{ color: C.mute }}>
+        <ChevronLeft size={15} /> All quotes
+      </button>
+
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold tabular-nums" style={{ ...mono, color: C.ink }}>{quote.id}</h1>
+            <StatusPill status={quote.status} />
+          </div>
+          <p className="text-sm mt-1" style={{ color: C.mute }}>
+            {quote.customer} · {quote.contact} · sent {quote.sent}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button className="px-3.5 py-2 rounded-md text-sm font-medium border"
+            style={{ borderColor: C.line, color: C.ink, ...display }}>
+            Download PDF
+          </button>
+          <button className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-sm font-medium"
+            style={{ background: C.green, color: C.surface === "#FFFFFF" ? "#fff" : "#10231B", ...display }}>
+            <Send size={14} /> Send quote
+          </button>
+        </div>
+      </div>
+
+      {quote.status === "Follow-up due" && (
+        <div className="rounded-lg border p-4 mb-5" style={{ background: C.amberSoft, borderColor: C.amberLine }}>
+          <div className="flex items-start gap-3">
+            <Mail size={16} style={{ color: C.amber }} className="mt-0.5" />
+            <div className="flex-1">
+              <div className="text-sm font-medium" style={{ color: C.ink, ...display }}>
+                Follow-up drafted — waiting for your approval
+              </div>
+              <p className="text-sm mt-1" style={{ color: C.mute }}>
+                No reply in 5 days. The agent drafted a warm check-in for {quote.contact} referencing the {money(t.sell)} quote. Nothing sends without you.
+              </p>
+              {followUpOpen && (
+                <div className="mt-3 rounded-md border p-3 text-sm"
+                  style={{ background: C.surface, borderColor: C.line, color: C.ink }}>
+                  Hi {quote.contact.split(" ")[0]} — checking in on quote {quote.id} for the road base and freight. Pricing holds through Friday, and we can lock delivery windows this week. Anything you'd like adjusted?
+                </div>
+              )}
+              <div className="flex gap-2 mt-3">
+                <button className="px-3 py-1.5 rounded-md text-xs font-medium"
+                  style={{ background: C.amber, color: C.bg, ...display }}>
+                  Approve &amp; send
+                </button>
+                <button onClick={() => setFollowUpOpen(!followUpOpen)}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium" style={{ color: C.amber, ...display }}>
+                  {followUpOpen ? "Hide draft" : "Review draft"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 rounded-lg border overflow-hidden" style={{ background: C.surface, borderColor: C.line }}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase" style={{ color: C.faint, ...display, letterSpacing: "0.07em" }}>
+                <th className="px-4 py-2.5 font-medium">Item</th>
+                <th className="px-3 py-2.5 font-medium text-right">Qty</th>
+                <th className="px-3 py-2.5 font-medium text-right">Unit cost</th>
+                <th className="px-3 py-2.5 font-medium text-right">Markup %</th>
+                <th className="px-3 py-2.5 font-medium text-right">Sell</th>
+                <th className="px-3 py-2.5 font-medium text-right">Line total</th>
+                <th className="px-2 py-2.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {quote.items.map((it, i) => {
+                const p = PRICE_BOOK.find((x) => x.id === it.pid);
+                const sellUnit = it.cost * (1 + it.markup / 100);
+                return (
+                  <tr key={i} className="border-t" style={{ borderColor: C.lineSoft }}>
+                    <td className="px-4 py-2.5">
+                      <div style={{ color: C.ink }}>{p?.name}</div>
+                      <div className="text-xs" style={{ color: C.faint }}>per {p?.unit}</div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <input type="number" min="0" value={it.qty}
+                        onChange={(e) => setItem(i, { qty: Number(e.target.value) })}
+                        className="w-16 px-1.5 py-1 text-right rounded border outline-none tabular-nums"
+                        style={{ ...mono, borderColor: C.line, color: C.ink, background: C.inputBg }} />
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums" style={{ ...mono, color: C.mute }}>
+                      {money2(it.cost)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <input type="number" min="0" value={it.markup}
+                        onChange={(e) => setItem(i, { markup: Number(e.target.value) })}
+                        className="w-14 px-1.5 py-1 text-right rounded border outline-none tabular-nums"
+                        style={{ ...mono, borderColor: C.line, color: C.green, background: C.inputBg }} />
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums" style={{ ...mono, color: C.ink }}>
+                      {money2(sellUnit)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-medium" style={{ ...mono, color: C.ink }}>
+                      {money(sellUnit * it.qty)}
+                    </td>
+                    <td className="px-2 py-2.5 text-right">
+                      <button onClick={() => removeItem(i)} aria-label="Remove line">
+                        <Trash2 size={14} style={{ color: C.faint }} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="px-4 py-3 border-t" style={{ borderColor: C.lineSoft }}>
+            <select defaultValue=""
+              onChange={(e) => { addItem(e.target.value); e.target.value = ""; }}
+              className="text-sm px-2.5 py-1.5 rounded-md border outline-none"
+              style={{ borderColor: C.line, color: C.mute, background: C.inputBg }}>
+              <option value="" disabled>+ Add from price book…</option>
+              {PRICE_BOOK.map((p) => (
+                <option key={p.id} value={p.id}>{p.name} — {money2(p.cost)}/{p.unit}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="rounded-lg border p-4 h-fit" style={{ background: C.surface, borderColor: C.line }}>
+          <div className="text-xs uppercase tracking-wide mb-3" style={{ color: C.faint, ...display, letterSpacing: "0.08em" }}>
+            Quote summary
+          </div>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between"><span style={{ color: C.mute }}>Material + freight cost</span>
+              <span className="tabular-nums" style={{ ...mono, color: C.ink }}>{money(t.cost)}</span></div>
+            <div className="flex justify-between"><span style={{ color: C.mute }}>Gross margin</span>
+              <span className="tabular-nums font-medium" style={{ ...mono, color: C.green }}>+{money(t.margin)}</span></div>
+            <div className="flex justify-between pt-2 border-t" style={{ borderColor: C.lineSoft }}>
+              <span className="font-medium" style={{ color: C.ink }}>Quote total</span>
+              <span className="tabular-nums font-semibold text-lg" style={{ ...mono, color: C.ink }}>{money(t.sell)}</span>
+            </div>
+          </div>
+          <div className="mt-4">
+            <div className="text-xs mb-1.5" style={{ color: C.faint }}>Margin on sell price</div>
+            <MarginBar marginPct={t.marginPct} width={180} />
+            {t.marginPct < 22 && (
+              <p className="text-xs mt-2" style={{ color: C.red }}>
+                Below your 22% floor — review markups before sending.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PriceBook() {
+  const C = useC();
+  return (
+    <div>
+      <div className="flex items-end justify-between mb-5">
+        <div>
+          <h1 className="text-xl font-semibold" style={{ ...display, color: C.ink }}>Price book</h1>
+          <p className="text-sm mt-0.5" style={{ color: C.mute }}>
+            Catalog v3 · updated Jun 2 from <span style={{ ...mono }}>supplier-pricing-jun.xlsx</span>
+          </p>
+        </div>
+        <button className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-sm font-medium border"
+          style={{ borderColor: C.line, color: C.ink, ...display }}>
+          <ArrowUpRight size={14} /> Upload new sheet
+        </button>
+      </div>
+      <div className="rounded-lg border overflow-hidden" style={{ background: C.surface, borderColor: C.line }}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase" style={{ color: C.faint, ...display, letterSpacing: "0.07em" }}>
+              <th className="px-4 py-2.5 font-medium">Product</th>
+              <th className="px-4 py-2.5 font-medium text-right">Supplier cost</th>
+              <th className="px-4 py-2.5 font-medium text-right">Default markup</th>
+              <th className="px-4 py-2.5 font-medium text-right">Sell price</th>
+              <th className="px-4 py-2.5 font-medium">Margin</th>
+            </tr>
+          </thead>
+          <tbody>
+            {PRICE_BOOK.map((p) => {
+              const sell = p.cost * (1 + p.markup / 100);
+              const marginPct = ((sell - p.cost) / sell) * 100;
+              return (
+                <tr key={p.id} className="border-t" style={{ borderColor: C.lineSoft }}>
+                  <td className="px-4 py-3">
+                    <span style={{ color: C.ink }}>{p.name}</span>
+                    <span className="text-xs ml-2" style={{ color: C.faint }}>/{p.unit}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums" style={{ ...mono, color: C.mute }}>{money2(p.cost)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums" style={{ ...mono, color: C.green }}>{p.markup}%</td>
+                  <td className="px-4 py-3 text-right tabular-nums font-medium" style={{ ...mono, color: C.ink }}>{money2(sell)}</td>
+                  <td className="px-4 py-3"><MarginBar marginPct={marginPct} /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Pipeline (Pipedrive-style kanban) ---------- */
+const STAGES = ["Draft", "Sent", "Follow-up due", "Won", "Lost"];
+
+function Pipeline({ quotes, onOpen, onMove }) {
+  const C = useC();
+  const [dragId, setDragId] = useState(null);
+  const [overStage, setOverStage] = useState(null);
+
+  return (
+    <div>
+      <div className="mb-5">
+        <h1 className="text-xl font-semibold" style={{ ...display, color: C.ink }}>Pipeline</h1>
+        <p className="text-sm mt-0.5" style={{ color: C.mute }}>Drag quotes between stages — Won and Lost update your win rate.</p>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-start">
+        {STAGES.map((stage) => {
+          const cards = quotes.filter((q) => q.status === stage);
+          const total = cards.reduce((s, q) => s + quoteTotals(q.items).sell, 0);
+          const isOver = overStage === stage;
+          return (
+            <div key={stage}
+              onDragOver={(e) => { e.preventDefault(); setOverStage(stage); }}
+              onDragLeave={() => setOverStage(null)}
+              onDrop={() => { if (dragId) onMove(dragId, stage); setDragId(null); setOverStage(null); }}
+              className="rounded-lg border p-2 min-h-64"
+              style={{
+                background: isOver ? C.greenSoft : C.surface,
+                borderColor: isOver ? C.green : C.line,
+                borderStyle: isOver ? "dashed" : "solid",
+              }}>
+              <div className="px-1.5 pt-1 pb-2 flex items-baseline justify-between">
+                <span className="text-xs font-semibold uppercase" style={{ ...display, color: C.mute, letterSpacing: "0.06em" }}>
+                  {stage}
+                </span>
+                <span className="text-xs tabular-nums" style={{ ...mono, color: C.faint }}>{cards.length}</span>
+              </div>
+              <div className="px-1.5 pb-2 text-sm tabular-nums font-medium"
+                style={{ ...mono, color: stage === "Won" ? C.green : stage === "Lost" ? C.red : C.ink }}>
+                {money(total)}
+              </div>
+              <div className="space-y-2">
+                {cards.map((q) => {
+                  const t = quoteTotals(q.items);
+                  return (
+                    <div key={q.id} draggable
+                      onDragStart={() => setDragId(q.id)}
+                      onClick={() => onOpen(q.id)}
+                      className="rounded-md border p-2.5 cursor-grab active:cursor-grabbing"
+                      style={{ background: C.bg, borderColor: C.line, opacity: dragId === q.id ? 0.5 : 1 }}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs tabular-nums" style={{ ...mono, color: C.faint }}>{q.id}</span>
+                        <span className="text-xs" style={{ color: C.faint }}>{q.age}</span>
+                      </div>
+                      <div className="text-sm font-medium leading-snug mb-1.5" style={{ color: C.ink }}>{q.customer}</div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm tabular-nums font-medium" style={{ ...mono, color: C.ink }}>{money(t.sell)}</span>
+                        <span className="text-xs tabular-nums" style={{ ...mono, color: t.marginPct < 22 ? C.red : C.green }}>
+                          {t.marginPct.toFixed(0)}%
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {cards.length === 0 && (
+                  <div className="rounded-md border border-dashed p-3 text-center text-xs"
+                    style={{ borderColor: C.line, color: C.faint }}>
+                    Drop here
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Automations (ActiveCampaign-style sequences) ---------- */
+const SEQUENCES = [
+  {
+    id: "s1", name: "Quote follow-up — standard", active: true,
+    trigger: "Quote sent, no reply",
+    steps: [
+      { day: 0, label: "Quote delivered", detail: "PDF + portal link emailed to contact" },
+      { day: 3, label: "Warm check-in", detail: "Agent drafts a short nudge referencing quote value" },
+      { day: 7, label: "Price-hold reminder", detail: "Mentions pricing expiration to create urgency" },
+      { day: 12, label: "Final touch + mark stale", detail: "Last note, then flags quote for your review" },
+    ],
+    stats: { enrolled: 14, replies: 6, won: 3 },
+  },
+  {
+    id: "s2", name: "Won — handoff to dispatch", active: true,
+    trigger: "Quote marked Won",
+    steps: [
+      { day: 0, label: "Thank-you + confirmation", detail: "Order summary and delivery window request" },
+      { day: 0, label: "Internal alert", detail: "Notifies dispatch with site address and tonnage" },
+    ],
+    stats: { enrolled: 8, replies: 7, won: 8 },
+  },
+  {
+    id: "s3", name: "Lost — 60-day win-back", active: false,
+    trigger: "Quote marked Lost",
+    steps: [
+      { day: 30, label: "Soft re-open", detail: "Asks how the project went, no pitch" },
+      { day: 60, label: "Fresh pricing offer", detail: "Offers updated catalog pricing for next job" },
+    ],
+    stats: { enrolled: 5, replies: 1, won: 1 },
+  },
+];
+
+function Automations() {
+  const C = useC();
+  const [seqs, setSeqs] = useState(SEQUENCES);
+  const toggle = (id) => setSeqs(seqs.map((s) => (s.id === id ? { ...s, active: !s.active } : s)));
+
+  return (
+    <div>
+      <div className="mb-5">
+        <h1 className="text-xl font-semibold" style={{ ...display, color: C.ink }}>Automations</h1>
+        <p className="text-sm mt-0.5" style={{ color: C.mute }}>
+          Follow-up sequences run automatically. Every outbound email is drafted by the agent and waits for human approval.
+        </p>
+      </div>
+      <div className="space-y-4">
+        {seqs.map((s) => (
+          <div key={s.id} className="rounded-lg border overflow-hidden" style={{ background: C.surface, borderColor: C.line }}>
+            <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b" style={{ borderColor: C.lineSoft }}>
+              <Zap size={15} style={{ color: s.active ? C.amber : C.faint }} />
+              <div className="flex-1 min-w-40">
+                <div className="text-sm font-medium" style={{ color: C.ink, ...display }}>{s.name}</div>
+                <div className="text-xs" style={{ color: C.faint }}>Trigger: {s.trigger}</div>
+              </div>
+              <div className="flex items-center gap-4 text-xs tabular-nums" style={{ ...mono, color: C.mute }}>
+                <span>{s.stats.enrolled} enrolled</span>
+                <span className="inline-flex items-center gap-1"><Reply size={11} /> {s.stats.replies} replies</span>
+                <span style={{ color: C.green }}>{s.stats.won} won</span>
+              </div>
+              <button onClick={() => toggle(s.id)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border"
+                style={{ ...display,
+                  borderColor: s.active ? C.green : C.line,
+                  color: s.active ? C.green : C.mute,
+                  background: s.active ? C.greenSoft : "transparent" }}>
+                {s.active ? <><Pause size={11} /> Active</> : <><Play size={11} /> Paused</>}
+              </button>
+            </div>
+            <div className="px-4 py-4 overflow-x-auto">
+              <div className="flex items-stretch gap-0 min-w-max">
+                {s.steps.map((st, i) => (
+                  <React.Fragment key={i}>
+                    <div className="rounded-md border p-3 w-52" style={{ background: C.bg, borderColor: C.line }}>
+                      <div className="text-xs mb-1 tabular-nums" style={{ ...mono, color: C.amber }}>Day {st.day}</div>
+                      <div className="text-sm font-medium mb-0.5" style={{ color: C.ink, ...display }}>{st.label}</div>
+                      <div className="text-xs leading-relaxed" style={{ color: C.mute }}>{st.detail}</div>
+                    </div>
+                    {i < s.steps.length - 1 && (
+                      <div className="flex items-center px-2">
+                        <div className="w-6 h-px" style={{ background: C.line }} />
+                        <div className="w-1.5 h-1.5 rounded-full -ml-0.5" style={{ background: C.faint }} />
+                      </div>
+                    )}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- shell ---------- */
+const NAV = [
+  { key: "dash", label: "Dashboard", icon: LayoutDashboard },
+  { key: "pipeline", label: "Pipeline", icon: Columns },
+  { key: "automations", label: "Automations", icon: Zap },
+  { key: "pricebook", label: "Price book", icon: BookOpen },
+  { key: "customers", label: "Customers", icon: Users },
+  { key: "settings", label: "Settings", icon: Settings },
+];
+
+function QuoteBase() {
+  const [mode, setMode] = useState("light");
+  const C = THEMES[mode];
+  const [quotes, setQuotes] = useState(seedQuotes);
+  const [view, setView] = useState("dash");
+  const [openId, setOpenId] = useState(null);
+
+  const openQuote = quotes.find((q) => q.id === openId);
+  const updateQuote = (next) => setQuotes(quotes.map((q) => (q.id === next.id ? next : q)));
+  const moveQuote = (id, status) =>
+    setQuotes(quotes.map((q) => (q.id === id ? { ...q, status } : q)));
+  const newQuote = () => {
+    const draft = { id: "Q-1043", customer: "New customer", contact: "—", status: "Draft", sent: "—", age: "today", items: [] };
+    if (!quotes.find((q) => q.id === draft.id)) setQuotes([draft, ...quotes]);
+    setOpenId("Q-1043");
+  };
+
+  return (
+    <ThemeCtx.Provider value={C}>
+      <div className="min-h-screen flex" style={{ background: C.bg, color: C.ink }}>
+        <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+          body { font-family: 'Geist', system-ui, sans-serif; }
+          input:focus, select:focus { border-color: ${C.green} !important; }
+          .qb-row:hover { background: ${C.rowHover}; }
+          input::placeholder { color: ${C.faint}; }
+          select option { background: ${C.surface}; color: ${C.ink}; }
+        `}</style>
+
+        {/* sidebar */}
+        <aside className="w-52 shrink-0 border-r flex flex-col" style={{ borderColor: C.line, background: C.surface }}>
+          <div className="px-4 py-4 border-b" style={{ borderColor: C.lineSoft }}>
+            <div className="font-semibold tracking-tight" style={{ ...display, fontSize: 16, color: C.ink }}>
+              Quote<span style={{ color: C.green }}>Base</span>
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: C.faint }}>Western Materials</div>
+          </div>
+          <nav className="p-2 flex-1">
+            {NAV.map((n) => {
+              const active = view === n.key && !openId;
+              const Icon = n.icon;
+              return (
+                <button key={n.key}
+                  onClick={() => { setView(n.key); setOpenId(null); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm mb-0.5 text-left"
+                  style={{ ...display,
+                    background: active ? C.greenSoft : "transparent",
+                    color: active ? C.green : C.mute,
+                    fontWeight: active ? 600 : 400 }}>
+                  <Icon size={15} strokeWidth={active ? 2.4 : 2} /> {n.label}
+                </button>
+              );
+            })}
+          </nav>
+          <div className="p-3 border-t text-xs" style={{ borderColor: C.lineSoft, color: C.faint }}>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold"
+                style={{ background: C.avatarBg, color: C.avatarFg, ...display }}>J</div>
+              <div>
+                <div style={{ color: C.ink }}>John</div>
+                <div>Admin</div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* main */}
+        <main className="flex-1 min-w-0">
+          <header className="flex items-center justify-end gap-3 px-6 py-3 border-b" style={{ borderColor: C.line, background: C.surface }}>
+            <button
+              onClick={() => setMode(mode === "light" ? "dark" : "light")}
+              aria-label={mode === "light" ? "Switch to dark mode" : "Switch to light mode"}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border"
+              style={{ borderColor: C.line, color: C.mute, ...display }}>
+              {mode === "light" ? <Moon size={13} /> : <Sun size={13} />}
+              {mode === "light" ? "Dark" : "Light"}
+            </button>
+            <button aria-label="Notifications" className="relative">
+              <Bell size={16} style={{ color: C.mute }} />
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full" style={{ background: C.amber }} />
+            </button>
+            <span className="text-xs px-2 py-1 rounded-full" style={{ background: C.greenSoft, color: C.green, ...display }}>
+              Catalog v3 active
+            </span>
+          </header>
+          <div className="p-6 max-w-6xl">
+            {openQuote ? (
+              <QuoteBuilder quote={openQuote} onBack={() => setOpenId(null)} onChange={updateQuote} />
+            ) : view === "dash" ? (
+              <Dashboard quotes={quotes} onOpen={setOpenId} onNew={newQuote} />
+            ) : view === "pipeline" ? (
+              <Pipeline quotes={quotes} onOpen={setOpenId} onMove={moveQuote} />
+            ) : view === "automations" ? (
+              <Automations />
+            ) : view === "pricebook" ? (
+              <PriceBook />
+            ) : (
+              <div className="rounded-lg border p-10 text-center text-sm"
+                style={{ background: C.surface, borderColor: C.line, color: C.faint }}>
+                {view === "customers" ? "Customer accounts live here — contacts, terms, quote history." : "Workspace settings — markup floors, approval rules, team roles."}
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    </ThemeCtx.Provider>
+  );
+}
+
+
+const _root = ReactDOM.createRoot(document.getElementById('root'));
+_root.render(<QuoteBase />);
+
+</script>
+</body>
+</html>

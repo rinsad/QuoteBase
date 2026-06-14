@@ -96,7 +96,7 @@ const EDITABLE_UNAPPROVED_STATUSES: QuoteStatus[] = [
 
 export async function submitQuoteForApproval(quoteId: string) {
   if (!UUID_PATTERN.test(quoteId)) {
-    throw new Error("Invalid quote id.");
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
   }
 
   const user = await getCurrentUser();
@@ -108,7 +108,10 @@ export async function submitQuoteForApproval(quoteId: string) {
   const supabase = await createClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured for this workspace.");
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
   }
 
   const { data: quote } = await supabase
@@ -120,7 +123,10 @@ export async function submitQuoteForApproval(quoteId: string) {
     .single<{ status: QuoteStatus }>();
 
   if (!quote || !["draft", "changes_requested"].includes(quote.status)) {
-    throw new Error("Only draft or changes-requested quotes can be submitted.");
+    redirectQuoteActionError(
+      quoteId,
+      "Only draft or changes-requested quotes can be submitted.",
+    );
   }
   const approvalWorkflowEnabled = await isFeatureEnabled({
     supabase,
@@ -225,7 +231,7 @@ export async function markQuoteDeclined(quoteId: string, formData: FormData) {
 
 export async function createCustomerQuoteLink(quoteId: string) {
   if (!UUID_PATTERN.test(quoteId)) {
-    throw new Error("Invalid quote id.");
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
   }
 
   const user = await getCurrentUser();
@@ -235,13 +241,19 @@ export async function createCustomerQuoteLink(quoteId: string) {
   }
 
   if (user.role !== "admin" && user.role !== "account_manager") {
-    throw new Error("You do not have permission to create customer quote links.");
+    redirectQuoteActionError(
+      quoteId,
+      "You do not have permission to create customer quote links.",
+    );
   }
 
   const supabase = await createClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured for this workspace.");
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
   }
 
   const { data: quote } = await supabase
@@ -253,11 +265,14 @@ export async function createCustomerQuoteLink(quoteId: string) {
     .single<{ id: string; status: QuoteStatus }>();
 
   if (!quote) {
-    throw new Error("Quote not found.");
+    redirectQuoteActionError(quoteId, "Quote not found.");
   }
 
   if (!["sent", "viewed", "accepted", "declined"].includes(quote.status)) {
-    throw new Error("Customer links are available after the quote is sent.");
+    redirectQuoteActionError(
+      quoteId,
+      "Customer links are available after the quote is sent.",
+    );
   }
 
   const publicLink = await ensureQuotePublicLink({
@@ -267,7 +282,7 @@ export async function createCustomerQuoteLink(quoteId: string) {
   });
 
   if (!publicLink?.url) {
-    throw new Error("Could not create the customer quote link.");
+    redirectQuoteActionError(quoteId, "Could not create the customer quote link.");
   }
 
   await logAction({
@@ -288,7 +303,7 @@ export async function createCustomerQuoteLink(quoteId: string) {
 
 export async function sendCustomerQuoteEmail(quoteId: string) {
   if (!UUID_PATTERN.test(quoteId)) {
-    throw new Error("Invalid quote id.");
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
   }
 
   const user = await getCurrentUser();
@@ -298,13 +313,19 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
   }
 
   if (user.role !== "admin" && user.role !== "account_manager") {
-    throw new Error("You do not have permission to send customer quote emails.");
+    redirectQuoteActionError(
+      quoteId,
+      "You do not have permission to send customer quote emails.",
+    );
   }
 
   const supabase = await createClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured for this workspace.");
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
   }
 
   const { data: quote } = await supabase
@@ -325,17 +346,23 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
     }>();
 
   if (!quote) {
-    throw new Error("Quote not found.");
+    redirectQuoteEmailError(quoteId, "Quote not found.");
   }
 
   if (!["approved", "sent", "viewed", "accepted", "declined"].includes(quote.status)) {
-    throw new Error("Customer email is available after the quote is approved.");
+    redirectQuoteEmailError(
+      quoteId,
+      "Customer email is available after the quote is approved.",
+    );
   }
 
   const customer = relationOne(quote.customers);
 
   if (!customer?.email) {
-    throw new Error("This customer does not have an email address.");
+    redirectQuoteEmailError(
+      quoteId,
+      "This customer does not have an email address.",
+    );
   }
 
   const publicLink = await ensureQuotePublicLink({
@@ -345,21 +372,34 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
   });
 
   if (!publicLink?.url) {
-    throw new Error("Could not create the customer quote link.");
+    redirectQuoteEmailError(quoteId, "Could not create the customer quote link.");
   }
 
-  const pdfDocument = await createQuotePdfDocument({
-    supabase,
-    user,
-    quoteId,
-  });
-  const attachment = pdfDocument
-    ? await getQuoteDocumentAttachment({
-        supabase,
-        organizationId: user.organization_id,
-        documentId: pdfDocument.id,
-      })
-    : null;
+  let pdfDocument: Awaited<ReturnType<typeof createQuotePdfDocument>> = null;
+  let attachment: Awaited<ReturnType<typeof getQuoteDocumentAttachment>> = null;
+
+  try {
+    pdfDocument = await createQuotePdfDocument({
+      supabase,
+      user,
+      quoteId,
+    });
+    attachment = pdfDocument
+      ? await getQuoteDocumentAttachment({
+          supabase,
+          organizationId: user.organization_id,
+          documentId: pdfDocument.id,
+        })
+      : null;
+  } catch (error) {
+    redirectQuoteEmailError(
+      quoteId,
+      error instanceof Error
+        ? `Could not create the PDF attachment: ${error.message}`
+        : "Could not create the PDF attachment.",
+      publicLink.url,
+    );
+  }
   const delivery = await sendQuoteEmail({
     supabase,
     organizationId: user.organization_id,
@@ -408,13 +448,19 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
     delivery.status === "sent"
       ? `&public_link=${encodeURIComponent(publicLink.url)}`
       : "";
+  const errorParam =
+    delivery.status === "failed" && delivery.reason
+      ? `&email_error=${encodeURIComponent(delivery.reason)}`
+      : "";
 
-  redirect(`/quotes/${quoteId}?email_status=${delivery.status}${publicLinkParam}`);
+  redirect(
+    `/quotes/${quoteId}?email_status=${delivery.status}${publicLinkParam}${errorParam}`,
+  );
 }
 
 export async function generateQuoteDocument(quoteId: string) {
   if (!UUID_PATTERN.test(quoteId)) {
-    throw new Error("Invalid quote id.");
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
   }
 
   const user = await getCurrentUser();
@@ -424,23 +470,40 @@ export async function generateQuoteDocument(quoteId: string) {
   }
 
   if (user.role !== "admin" && user.role !== "account_manager") {
-    throw new Error("You do not have permission to generate quote documents.");
+    redirectQuoteActionError(
+      quoteId,
+      "You do not have permission to generate quote documents.",
+    );
   }
 
   const supabase = await createClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured for this workspace.");
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
   }
 
-  const document = await createQuoteHtmlDocument({
-    supabase,
-    user,
-    quoteId,
-  });
+  let document: Awaited<ReturnType<typeof createQuoteHtmlDocument>> = null;
+
+  try {
+    document = await createQuoteHtmlDocument({
+      supabase,
+      user,
+      quoteId,
+    });
+  } catch (error) {
+    redirectQuoteActionError(
+      quoteId,
+      error instanceof Error
+        ? `Could not generate the quote document: ${error.message}`
+        : "Could not generate the quote document.",
+    );
+  }
 
   if (!document) {
-    throw new Error("Could not generate the quote document.");
+    redirectQuoteActionError(quoteId, "Could not generate the quote document.");
   }
 
   await logAction({
@@ -464,7 +527,7 @@ export async function generateQuoteDocument(quoteId: string) {
 
 export async function createQuoteRevisionAction(quoteId: string) {
   if (!UUID_PATTERN.test(quoteId)) {
-    throw new Error("Invalid quote id.");
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
   }
 
   const user = await getCurrentUser();
@@ -476,14 +539,28 @@ export async function createQuoteRevisionAction(quoteId: string) {
   const supabase = await createClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured for this workspace.");
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
   }
 
-  const revision = await createQuoteRevision({
-    supabase,
-    user,
-    quoteId,
-  });
+  let revision: Awaited<ReturnType<typeof createQuoteRevision>>;
+
+  try {
+    revision = await createQuoteRevision({
+      supabase,
+      user,
+      quoteId,
+    });
+  } catch (error) {
+    redirectQuoteActionError(
+      quoteId,
+      error instanceof Error
+        ? `Could not create a revision: ${error.message}`
+        : "Could not create a revision.",
+    );
+  }
 
   revalidatePath("/quotes");
   revalidatePath(`/quotes/${quoteId}`);
@@ -497,18 +574,18 @@ export async function createQuoteRevisionAction(quoteId: string) {
 
 export async function addQuoteItem(quoteId: string, formData: FormData) {
   if (!UUID_PATTERN.test(quoteId)) {
-    throw new Error("Invalid quote id.");
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
   }
 
   const materialId = requiredUuid(formData, "material_id");
   const quantity = Number(getString(formData, "quantity"));
 
   if (!materialId) {
-    throw new Error("Select a material.");
+    redirectQuoteActionError(quoteId, "Select a material.");
   }
 
   if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 100000) {
-    throw new Error("Quantity must be greater than zero.");
+    redirectQuoteActionError(quoteId, "Quantity must be greater than zero.");
   }
 
   const user = await getCurrentUser();
@@ -520,7 +597,10 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
   const supabase = await createClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured for this workspace.");
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
   }
 
   const [
@@ -565,17 +645,20 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
   ]);
 
   if (!quoteResult.data || !materialResult.data || !pricingConfigResult.data) {
-    throw new Error("Quote, material, or pricing configuration is missing.");
+    redirectQuoteActionError(
+      quoteId,
+      "Quote, material, or pricing configuration is missing.",
+    );
   }
 
   const quote = quoteResult.data;
 
   if (!EDITABLE_UNAPPROVED_STATUSES.includes(quote.status)) {
-    throw new Error("Only unapproved quotes can be edited.");
+    redirectQuoteActionError(quoteId, "Only unapproved quotes can be edited.");
   }
 
   if (!quote.tax_rate_id) {
-    throw new Error("This quote is missing a tax rate.");
+    redirectQuoteActionError(quoteId, "This quote is missing a tax rate.");
   }
 
   const { data: taxRate } = await supabase
@@ -586,7 +669,10 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     .single<TaxRateRecord>();
 
   if (!taxRate) {
-    throw new Error("This quote's tax rate is no longer available.");
+    redirectQuoteActionError(
+      quoteId,
+      "This quote's tax rate is no longer available.",
+    );
   }
 
   const jobSite = relationOne(quote.job_sites);
@@ -596,7 +682,10 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
   );
 
   if (!jobSite) {
-    throw new Error("This quote is missing job-site route data.");
+    redirectQuoteActionError(
+      quoteId,
+      "This quote is missing job-site route data.",
+    );
   }
 
   const requestedMaterial = materialResult.data;
@@ -648,10 +737,24 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     .single<{ id: string }>();
 
   if (itemError || !item) {
-    throw new Error(itemError?.message ?? "Could not add the quote item.");
+    redirectQuoteActionError(
+      quoteId,
+      itemError?.message ?? "Could not add the quote item.",
+    );
   }
 
-  const totals = await getQuoteTotals(quote.id, user.organization_id);
+  let totals: Awaited<ReturnType<typeof getQuoteTotals>>;
+
+  try {
+    totals = await getQuoteTotals(quote.id, user.organization_id);
+  } catch (error) {
+    redirectQuoteActionError(
+      quoteId,
+      error instanceof Error
+        ? error.message
+        : "Could not calculate quote totals.",
+    );
+  }
   const { data: updatedQuote, error: updateError } = await supabase
     .from("quotes")
     .update({
@@ -675,7 +778,8 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       .eq("organization_id", user.organization_id)
       .eq("id", item.id);
 
-    throw new Error(
+    redirectQuoteActionError(
+      quoteId,
       updateError?.message ?? "Could not update the draft quote total.",
     );
   }
@@ -718,7 +822,7 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
 
 export async function removeQuoteItem(quoteId: string, itemId: string) {
   if (!UUID_PATTERN.test(quoteId) || !UUID_PATTERN.test(itemId)) {
-    throw new Error("Invalid quote or item id.");
+    redirect("/quotes?action_error=Invalid%20quote%20or%20item%20id.");
   }
 
   const user = await getCurrentUser();
@@ -730,7 +834,10 @@ export async function removeQuoteItem(quoteId: string, itemId: string) {
   const supabase = await createClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured for this workspace.");
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
   }
 
   const [quoteResult, itemResult] = await Promise.all([
@@ -752,14 +859,14 @@ export async function removeQuoteItem(quoteId: string, itemId: string) {
   ]);
 
   if (!quoteResult.data || !itemResult.data) {
-    throw new Error("Quote or quote item not found.");
+    redirectQuoteActionError(quoteId, "Quote or quote item not found.");
   }
 
   const quote = quoteResult.data;
   const item = itemResult.data;
 
   if (!EDITABLE_UNAPPROVED_STATUSES.includes(quote.status)) {
-    throw new Error("Only unapproved quotes can be edited.");
+    redirectQuoteActionError(quoteId, "Only unapproved quotes can be edited.");
   }
 
   const { data: disabledItem, error: disableError } = await supabase
@@ -773,10 +880,24 @@ export async function removeQuoteItem(quoteId: string, itemId: string) {
     .single<{ id: string }>();
 
   if (disableError || !disabledItem) {
-    throw new Error(disableError?.message ?? "Could not remove the quote item.");
+    redirectQuoteActionError(
+      quoteId,
+      disableError?.message ?? "Could not remove the quote item.",
+    );
   }
 
-  const totals = await getQuoteTotals(quote.id, user.organization_id);
+  let totals: Awaited<ReturnType<typeof getQuoteTotals>>;
+
+  try {
+    totals = await getQuoteTotals(quote.id, user.organization_id);
+  } catch (error) {
+    redirectQuoteActionError(
+      quoteId,
+      error instanceof Error
+        ? error.message
+        : "Could not calculate quote totals.",
+    );
+  }
   const { data: updatedQuote, error: updateError } = await supabase
     .from("quotes")
     .update({
@@ -800,7 +921,8 @@ export async function removeQuoteItem(quoteId: string, itemId: string) {
       .eq("organization_id", user.organization_id)
       .eq("id", item.id);
 
-    throw new Error(
+    redirectQuoteActionError(
+      quoteId,
       updateError?.message ?? "Could not update the draft quote total.",
     );
   }
@@ -833,13 +955,13 @@ export async function updateQuoteItemQuantity(
   formData: FormData,
 ) {
   if (!UUID_PATTERN.test(quoteId) || !UUID_PATTERN.test(itemId)) {
-    throw new Error("Invalid quote or item id.");
+    redirect("/quotes?action_error=Invalid%20quote%20or%20item%20id.");
   }
 
   const quantity = Number(getString(formData, "quantity"));
 
   if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 100000) {
-    throw new Error("Quantity must be greater than zero.");
+    redirectQuoteActionError(quoteId, "Quantity must be greater than zero.");
   }
 
   const user = await getCurrentUser();
@@ -851,7 +973,10 @@ export async function updateQuoteItemQuantity(
   const supabase = await createClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured for this workspace.");
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
   }
 
   const [
@@ -894,7 +1019,10 @@ export async function updateQuoteItemQuantity(
   ]);
 
   if (!quoteResult.data || !itemResult.data || !pricingConfigResult.data) {
-    throw new Error("Quote, item, or pricing configuration is missing.");
+    redirectQuoteActionError(
+      quoteId,
+      "Quote, item, or pricing configuration is missing.",
+    );
   }
 
   const quote = quoteResult.data;
@@ -902,11 +1030,14 @@ export async function updateQuoteItemQuantity(
   const material = relationOne(item.materials);
 
   if (!EDITABLE_UNAPPROVED_STATUSES.includes(quote.status)) {
-    throw new Error("Only unapproved quotes can be edited.");
+    redirectQuoteActionError(quoteId, "Only unapproved quotes can be edited.");
   }
 
   if (!quote.tax_rate_id || !material) {
-    throw new Error("This quote item is missing tax or material data.");
+    redirectQuoteActionError(
+      quoteId,
+      "This quote item is missing tax or material data.",
+    );
   }
 
   const { data: taxRate } = await supabase
@@ -917,7 +1048,10 @@ export async function updateQuoteItemQuantity(
     .single<TaxRateRecord>();
 
   if (!taxRate) {
-    throw new Error("This quote's tax rate is no longer available.");
+    redirectQuoteActionError(
+      quoteId,
+      "This quote's tax rate is no longer available.",
+    );
   }
   const minimumOverrides = await getQuoteMinimumOverrides(
     quote.id,
@@ -976,10 +1110,24 @@ export async function updateQuoteItemQuantity(
     .single<{ id: string }>();
 
   if (itemError || !updatedItem) {
-    throw new Error(itemError?.message ?? "Could not update the quote item.");
+    redirectQuoteActionError(
+      quoteId,
+      itemError?.message ?? "Could not update the quote item.",
+    );
   }
 
-  const totals = await getQuoteTotals(quote.id, user.organization_id);
+  let totals: Awaited<ReturnType<typeof getQuoteTotals>>;
+
+  try {
+    totals = await getQuoteTotals(quote.id, user.organization_id);
+  } catch (error) {
+    redirectQuoteActionError(
+      quoteId,
+      error instanceof Error
+        ? error.message
+        : "Could not calculate quote totals.",
+    );
+  }
   const { data: updatedQuote, error: updateError } = await supabase
     .from("quotes")
     .update({
@@ -1003,7 +1151,8 @@ export async function updateQuoteItemQuantity(
       .eq("organization_id", user.organization_id)
       .eq("id", item.id);
 
-    throw new Error(
+    redirectQuoteActionError(
+      quoteId,
       updateError?.message ?? "Could not update the draft quote total.",
     );
   }
@@ -1049,7 +1198,7 @@ async function transitionQuoteStatusAction({
   note?: string;
 }) {
   if (!UUID_PATTERN.test(quoteId)) {
-    throw new Error("Invalid quote id.");
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
   }
 
   const user = await getCurrentUser();
@@ -1059,29 +1208,49 @@ async function transitionQuoteStatusAction({
   }
 
   if (!allowedRoles.includes(user.role)) {
-    throw new Error("You do not have permission to perform this quote action.");
+    redirectQuoteActionError(
+      quoteId,
+      "You do not have permission to perform this quote action.",
+    );
   }
 
   const supabase = await createClient();
 
   if (!supabase) {
-    throw new Error("Supabase is not configured for this workspace.");
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
   }
 
-  const quote = await transitionQuoteStatus({
-    supabase,
-    user,
-    action,
-    quoteId,
-    from,
-    to,
-    allowedRoles,
-    note,
-  });
+  let quote: Awaited<ReturnType<typeof transitionQuoteStatus>>;
+
+  try {
+    quote = await transitionQuoteStatus({
+      supabase,
+      user,
+      action,
+      quoteId,
+      from,
+      to,
+      allowedRoles,
+      note,
+    });
+  } catch (error) {
+    redirectQuoteActionError(
+      quoteId,
+      error instanceof Error
+        ? error.message
+        : "Could not update the quote status.",
+    );
+  }
 
   revalidatePath("/quotes");
   revalidatePath(`/quotes/${quote.id}`);
-  redirect(`/quotes/${quote.id}`);
+  const warningParam = quote.integrationWarning
+    ? `?integration_warning=${encodeURIComponent(quote.integrationWarning)}`
+    : "";
+  redirect(`/quotes/${quote.id}${warningParam}`);
 }
 
 async function getQuoteTotals(
@@ -1253,4 +1422,24 @@ function roundMoney(value: number): number {
 
 function relationOne<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+function redirectQuoteEmailError(
+  quoteId: string,
+  message: string,
+  publicLink?: string,
+): never {
+  const publicLinkParam = publicLink
+    ? `&public_link=${encodeURIComponent(publicLink)}`
+    : "";
+
+  redirect(
+    `/quotes/${quoteId}?email_status=failed${publicLinkParam}&email_error=${encodeURIComponent(
+      message,
+    )}`,
+  );
+}
+
+function redirectQuoteActionError(quoteId: string, message: string): never {
+  redirect(`/quotes/${quoteId}?action_error=${encodeURIComponent(message)}`);
 }

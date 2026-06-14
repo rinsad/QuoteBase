@@ -48,9 +48,12 @@ export default async function QuoteDetailPage({
 }: {
   params: Promise<{ id: string }>;
   searchParams: Promise<{
+    action_error?: string;
     created?: string;
     document_created?: string;
+    email_error?: string;
     email_status?: string;
+    integration_warning?: string;
     public_link?: string;
     revision_created?: string;
   }>;
@@ -146,6 +149,12 @@ export default async function QuoteDetailPage({
           </div>
         ) : null}
 
+        {query.action_error ? (
+          <div className="mt-6 rounded-[20px] border border-rose-100 bg-rose-50/90 px-5 py-4 text-sm font-medium text-rose-800 shadow-sm">
+            {query.action_error}
+          </div>
+        ) : null}
+
         {query.document_created ? (
           <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
             Quote document version {query.document_created} was generated.
@@ -155,6 +164,12 @@ export default async function QuoteDetailPage({
         {query.revision_created ? (
           <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
             Revision draft {query.revision_created} was created.
+          </div>
+        ) : null}
+
+        {query.integration_warning ? (
+          <div className="mt-6 rounded-[20px] border border-amber-100 bg-amber-50/90 px-5 py-4 text-sm font-medium text-amber-900 shadow-sm">
+            {query.integration_warning}
           </div>
         ) : null}
 
@@ -224,6 +239,11 @@ export default async function QuoteDetailPage({
                   value={query.public_link}
                   className="soft-control mt-3 w-full bg-white/85 font-mono text-xs"
                 />
+              </div>
+            ) : null}
+            {query.email_error ? (
+              <div className="mt-5 rounded-[18px] border border-rose-100 bg-rose-50/90 p-4 text-sm font-medium text-rose-800">
+                {query.email_error}
               </div>
             ) : null}
             {canSubmit || canApprove || canSend || canRecordCustomerResponse ? (
