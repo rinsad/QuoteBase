@@ -1,69 +1,117 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { KeyRound, LockKeyhole, ShieldCheck } from "lucide-react";
 
+import { LoginForm } from "@/app/(auth)/login/login-form";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { isLocalSupabase, isSupabaseReachable } from "@/lib/env";
 
-export default async function Home() {
-  const user = await getCurrentUser();
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ dev_login?: string }>;
+}) {
+  const query = await searchParams;
+  const localSupabase = isLocalSupabase();
+  const supabaseReachable = localSupabase
+    ? await isSupabaseReachable()
+    : true;
+  const user = supabaseReachable ? await getCurrentUser() : null;
+  const showDevSignIn =
+    process.env.NODE_ENV !== "production" && localSupabase;
 
   if (user) {
     redirect("/dashboard");
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-5xl items-center">
-        <section className="grid w-full gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-sm font-medium text-primary ring-1 ring-[#d7ded5]">
-              <ShieldCheck className="size-4" />
-              Protected quote workspace
+    <main className="app-background">
+      <section className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center justify-center">
+        <div className="mac-window w-full">
+          <div className="mac-toolbar">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="mac-controls">
+                <span className="mac-control-red" />
+                <span className="mac-control-yellow" />
+                <span className="mac-control-green" />
+              </div>
+              <div className="h-5 w-px bg-border/80" />
+              <p className="truncate text-sm font-semibold text-muted-foreground">
+                QuoteBase Sign In
+              </p>
             </div>
-            <h1 className="mt-5 max-w-2xl text-4xl font-semibold tracking-normal sm:text-5xl">
-              QuoteBase
-            </h1>
-            <p className="mt-4 max-w-xl text-base leading-7 text-muted-foreground">
-              Sign in to access quoting, customer records, approvals, pricing,
-              integrations, and tenant-scoped audit controls.
-            </p>
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              <Link href="/login" className="mac-button-primary h-11">
-                <KeyRound className="size-4" />
-                Open login
-              </Link>
-            </div>
+            <span className="hidden rounded-full bg-white/70 px-3 py-1 text-xs font-medium text-muted-foreground ring-1 ring-white/80 sm:inline-flex">
+              Private workspace
+            </span>
           </div>
 
-          <div className="glass-panel p-6 sm:p-8">
-            <div className="icon-well text-primary">
-              <LockKeyhole className="size-5" />
+          <div className="grid lg:grid-cols-[1.05fr_0.95fr]">
+            <div className="p-6 sm:p-8 lg:p-10">
+              <p className="text-sm font-medium text-muted-foreground">
+                Western Materials
+              </p>
+              <h1 className="accent-title mt-4 max-w-xl text-4xl font-semibold tracking-normal text-balance sm:text-5xl">
+                Sign in to QuoteBase.
+              </h1>
+              <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
+                Use an approved company account. For local testing, choose one
+                of the role-based test users below.
+              </p>
+              <LoginForm
+                showDevSignIn={showDevSignIn}
+                devLoginRedirectPath="/?dev_login=unavailable"
+              />
+              {query.dev_login === "unavailable" || !supabaseReachable ? (
+                <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-100">
+                  Local Supabase is not running, so the test-user shortcuts are
+                  unavailable. Start Supabase locally or use the magic-link
+                  flow.
+                </p>
+              ) : null}
             </div>
-            <h2 className="mt-5 text-2xl font-semibold">
-              Workspace access is private
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Operational menus and quote data are available only after
-              authentication. Users are routed into their organization workspace
-              based on their active account and role.
-            </p>
-            <div className="mt-6 grid gap-3">
-              <SecurityRow label="Tenant-scoped records" />
-              <SecurityRow label="Role-based navigation" />
-              <SecurityRow label="Authenticated quote actions" />
-            </div>
+
+            <aside className="border-t border-white/70 bg-white/40 p-6 sm:p-8 lg:border-l lg:border-t-0 lg:p-10">
+              <p className="text-sm font-medium text-muted-foreground">
+                {showDevSignIn ? "Test coverage" : "Access"}
+              </p>
+              <h2 className="mt-1 text-2xl font-semibold">
+                Role-based access
+              </h2>
+              <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
+                {showDevSignIn ? (
+                  <>
+                    <AccessRole label="Rinsad" role="Admin" />
+                    <AccessRole label="Judd" role="Admin" />
+                    <AccessRole label="Gloria" role="Account Manager" />
+                    <AccessRole label="Claudina" role="Estimator" />
+                    <AccessRole label="John" role="Tenant B Admin" />
+                  </>
+                ) : (
+                  <>
+                    <AccessRole label="Operations admin" role="Admin" />
+                    <AccessRole
+                      label="Pricing manager"
+                      role="Account Manager"
+                    />
+                    <AccessRole label="Estimator workspace" role="Estimator" />
+                  </>
+                )}
+              </div>
+            </aside>
           </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </main>
   );
 }
 
-function SecurityRow({ label }: { label: string }) {
+function AccessRole({ label, role }: { label: string; role: string }) {
   return (
-    <div className="soft-row flex min-h-11 items-center gap-3 px-3">
-      <ShieldCheck className="size-4 text-primary" />
-      <span className="text-sm font-medium">{label}</span>
+    <div className="soft-row flex items-center justify-between gap-4 px-4 py-3">
+      <span className="min-w-0 truncate font-medium text-foreground">
+        {label}
+      </span>
+      <span className="soft-chip shrink-0 bg-[#ecf2ed] text-[#3d6652] ring-[#d7ded5]">
+        {role}
+      </span>
     </div>
   );
 }

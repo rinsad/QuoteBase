@@ -55,6 +55,21 @@ export type LoginState = {
   status: "idle" | "success" | "error";
 };
 
+function getDevLoginUnavailableRedirect(formData: FormData): string {
+  const redirectValue = formData.get("dev_login_redirect");
+  const redirectPath =
+    typeof redirectValue === "string" ? redirectValue : "";
+
+  if (
+    redirectPath === "/?dev_login=unavailable" ||
+    redirectPath === "/login?dev_login=unavailable"
+  ) {
+    return redirectPath;
+  }
+
+  return "/login?dev_login=unavailable";
+}
+
 export async function sendMagicLink(
   _previousState: LoginState,
   formData: FormData,
@@ -116,19 +131,21 @@ export async function signOut() {
 }
 
 export async function devSignInAsTestUser(formData: FormData) {
+  const unavailableRedirect = getDevLoginUnavailableRedirect(formData);
+
   if (process.env.NODE_ENV === "production" || !isLocalSupabase()) {
-    redirect("/login?dev_login=unavailable");
+    redirect(unavailableRedirect);
   }
 
   if (!(await isSupabaseReachable())) {
-    redirect("/login?dev_login=unavailable");
+    redirect(unavailableRedirect);
   }
 
   const admin = createAdminClient();
   const supabase = await createClient();
 
   if (!admin || !supabase) {
-    redirect("/login?dev_login=unavailable");
+    redirect(unavailableRedirect);
   }
 
   const devUserKeyValue = formData.get("dev_user");
@@ -146,7 +163,7 @@ export async function devSignInAsTestUser(formData: FormData) {
       });
 
     if (usersError) {
-      redirect("/login?dev_login=unavailable");
+      redirect(unavailableRedirect);
     }
 
     let authUser = usersData.users.find(
@@ -164,7 +181,7 @@ export async function devSignInAsTestUser(formData: FormData) {
       });
 
       if (error || !data.user) {
-        redirect("/login?dev_login=unavailable");
+        redirect(unavailableRedirect);
       }
 
       authUser = data.user;
@@ -178,7 +195,7 @@ export async function devSignInAsTestUser(formData: FormData) {
       });
 
       if (error || !data.user) {
-        redirect("/login?dev_login=unavailable");
+        redirect(unavailableRedirect);
       }
 
       authUser = data.user;
@@ -197,7 +214,7 @@ export async function devSignInAsTestUser(formData: FormData) {
       }>();
 
     if (inviteError || !invite) {
-      redirect("/login?dev_login=unavailable");
+      redirect(unavailableRedirect);
     }
 
     await admin.from("users").upsert(
@@ -220,10 +237,10 @@ export async function devSignInAsTestUser(formData: FormData) {
     });
 
     if (signInError) {
-      redirect("/login?dev_login=unavailable");
+      redirect(unavailableRedirect);
     }
   } catch {
-    redirect("/login?dev_login=unavailable");
+    redirect(unavailableRedirect);
   }
 
   redirect("/dashboard");

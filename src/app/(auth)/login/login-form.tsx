@@ -23,7 +23,13 @@ const devUsers = [
   { key: "john-tenant-b", label: "John", role: "Tenant B Admin" },
 ];
 
-export function LoginForm({ showDevSignIn }: { showDevSignIn: boolean }) {
+export function LoginForm({
+  showDevSignIn,
+  devLoginRedirectPath = "/login?dev_login=unavailable",
+}: {
+  showDevSignIn: boolean;
+  devLoginRedirectPath?: string;
+}) {
   const [state, formAction, isPending] = useActionState(
     sendMagicLink,
     initialState,
@@ -72,6 +78,12 @@ export function LoginForm({ showDevSignIn }: { showDevSignIn: boolean }) {
               </span>
             </div>
           </div>
+
+          <input
+            type="hidden"
+            name="dev_login_redirect"
+            value={devLoginRedirectPath}
+          />
 
           <div className="grid gap-2 sm:grid-cols-2">
             {devUsers.map((user) => (
