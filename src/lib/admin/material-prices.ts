@@ -26,6 +26,13 @@ export type MaterialPriceHistoryEntry = {
   } | null;
 };
 
+export type MaterialPriceSummary = {
+  activeMaterials: number;
+  suppliers: number;
+  materialFamilies: number;
+  stalePrices: number;
+};
+
 type MaterialRecord = Omit<AdminMaterialPrice, "supplier_name"> & {
   suppliers: { name: string } | { name: string }[] | null;
 };
@@ -35,11 +42,12 @@ export async function getAdminMaterialPrices(
 ): Promise<{
   materials: AdminMaterialPrice[];
   history: MaterialPriceHistoryEntry[];
+  summary: MaterialPriceSummary;
 }> {
   const supabase = await createClient();
 
   if (!supabase) {
-    return { materials: [], history: [] };
+    return { materials: [], history: [], summary: emptySummary() };
   }
 
   const [materialsResult, historyResult] = await Promise.all([
@@ -60,9 +68,8 @@ export async function getAdminMaterialPrices(
       .limit(12),
   ]);
 
-  return {
-    materials:
-      materialsResult.data?.map((material) => {
+  const materials =
+    materialsResult.data?.map((material) => {
         const supplier = Array.isArray(material.suppliers)
           ? material.suppliers[0]
           : material.suppliers;
@@ -76,7 +83,10 @@ export async function getAdminMaterialPrices(
               ? null
               : Number(material.minimum_order_quantity),
         };
-      }) ?? [],
+      }) ?? [];
+
+  return {
+    materials,
     history:
       historyResult.data?.map((entry) => ({
         id: entry.id,
@@ -87,6 +97,41 @@ export async function getAdminMaterialPrices(
         notes: entry.notes,
         changed_by: relationOne(entry.users),
       })) ?? [],
+    summary: summarizeMaterials(materials),
+  };
+}
+
+function emptySummary(): MaterialPriceSummary {
+  return {
+    activeMaterials: 0,
+    suppliers: 0,
+    materialFamilies: 0,
+    stalePrices: 0,
+  };
+}
+
+function summarizeMaterials(
+  materials: AdminMaterialPrice[],
+): MaterialPriceSummary {
+  const staleCutoff = new Date();
+  staleCutoff.setDate(staleCutoff.getDate() - 30);
+
+  return {
+    activeMaterials: materials.length,
+    suppliers: new Set(materials.map((material) => material.supplier_id)).size,
+    materialFamilies: new Set(
+      materials.map(
+        (material) =>
+          `${material.name.trim().toLowerCase()}|${material.tier}|${material.unit}`,
+      ),
+    ).size,
+    stalePrices: materials.filter((material) => {
+      if (!material.last_price_update) {
+        return true;
+      }
+
+      return new Date(material.last_price_update) < staleCutoff;
+    }).length,
   };
 }
 

@@ -43,6 +43,8 @@ export type QuoteMaterialOption = {
   id: string;
   supplier_id: string;
   supplier_name: string;
+  supplier_latitude: number | null;
+  supplier_longitude: number | null;
   name: string;
   tier: MaterialTier;
   unit: string;
@@ -71,8 +73,14 @@ export type NewQuoteContext = {
   sampleCalculation: ReturnType<typeof calculateQuoteDraft> | null;
 };
 
-type MaterialRecord = Omit<QuoteMaterialOption, "supplier_name"> & {
-  suppliers: { name: string } | { name: string }[] | null;
+type MaterialRecord = Omit<
+  QuoteMaterialOption,
+  "supplier_name" | "supplier_latitude" | "supplier_longitude"
+> & {
+  suppliers:
+    | { name: string; latitude: number | null; longitude: number | null }
+    | { name: string; latitude: number | null; longitude: number | null }[]
+    | null;
 };
 
 type QuoteHistoryRecord = QuoteCustomerQuoteHistory & {
@@ -123,7 +131,7 @@ export async function getNewQuoteContext(
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name)",
+        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
@@ -221,6 +229,14 @@ export async function getNewQuoteContext(
           id: material.id,
           supplier_id: material.supplier_id,
           supplier_name: supplier?.name ?? "Unknown supplier",
+          supplier_latitude:
+            supplier?.latitude === null || supplier?.latitude === undefined
+              ? null
+              : Number(supplier.latitude),
+          supplier_longitude:
+            supplier?.longitude === null || supplier?.longitude === undefined
+              ? null
+              : Number(supplier.longitude),
           name: material.name,
           tier: material.tier,
           unit: material.unit,

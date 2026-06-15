@@ -128,6 +128,10 @@ export function QuoteDraftForm({
           taxRate: selectedTaxRate.rate,
           pricingConfig,
           vehicleTypes: context.vehicleTypes,
+          routeDurationSeconds: estimateRouteDurationSeconds({
+            material,
+            jobSite: selectedJobSite ?? null,
+          }),
           materialUnitPriceOverride: activeMaterialUnitPriceOverride,
           truckRateOverride: activeTruckRateOverride,
           materialMinimumOverride: activeMaterialMinimumOverride,
@@ -154,6 +158,7 @@ export function QuoteDraftForm({
     return {
       selected: selectedOption,
       recommended: recommendedOption,
+      options: rankedOptions,
       alternatives: rankedOptions.slice(1, 3),
       isSelectedRecommended:
         selectedOption.material.id === recommendedOption.material.id,
@@ -170,6 +175,7 @@ export function QuoteDraftForm({
     paymentTerms,
     selectedMaterial,
     selectedTaxRate,
+    selectedJobSite,
   ]);
   const liveCalculation = recommendation?.selected.calculation ?? null;
   const margin =
@@ -362,8 +368,8 @@ export function QuoteDraftForm({
         <section className="glass-panel p-5 sm:p-6">
           <SectionHeader
             icon={PackageOpen}
-            kicker="Material"
-            title="One-line draft estimate"
+            kicker="Supplier Sourcing"
+            title="Source the material"
           />
           <div className="mt-5 space-y-4">
             <Field label="Material" required error={state.fieldErrors.material_id}>
@@ -378,7 +384,8 @@ export function QuoteDraftForm({
                 <option value="">Select material...</option>
                 {context.materials.map((material) => (
                   <option key={material.id} value={material.id}>
-                    {material.supplier_name} - {material.name} ({material.tier})
+                    {material.name} ({material.tier}) -{" "}
+                    {material.supplier_name}
                   </option>
                 ))}
               </select>
@@ -397,6 +404,19 @@ export function QuoteDraftForm({
                 aria-invalid={Boolean(state.fieldErrors.quantity)}
               />
             </Field>
+            {recommendation && selectedMaterial ? (
+              <SupplierSourcingTable
+                recommendation={recommendation}
+                selectedMaterialId={selectedMaterial.id}
+                selectedJobSite={selectedJobSite ?? null}
+                onSelectMaterial={setMaterialId}
+              />
+            ) : (
+              <div className="soft-row p-4 text-sm leading-6 text-muted-foreground">
+                Select a material and quantity to compare supplier catalog
+                options before saving the draft.
+              </div>
+            )}
             <Field
               label="Manual sell price override"
               optional
@@ -745,12 +765,175 @@ type Recommendation = {
     material: NewQuoteContext["materials"][number];
     calculation: QuoteDraftCalculation;
   };
+  options: Array<{
+    material: NewQuoteContext["materials"][number];
+    calculation: QuoteDraftCalculation;
+  }>;
   alternatives: Array<{
     material: NewQuoteContext["materials"][number];
     calculation: QuoteDraftCalculation;
   }>;
   isSelectedRecommended: boolean;
 };
+
+function SupplierSourcingTable({
+  recommendation,
+  selectedMaterialId,
+  selectedJobSite,
+  onSelectMaterial,
+}: {
+  recommendation: Recommendation;
+  selectedMaterialId: string;
+  selectedJobSite: NewQuoteContext["jobSites"][number] | null;
+  onSelectMaterial: (materialId: string) => void;
+}) {
+  return (
+    <div className="rounded-[18px] border border-white/70 bg-white/65 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">Supplier options</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Ranked by the same catalog cost, markup, load plan, trucking, fee,
+            and tax rules used when the draft is saved.
+          </p>
+        </div>
+        <span className="soft-chip bg-[#ecf2ed] text-[#3d6652] ring-[#d7ded5]">
+          {recommendation.options.length} option
+          {recommendation.options.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-[16px] ring-1 ring-[#dfe5dc]">
+        <div className="grid grid-cols-[1fr_auto_auto] gap-3 bg-[#f4f7f2] px-3 py-2 text-xs font-semibold text-muted-foreground">
+          <span>Supplier</span>
+          <span className="text-right">Buy</span>
+          <span className="text-right">Total</span>
+        </div>
+        {recommendation.options.slice(0, 5).map((option, index) => {
+          const isSelected = option.material.id === selectedMaterialId;
+          const isRecommended =
+            option.material.id === recommendation.recommended.material.id;
+          const routeMiles = estimatedRouteMiles(
+            option.material,
+            selectedJobSite,
+          );
+
+          return (
+            <button
+              key={option.material.id}
+              type="button"
+              onClick={() => onSelectMaterial(option.material.id)}
+              className={`grid w-full grid-cols-[1fr_auto_auto] items-center gap-3 border-t border-[#dfe5dc] px-3 py-3 text-left text-sm transition hover:bg-white ${
+                isSelected ? "bg-white" : "bg-white/55"
+              }`}
+            >
+              <span className="min-w-0">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate font-semibold">
+                    {option.material.supplier_name}
+                  </span>
+                  {isRecommended ? (
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                      Recommended
+                    </span>
+                  ) : null}
+                  {isSelected && !isRecommended ? (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-100">
+                      Selected
+                    </span>
+                  ) : null}
+                </span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {option.calculation.loadCount.toFixed(0)} load
+                  {option.calculation.loadCount === 1 ? "" : "s"}
+                  {option.calculation.vehicleName
+                    ? ` via ${option.calculation.vehicleName}`
+                    : ""}{" "}
+                  {routeMiles !== null ? `- ${routeMiles.toFixed(1)} mi` : ""}
+                  {index > 0 ? `- option ${index + 1}` : ""}
+                </span>
+              </span>
+              <span className="font-mono text-xs">
+                {formatCurrency(option.material.cost_per_unit)}
+              </span>
+              <span className="font-mono text-xs font-semibold">
+                {formatCurrency(option.calculation.total)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function estimateRouteDurationSeconds({
+  material,
+  jobSite,
+}: {
+  material: NewQuoteContext["materials"][number];
+  jobSite: NewQuoteContext["jobSites"][number] | null;
+}): number | null {
+  const miles = estimatedRouteMiles(material, jobSite);
+
+  if (miles === null) {
+    return null;
+  }
+
+  return Math.round((miles / 35) * 3600);
+}
+
+function estimatedRouteMiles(
+  material: NewQuoteContext["materials"][number],
+  jobSite?: NewQuoteContext["jobSites"][number] | null,
+): number | null {
+  if (
+    !jobSite ||
+    material.supplier_latitude === null ||
+    material.supplier_longitude === null ||
+    jobSite.latitude === null ||
+    jobSite.longitude === null
+  ) {
+    return null;
+  }
+
+  const straightLineMiles = haversineMiles(
+    material.supplier_latitude,
+    material.supplier_longitude,
+    jobSite.latitude,
+    jobSite.longitude,
+  );
+
+  return straightLineMiles * 1.25;
+}
+
+function haversineMiles(
+  fromLatitude: number,
+  fromLongitude: number,
+  toLatitude: number,
+  toLongitude: number,
+): number {
+  const earthRadiusMiles = 3958.8;
+  const latitudeDelta = toRadians(toLatitude - fromLatitude);
+  const longitudeDelta = toRadians(toLongitude - fromLongitude);
+  const fromLatitudeRadians = toRadians(fromLatitude);
+  const toLatitudeRadians = toRadians(toLatitude);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(fromLatitudeRadians) *
+      Math.cos(toLatitudeRadians) *
+      Math.sin(longitudeDelta / 2) ** 2;
+
+  return (
+    2 *
+    earthRadiusMiles *
+    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+  );
+}
+
+function toRadians(value: number): number {
+  return (value * Math.PI) / 180;
+}
 
 function RecommendationCard({
   recommendation,

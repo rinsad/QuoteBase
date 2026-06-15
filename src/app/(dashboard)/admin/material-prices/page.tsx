@@ -10,6 +10,7 @@ import {
 import {
   updateMaterialPrice,
   uploadMaterialPriceCsv,
+  uploadSupplierCatalogCsv,
 } from "@/app/(dashboard)/admin/material-prices/actions";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,11 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 export default async function AdminMaterialPricesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ material?: string; saved?: string }>;
+  searchParams: Promise<{
+    material?: string;
+    saved?: string;
+    catalog_imported?: string;
+  }>;
 }) {
   const user = await getCurrentUser();
 
@@ -66,9 +71,31 @@ export default async function AdminMaterialPricesPage({
 
         {params.saved ? (
           <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
-            Material price updated.
+            {params.catalog_imported
+              ? `${params.catalog_imported} supplier catalog rows imported.`
+              : "Material price updated."}
           </div>
         ) : null}
+
+        <section className="mt-6 grid gap-4 md:grid-cols-4">
+          <SummaryCard
+            label="Catalog rows"
+            value={data.summary.activeMaterials.toString()}
+          />
+          <SummaryCard
+            label="Suppliers"
+            value={data.summary.suppliers.toString()}
+          />
+          <SummaryCard
+            label="Material families"
+            value={data.summary.materialFamilies.toString()}
+          />
+          <SummaryCard
+            label="Prices over 30 days"
+            value={data.summary.stalePrices.toString()}
+            attention={data.summary.stalePrices > 0}
+          />
+        </section>
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
           <form action={updateMaterialPrice} className="glass-panel p-5 sm:p-6">
@@ -265,6 +292,53 @@ export default async function AdminMaterialPricesPage({
           </p>
         </section>
 
+        {user.role === "admin" ? (
+          <section className="mt-6 glass-panel p-5 sm:p-6">
+            <div className="flex items-center gap-3">
+              <div className="icon-well text-[#3d6652]">
+                <FileUp className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Supplier Catalog Import
+                </p>
+                <h2 className="text-xl font-semibold">
+                  Import spreadsheet rows
+                </h2>
+              </div>
+            </div>
+
+            <form
+              action={uploadSupplierCatalogCsv}
+              className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto]"
+            >
+              <label>
+                <span className="text-sm font-medium text-muted-foreground">
+                  CSV file
+                </span>
+                <input
+                  name="supplier_catalog_csv"
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="soft-control mt-2 w-full"
+                  required
+                />
+              </label>
+              <Button type="submit" className="h-11 self-end rounded-full">
+                <FileUp className="size-4" />
+                Import catalog
+              </Button>
+            </form>
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+              Header: supplier_name,material_name,tier,unit,cost_per_unit.
+              Optional columns: parent_company,street,city,state,postal_code,
+              latitude,longitude,hours,contact_name,contact_phone,
+              minimum_order_quantity,special_notes,price_date,notes. Uploads are
+              capped at 250 rows.
+            </p>
+          </section>
+        ) : null}
+
         <section className="mt-6 glass-panel p-5 sm:p-6">
           <div className="flex items-center gap-3">
             <div className="icon-well text-emerald-700">
@@ -311,6 +385,29 @@ export default async function AdminMaterialPricesPage({
         </section>
       </div>
     </main>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+  attention = false,
+}: {
+  label: string;
+  value: string;
+  attention?: boolean;
+}) {
+  return (
+    <div className="glass-panel p-5">
+      <p className="text-sm font-medium text-muted-foreground">{label}</p>
+      <p
+        className={`mt-2 font-mono text-3xl font-semibold ${
+          attention ? "text-amber-700" : ""
+        }`}
+      >
+        {value}
+      </p>
+    </div>
   );
 }
 
