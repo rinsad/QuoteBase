@@ -391,16 +391,39 @@ export async function upsertPipedriveCustomers({
     sync_source: "pipedrive",
   }));
   const pipedrivePersonIds = rows.map((row) => row.pipedrive_person_id);
-  const { data: existingCustomers, error: existingError } = await supabase
-    .from("customers")
-    .select("id, pipedrive_person_id")
-    .eq("organization_id", organizationId)
-    .in("pipedrive_person_id", pipedrivePersonIds)
-    .returns<Array<{ id: string; pipedrive_person_id: string }>>();
+  const rowNames = Array.from(
+    new Set(rows.map((row) => row.name).filter(Boolean)),
+  );
+  const [existingByPipedriveResult, existingByNameResult] = await Promise.all([
+    supabase
+      .from("customers")
+      .select("id, name, pipedrive_person_id")
+      .eq("organization_id", organizationId)
+      .in("pipedrive_person_id", pipedrivePersonIds)
+      .returns<
+        Array<{ id: string; name: string; pipedrive_person_id: string | null }>
+      >(),
+    supabase
+      .from("customers")
+      .select("id, name, pipedrive_person_id")
+      .eq("organization_id", organizationId)
+      .in("name", rowNames)
+      .returns<
+        Array<{ id: string; name: string; pipedrive_person_id: string | null }>
+      >(),
+  ]);
 
-  if (existingError) {
-    throw new Error(existingError.message);
+  if (existingByPipedriveResult.error || existingByNameResult.error) {
+    throw new Error(
+      existingByPipedriveResult.error?.message ??
+        existingByNameResult.error?.message ??
+        "Could not inspect existing customers.",
+    );
   }
+  const existingCustomers = [
+    ...(existingByPipedriveResult.data ?? []),
+    ...(existingByNameResult.data ?? []),
+  ];
 
   const existingIdByPipedrivePerson = new Map(
     (existingCustomers ?? []).map((customer) => [
@@ -408,19 +431,28 @@ export async function upsertPipedriveCustomers({
       customer.id,
     ]),
   );
+  const existingIdByName = new Map(
+    (existingCustomers ?? []).map((customer) => [
+      normalizeCustomerName(customer.name),
+      customer.id,
+    ]),
+  );
+  const rowsByUniqueCustomer = new Map<string, (typeof rows)[number] & { id?: string }>();
+
+  for (const row of rows) {
+    const existingId =
+      existingIdByPipedrivePerson.get(row.pipedrive_person_id) ??
+      existingIdByName.get(normalizeCustomerName(row.name));
+    const key = existingId
+      ? `id:${existingId}`
+      : `name:${normalizeCustomerName(row.name)}`;
+
+    rowsByUniqueCustomer.set(key, existingId ? { ...row, id: existingId } : row);
+  }
 
   const { data, error } = await supabase
     .from("customers")
-    .upsert(
-      rows.map((row) => {
-        const existingId = existingIdByPipedrivePerson.get(
-          row.pipedrive_person_id,
-        );
-
-        return existingId ? { ...row, id: existingId } : row;
-      }),
-      { onConflict: "id" },
-    )
+    .upsert(Array.from(rowsByUniqueCustomer.values()), { onConflict: "id" })
     .select("id");
 
   if (error) {
@@ -444,6 +476,11 @@ export async function upsertPipedriveCustomers({
 
   return { imported: data?.length ?? rows.length };
 }
+
+function normalizeCustomerName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 
 export async function syncEnabledPipedriveCustomers({
   supabase,
