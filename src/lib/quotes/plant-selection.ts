@@ -7,6 +7,8 @@ import {
 import { isFeatureEnabled } from "@/lib/features/flags";
 import {
   calculateQuoteDraft,
+  resolveCatalogMarkupRule,
+  type CatalogMarkupRule,
   type MaterialTier,
   type PricingConfig,
   type QuoteDraftCalculation,
@@ -17,6 +19,9 @@ import {
 export type PlantSelectionMaterial = {
   id: string;
   supplier_id: string;
+  supplier_catalog_version_id: string | null;
+  supplier_catalog_item_id: string | null;
+  catalog_category: string | null;
   name: string;
   tier: MaterialTier;
   unit: string;
@@ -76,6 +81,8 @@ export async function selectBestPlantForQuote({
   paymentTerms = null,
   manualRouteDistanceMiles = null,
   manualDeadheadDistanceMiles = null,
+  catalogMarkupRules = [],
+  googleMapsApiKey = null,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -93,6 +100,8 @@ export async function selectBestPlantForQuote({
   paymentTerms?: string | null;
   manualRouteDistanceMiles?: number | null;
   manualDeadheadDistanceMiles?: number | null;
+  catalogMarkupRules?: CatalogMarkupRule[];
+  googleMapsApiKey?: string | null;
 }): Promise<PlantRecommendation> {
   const [
     materialsResult,
@@ -104,7 +113,7 @@ export async function selectBestPlantForQuote({
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
       )
       .eq("organization_id", organizationId)
       .eq("name", requestedMaterial.name)
@@ -153,10 +162,12 @@ export async function selectBestPlantForQuote({
         vehicleTypes,
         yards: yardsResult.data ?? [],
         useGoogleMaps: googleMapsEnabled,
+        googleMapsApiKey,
         truckRateOverride,
         paymentTerms,
         manualRouteDistanceMiles,
         manualDeadheadDistanceMiles,
+        catalogMarkupRules,
       }),
     ),
   );
@@ -180,6 +191,7 @@ export async function selectBestPlantForQuote({
       materialMinimumOverride,
       truckingMinimumOverride,
       paymentTerms,
+      catalogMarkupRules,
     });
   }
 
@@ -194,6 +206,7 @@ export async function selectBestPlantForQuote({
     materialMinimumOverride,
     truckingMinimumOverride,
     paymentTerms,
+    catalogMarkupRules,
   });
 }
 
@@ -208,10 +221,12 @@ async function buildRecommendation({
   vehicleTypes,
   yards,
   useGoogleMaps,
+  googleMapsApiKey,
   truckRateOverride,
   paymentTerms,
   manualRouteDistanceMiles,
   manualDeadheadDistanceMiles,
+  catalogMarkupRules,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -223,10 +238,12 @@ async function buildRecommendation({
   vehicleTypes: VehicleCapacity[];
   yards: YardRecord[];
   useGoogleMaps: boolean;
+  googleMapsApiKey: string | null;
   truckRateOverride: TruckRateKey | null;
   paymentTerms: string | null;
   manualRouteDistanceMiles: number | null;
   manualDeadheadDistanceMiles: number | null;
+  catalogMarkupRules: CatalogMarkupRule[];
 }): Promise<PlantRecommendation> {
   const supplier = relationOne(material.suppliers);
   const supplierCoordinates = {
@@ -246,7 +263,7 @@ async function buildRecommendation({
           organizationId,
           supplierCoordinates,
           jobSite,
-          { useGoogleMaps },
+          { useGoogleMaps, googleMapsApiKey },
         )
       : manualDistanceEstimate(manualRouteDistanceMiles);
   const deadheadDistance =
@@ -257,6 +274,7 @@ async function buildRecommendation({
           supplierCoordinates,
           yards,
           useGoogleMaps,
+          googleMapsApiKey,
         })
       : manualDistanceEstimate(manualDeadheadDistanceMiles);
   const calculation = calculateQuoteDraft({
@@ -271,6 +289,7 @@ async function buildRecommendation({
     deadheadDurationSeconds: deadheadDistance?.durationSeconds ?? null,
     truckRateOverride,
     paymentTerms,
+    catalogMarkupRule: resolveCatalogMarkupRule(material, catalogMarkupRules),
   });
 
   return {
@@ -302,6 +321,7 @@ function applyMaterialUnitPriceOverride({
   materialMinimumOverride,
   truckingMinimumOverride,
   paymentTerms,
+  catalogMarkupRules,
 }: {
   recommendation: PlantRecommendation;
   quantity: number;
@@ -313,6 +333,7 @@ function applyMaterialUnitPriceOverride({
   materialMinimumOverride: number | null;
   truckingMinimumOverride: number | null;
   paymentTerms: string | null;
+  catalogMarkupRules: CatalogMarkupRule[];
 }): PlantRecommendation {
   if (
     materialUnitPriceOverride === null &&
@@ -341,6 +362,10 @@ function applyMaterialUnitPriceOverride({
       materialMinimumOverride,
       truckingMinimumOverride,
       paymentTerms,
+      catalogMarkupRule: resolveCatalogMarkupRule(
+        recommendation.material,
+        catalogMarkupRules,
+      ),
     }),
   };
 }
@@ -351,12 +376,14 @@ async function getNearestYardDistance({
   supplierCoordinates,
   yards,
   useGoogleMaps,
+  googleMapsApiKey,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
   supplierCoordinates: JobSiteCoordinates;
   yards: YardRecord[];
   useGoogleMaps: boolean;
+  googleMapsApiKey: string | null;
 }): Promise<DistanceEstimate | null> {
   const distances = await Promise.all(
     yards.map((yard) =>
@@ -368,7 +395,7 @@ async function getNearestYardDistance({
           longitude: yard.longitude === null ? null : Number(yard.longitude),
         },
         supplierCoordinates,
-        { useGoogleMaps },
+        { useGoogleMaps, googleMapsApiKey },
       ),
     ),
   );

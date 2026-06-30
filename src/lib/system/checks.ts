@@ -134,7 +134,19 @@ export async function getSystemCheckSummary(
       (flag) =>
         flag.feature_name === "google_maps_distance_api" && flag.is_enabled,
     ) ?? false;
-  const googleMapsConfigured = Boolean(process.env.GOOGLE_MAPS_API_KEY);
+  const { data: googleMapsIntegration } = await supabase
+    .from("organization_integrations")
+    .select("is_enabled, credentials_last4")
+    .eq("organization_id", user.organization_id)
+    .eq("provider", "google_maps")
+    .maybeSingle<{
+      is_enabled: boolean;
+      credentials_last4: Record<string, unknown> | null;
+    }>();
+  const googleMapsConfigured = Boolean(
+    googleMapsIntegration?.is_enabled &&
+      typeof googleMapsIntegration.credentials_last4?.api_key === "string",
+  );
 
   checks.push({
     label: "Google Maps distance API",
@@ -146,9 +158,9 @@ export async function getSystemCheckSummary(
           : "warn",
     detail:
       googleMapsEnabled && googleMapsConfigured
-        ? "Distance Matrix is enabled and the server has a Google Maps API key."
+        ? "Distance Matrix is enabled and this organization has a Google Maps API key."
         : googleMapsEnabled
-          ? "Distance Matrix is enabled, but GOOGLE_MAPS_API_KEY is missing; distance estimates will use the local fallback."
+          ? "Distance Matrix is enabled, but this organization has not saved a Google Maps API key under Admin > Integrations > Gmail + OpenAI."
           : "Distance Matrix is disabled for this organization; distance estimates will use the local fallback.",
   });
 
@@ -192,9 +204,10 @@ export async function getSystemCheckSummary(
       (flag) => flag.feature_name === "email_sms_automation" && flag.is_enabled,
     ) ?? false;
   const { data: gmailIntegration } = await supabase
-    .from("organization_integrations")
+    .from("user_integrations")
     .select("is_enabled, credentials_last4")
     .eq("organization_id", user.organization_id)
+    .eq("user_id", user.id)
     .eq("provider", "gmail")
     .maybeSingle<{
       is_enabled: boolean;
@@ -214,9 +227,9 @@ export async function getSystemCheckSummary(
           : "warn",
     detail:
       emailAutomationEnabled && emailConfigured
-        ? "Quote email delivery is enabled and Gmail is connected for this organization."
+        ? "Quote email delivery is enabled and Gmail is connected for your user account."
         : emailAutomationEnabled
-          ? "Quote email delivery is enabled, but Gmail is not connected for this organization."
+          ? "Quote email delivery is enabled, but your user account has not connected Gmail."
           : "Email automation is disabled for this organization; local sends will create links and skip provider delivery.",
   });
 

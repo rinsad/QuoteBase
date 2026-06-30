@@ -28,7 +28,18 @@ export type SlackNotificationResult = {
 type QuoteApprovalContext = {
   customerName: string;
   jobSite: string;
-  material: string;
+  materialSubtotal: number;
+  truckingSubtotal: number;
+  feesSubtotal: number;
+  taxTotal: number;
+  materials: QuoteApprovalMaterial[];
+  plantSelectionReason: string | null;
+  routeDistanceMiles: number | null;
+};
+
+type QuoteApprovalMaterial = {
+  label: string;
+  name: string;
   tier: string;
   supplierName: string;
   quantity: number;
@@ -36,13 +47,12 @@ type QuoteApprovalContext = {
   unitCost: number;
   sellPrice: number;
   materialSubtotal: number;
+  truckingSubtotal: number;
+  feesSubtotal: number;
+  lineTotal: number;
   loadCount: number;
   vehicleName: string | null;
-  feesSubtotal: number;
-  taxTotal: number;
   grossMarginPct: number | null;
-  plantSelectionReason: string | null;
-  routeDistanceMiles: number | null;
 };
 
 type QuoteApprovalRecord = {
@@ -52,6 +62,8 @@ type QuoteApprovalRecord = {
     | { name: string; city: string; state: string }[]
     | null;
   quote_items: QuoteApprovalItemRecord[] | null;
+  material_subtotal: number;
+  trucking_subtotal: number;
   fees_subtotal: number;
   tax_total: number;
 };
@@ -62,6 +74,9 @@ type QuoteApprovalItemRecord = {
   unit_cost: number;
   material_unit_price: number;
   material_subtotal: number;
+  trucking_subtotal: number;
+  fees_subtotal: number;
+  line_total: number;
   load_count: number;
   suppliers: { name: string } | { name: string }[] | null;
   materials:
@@ -241,7 +256,7 @@ function createQuotePayload({
             type: "button",
             text: {
               type: "plain_text",
-              text: "Approve",
+              text: "Accept",
             },
             style: "primary",
             action_id: "quote_approve",
@@ -279,7 +294,34 @@ function createQuotePayload({
             type: "button",
             text: {
               type: "plain_text",
-              text: "Open quote",
+              text: "Suggest",
+            },
+            action_id: "quote_suggest",
+            value: quote.id,
+            confirm: {
+              title: {
+                type: "plain_text",
+                text: "Request changes?",
+              },
+              text: {
+                type: "mrkdwn",
+                text: "This will mark the quote as changes requested in QuoteBase. Add detailed suggestions on the quote page if needed.",
+              },
+              confirm: {
+                type: "plain_text",
+                text: "Request changes",
+              },
+              deny: {
+                type: "plain_text",
+                text: "Cancel",
+              },
+            },
+          },
+          {
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: "Full breakdown",
             },
             url: quoteUrl,
           },
@@ -310,41 +352,19 @@ function createQuotePayload({
             },
             {
               type: "mrkdwn",
-              text: `*Material:*\n${approvalContext.material} (${approvalContext.tier})`,
+              text: `*Materials:*\n${approvalContext.materials.length}`,
             },
             {
               type: "mrkdwn",
-              text: `*Supplier/plant:*\n${approvalContext.supplierName}`,
+              text: `*Material:*\n${formatCurrency(
+                approvalContext.materialSubtotal,
+              )}`,
             },
             {
               type: "mrkdwn",
-              text: `*Quantity:*\n${formatQuantity(
-                approvalContext.quantity,
-              )} ${approvalContext.unit}`,
-            },
-            {
-              type: "mrkdwn",
-              text: `*Sell price:*\n${formatCurrency(
-                approvalContext.sellPrice,
-              )} / ${approvalContext.unit}`,
-            },
-            {
-              type: "mrkdwn",
-              text: `*Gross margin:*\n${
-                approvalContext.grossMarginPct === null
-                  ? "Pending"
-                  : `${approvalContext.grossMarginPct.toFixed(1)}%`
-              }`,
-            },
-            {
-              type: "mrkdwn",
-              text: `*Truck plan:*\n${formatQuantity(
-                approvalContext.loadCount,
-              )} load${approvalContext.loadCount === 1 ? "" : "s"}${
-                approvalContext.vehicleName
-                  ? ` via ${approvalContext.vehicleName}`
-                  : ""
-              }`,
+              text: `*Trucking:*\n${formatCurrency(
+                approvalContext.truckingSubtotal,
+              )}`,
             },
             {
               type: "mrkdwn",
@@ -352,13 +372,14 @@ function createQuotePayload({
                 approvalContext.feesSubtotal,
               )} fees / ${formatCurrency(approvalContext.taxTotal)} tax`,
             },
-            {
-              type: "mrkdwn",
-              text: `*Material subtotal:*\n${formatCurrency(
-                approvalContext.materialSubtotal,
-              )}`,
-            },
           ],
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: buildMaterialSummary(approvalContext.materials, quoteUrl),
+          },
         },
         {
           type: "context",
@@ -375,6 +396,10 @@ function createQuotePayload({
                       1,
                     )} mi.`
               }`,
+            },
+            {
+              type: "mrkdwn",
+              text: `<${quoteUrl}|Open full pricing breakdown in QuoteBase>`,
             },
           ],
         },
@@ -445,7 +470,7 @@ async function getQuoteApprovalContext({
     supabase
       .from("quotes")
       .select(
-        "fees_subtotal, tax_total, customers(name), job_sites(name, city, state), quote_items(quantity, unit, unit_cost, material_unit_price, material_subtotal, load_count, suppliers(name), materials(name, tier), vehicle_types(name))",
+        "material_subtotal, trucking_subtotal, fees_subtotal, tax_total, customers(name), job_sites(name, city, state), quote_items(quantity, unit, unit_cost, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, load_count, suppliers(name), materials(name, tier), vehicle_types(name))",
       )
       .eq("organization_id", organizationId)
       .eq("id", quoteId)
@@ -464,43 +489,66 @@ async function getQuoteApprovalContext({
   ]);
 
   const quote = quoteResult.data;
-  const item = quote?.quote_items?.[0];
   const customer = quote ? relationOne(quote.customers) : null;
   const site = quote ? relationOne(quote.job_sites) : null;
-  const supplier = item ? relationOne(item.suppliers) : null;
-  const material = item ? relationOne(item.materials) : null;
-  const vehicle = item ? relationOne(item.vehicle_types) : null;
 
-  if (!quote || !item || !customer || !site || !supplier || !material) {
+  if (!quote || !customer || !site || !quote.quote_items?.length) {
     return null;
   }
 
-  const quantity = Number(item.quantity);
-  const unitCost = Number(item.unit_cost);
-  const materialSubtotal = Number(item.material_subtotal);
-  const buyCost = unitCost * quantity;
-  const grossMarginPct =
-    materialSubtotal > 0
-      ? ((materialSubtotal - buyCost) / materialSubtotal) * 100
-      : null;
+  const materials = quote.quote_items
+    .map((item, index): QuoteApprovalMaterial | null => {
+      const supplier = relationOne(item.suppliers);
+      const material = relationOne(item.materials);
+      const vehicle = relationOne(item.vehicle_types);
+
+      if (!supplier || !material) {
+        return null;
+      }
+
+      const quantity = Number(item.quantity);
+      const unitCost = Number(item.unit_cost);
+      const materialSubtotal = Number(item.material_subtotal);
+      const buyCost = unitCost * quantity;
+      const grossMarginPct =
+        materialSubtotal > 0
+          ? ((materialSubtotal - buyCost) / materialSubtotal) * 100
+          : null;
+
+      return {
+        label: `M${index + 1}`,
+        name: material.name,
+        tier: material.tier,
+        supplierName: supplier.name,
+        quantity,
+        unit: item.unit,
+        unitCost,
+        sellPrice: Number(item.material_unit_price),
+        materialSubtotal,
+        truckingSubtotal: Number(item.trucking_subtotal),
+        feesSubtotal: Number(item.fees_subtotal),
+        lineTotal: Number(item.line_total),
+        loadCount: Number(item.load_count),
+        vehicleName: vehicle?.name ?? null,
+        grossMarginPct,
+      };
+    })
+    .filter((item): item is QuoteApprovalMaterial => item !== null);
+
+  if (materials.length === 0) {
+    return null;
+  }
+
   const metadata = auditResult.data?.metadata ?? null;
 
   return {
     customerName: customer.name,
     jobSite: `${site.name} - ${site.city}, ${site.state}`,
-    material: material.name,
-    tier: material.tier,
-    supplierName: supplier.name,
-    quantity,
-    unit: item.unit,
-    unitCost,
-    sellPrice: Number(item.material_unit_price),
-    materialSubtotal,
-    loadCount: Number(item.load_count),
-    vehicleName: vehicle?.name ?? null,
+    materialSubtotal: Number(quote.material_subtotal),
+    truckingSubtotal: Number(quote.trucking_subtotal),
     feesSubtotal: Number(quote.fees_subtotal),
     taxTotal: Number(quote.tax_total),
-    grossMarginPct,
+    materials,
     plantSelectionReason: stringMetadata(metadata, "plant_selection_reason"),
     routeDistanceMiles: numberMetadata(metadata, "route_distance_miles"),
   };
@@ -700,6 +748,50 @@ function numberMetadata(
   const value = metadata?.[key];
 
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function buildMaterialSummary(
+  materials: QuoteApprovalMaterial[],
+  quoteUrl: string,
+): string {
+  const visibleMaterials = materials.slice(0, 8);
+  const lines = visibleMaterials.map((material) => {
+    const margin =
+      material.grossMarginPct === null
+        ? "margin pending"
+        : `${material.grossMarginPct.toFixed(1)}% margin`;
+    const loads = `${formatQuantity(material.loadCount)} load${
+      material.loadCount === 1 ? "" : "s"
+    }`;
+    const vehicle = material.vehicleName ? ` via ${material.vehicleName}` : "";
+
+    return [
+      `*${material.label}: ${material.name} (${material.tier})*`,
+      `${formatQuantity(material.quantity)} ${material.unit} | ${
+        material.supplierName
+      } | ${loads}${vehicle}`,
+      `Cost ${formatCurrency(material.unitCost)}/${material.unit} | Sell ${formatCurrency(
+        material.sellPrice,
+      )}/${material.unit} | ${margin}`,
+      `Material ${formatCurrency(
+        material.materialSubtotal,
+      )} | Trucking ${formatCurrency(
+        material.truckingSubtotal,
+      )} | Fees ${formatCurrency(material.feesSubtotal)} | Line ${formatCurrency(
+        material.lineTotal,
+      )}`,
+    ].join("\n");
+  });
+
+  if (materials.length > visibleMaterials.length) {
+    lines.push(
+      `_${materials.length - visibleMaterials.length} more material${
+        materials.length - visibleMaterials.length === 1 ? "" : "s"
+      } hidden. <${quoteUrl}|Open QuoteBase> for the full breakdown._`,
+    );
+  }
+
+  return `*Material breakdown:*\n${lines.join("\n\n")}`;
 }
 
 function formatCurrency(value: number): string {

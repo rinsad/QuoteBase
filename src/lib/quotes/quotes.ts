@@ -10,6 +10,9 @@ export type QuoteStatus =
   | "rejected"
   | "sent"
   | "viewed"
+  | "follow_up"
+  | "won"
+  | "lost"
   | "accepted"
   | "declined"
   | "expired";
@@ -22,6 +25,7 @@ export type QuoteListItem = {
   revision_number: number;
   total: number;
   created_at: string;
+  followup_date: string | null;
   customer_name: string;
   job_site_name: string;
   job_site_city: string;
@@ -36,7 +40,27 @@ export type QuoteListSummary = {
     pendingApproval: number;
     approved: number;
     sent: number;
+    followUp: number;
+    won: number;
+    lost: number;
+    winRate: number;
   };
+  moneyKpis: {
+    quotedValue: number;
+    openValue: number;
+    wonValue: number;
+    lostValue: number;
+    winRate: number;
+    followUpsDue: number;
+  };
+  hotQuotes: DashboardQuoteInsight[];
+  bigQuotes: DashboardQuoteInsight[];
+};
+
+export type DashboardQuoteInsight = QuoteListItem & {
+  heatScore: number;
+  eventCount: number;
+  lastEventAt: string | null;
 };
 
 export type QuoteDetail = {
@@ -76,6 +100,7 @@ export type QuoteDetail = {
   } | null;
   items: QuoteDetailItem[];
   auditEntries: QuoteAuditEntry[];
+  publicEvents: QuotePublicEvent[];
   documents: QuoteDocument[];
   revision_parent: QuoteRevisionLink | null;
   revision_children: QuoteRevisionLink[];
@@ -116,6 +141,15 @@ export type QuoteAuditEntry = {
   user_name: string | null;
 };
 
+export type QuotePublicEvent = {
+  id: string;
+  event_type: string;
+  created_at: string;
+  request_ip: string | null;
+  user_agent: string | null;
+  metadata: Record<string, unknown>;
+};
+
 type QuoteListRecord = {
   id: string;
   quote_number: string;
@@ -124,6 +158,7 @@ type QuoteListRecord = {
   revision_number: number;
   total: number;
   created_at: string;
+  followup_date: string | null;
   customers: { name: string } | { name: string }[] | null;
   job_sites:
     | { name: string; city: string; state: string }
@@ -215,7 +250,19 @@ type AuditRecord = {
   users: { full_name: string } | { full_name: string }[] | null;
 };
 
+type QuotePublicEventRecord = QuotePublicEvent;
+
 type QuoteRevisionLinkRecord = QuoteRevisionLink;
+
+type DashboardEventRecord = {
+  quote_id: string;
+  event_type: string;
+  created_at: string;
+};
+
+const OPEN_STATUSES: QuoteStatus[] = ["sent", "viewed", "follow_up"];
+const WON_STATUSES: QuoteStatus[] = ["won", "accepted"];
+const LOST_STATUSES: QuoteStatus[] = ["lost", "declined"];
 
 export async function getQuoteList(
   user: AppUser,
@@ -226,12 +273,22 @@ export async function getQuoteList(
     return emptyList();
   }
 
-  const [quotesResult, totalCount, draftCount, pendingCount, approvedCount, sentCount] =
+  const [
+    quotesResult,
+    totalCount,
+    draftCount,
+    pendingCount,
+    approvedCount,
+    sentCount,
+    followUpCount,
+    wonCount,
+    lostCount,
+  ] =
     await Promise.all([
       supabase
         .from("quotes")
         .select(
-          "id, quote_number, status, parent_quote_id, revision_number, total, created_at, customers(name), job_sites(name, city, state), users(full_name)",
+          "id, quote_number, status, parent_quote_id, revision_number, total, created_at, followup_date, customers(name), job_sites(name, city, state), users(full_name)",
         )
         .eq("organization_id", user.organization_id)
         .eq("is_active", true)
@@ -266,37 +323,227 @@ export async function getQuoteList(
         .select("id", { count: "exact", head: true })
         .eq("organization_id", user.organization_id)
         .eq("is_active", true)
-        .eq("status", "sent"),
+        .in("status", ["sent", "viewed"]),
+      supabase
+        .from("quotes")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", user.organization_id)
+        .eq("is_active", true)
+        .eq("status", "follow_up"),
+      supabase
+        .from("quotes")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", user.organization_id)
+        .eq("is_active", true)
+        .in("status", ["won", "accepted"]),
+      supabase
+        .from("quotes")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", user.organization_id)
+        .eq("is_active", true)
+        .in("status", ["lost", "declined"]),
     ]);
 
-  return {
-    quotes:
-      quotesResult.data?.map((quote) => {
-        const customer = relationOne(quote.customers);
-        const site = relationOne(quote.job_sites);
-        const requestedBy = relationOne(quote.users);
+  const listQuotes =
+    quotesResult.data?.map((quote) => mapQuoteListRecord(quote)) ?? [];
+  const metricQuotes = await loadDashboardMetricQuotes(user);
+  const metricQuoteIds = metricQuotes.map((quote) => quote.id);
+  const eventRows = metricQuoteIds.length
+    ? await loadDashboardEvents(user.organization_id, metricQuoteIds)
+    : [];
+  const insights = buildDashboardInsights(metricQuotes, eventRows);
+  const won = wonCount.count ?? 0;
+  const lost = lostCount.count ?? 0;
+  const decided = won + lost;
+  const moneyKpis = buildMoneyKpis(metricQuotes, won, lost);
 
-        return {
-          id: quote.id,
-          quote_number: quote.quote_number,
-          status: quote.status,
-          parent_quote_id: quote.parent_quote_id,
-          revision_number: Number(quote.revision_number),
-          total: Number(quote.total),
-          created_at: quote.created_at,
-          customer_name: customer?.name ?? "Unknown customer",
-          job_site_name: site?.name ?? "Unknown site",
-          job_site_city: [site?.city, site?.state].filter(Boolean).join(", "),
-          requested_by_name: requestedBy?.full_name ?? "Unknown user",
-        };
-      }) ?? [],
+  return {
+    quotes: listQuotes,
     counts: {
       total: totalCount.count ?? 0,
       drafts: draftCount.count ?? 0,
       pendingApproval: pendingCount.count ?? 0,
       approved: approvedCount.count ?? 0,
       sent: sentCount.count ?? 0,
+      followUp: followUpCount.count ?? 0,
+      won,
+      lost,
+      winRate: decided ? (won / decided) * 100 : 0,
     },
+    moneyKpis,
+    hotQuotes: insights
+      .filter((quote) => quote.heatScore > 0)
+      .sort((left, right) => right.heatScore - left.heatScore || right.total - left.total)
+      .slice(0, 5),
+    bigQuotes: insights
+      .filter((quote) => OPEN_STATUSES.includes(quote.status))
+      .sort((left, right) => right.total - left.total)
+      .slice(0, 5),
+  };
+}
+
+async function loadDashboardMetricQuotes(user: AppUser): Promise<QuoteListItem[]> {
+  const supabase = await createClient();
+  const pageSize = 1000;
+  const maxRows = 5000;
+  const quotes: QuoteListItem[] = [];
+
+  if (!supabase) {
+    return quotes;
+  }
+
+  for (let from = 0; from < maxRows; from += pageSize) {
+    const { data, error } = await supabase
+      .from("quotes")
+      .select(
+        "id, quote_number, status, parent_quote_id, revision_number, total, created_at, followup_date, customers(name), job_sites(name, city, state), users(full_name)",
+      )
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .range(from, from + pageSize - 1)
+      .returns<QuoteListRecord[]>();
+
+    if (error || !data?.length) {
+      break;
+    }
+
+    quotes.push(...data.map((quote) => mapQuoteListRecord(quote)));
+
+    if (data.length < pageSize) {
+      break;
+    }
+  }
+
+  return quotes;
+}
+
+async function loadDashboardEvents(
+  organizationId: string,
+  quoteIds: string[],
+): Promise<DashboardEventRecord[]> {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    return [];
+  }
+
+  const { data } = await supabase
+    .from("quote_public_events")
+    .select("quote_id, event_type, created_at")
+    .eq("organization_id", organizationId)
+    .in("quote_id", quoteIds)
+    .order("created_at", { ascending: false })
+    .limit(500)
+    .returns<DashboardEventRecord[]>();
+
+  return data ?? [];
+}
+
+function buildMoneyKpis(
+  quotes: QuoteListItem[],
+  wonCount: number,
+  lostCount: number,
+): QuoteListSummary["moneyKpis"] {
+  const decided = wonCount + lostCount;
+
+  return quotes.reduce(
+    (kpis, quote) => ({
+      quotedValue: kpis.quotedValue + quote.total,
+      openValue: OPEN_STATUSES.includes(quote.status)
+        ? kpis.openValue + quote.total
+        : kpis.openValue,
+      wonValue: WON_STATUSES.includes(quote.status)
+        ? kpis.wonValue + quote.total
+        : kpis.wonValue,
+      lostValue: LOST_STATUSES.includes(quote.status)
+        ? kpis.lostValue + quote.total
+        : kpis.lostValue,
+      winRate: decided ? (wonCount / decided) * 100 : 0,
+      followUpsDue:
+        isFollowUpDue(quote) ? kpis.followUpsDue + 1 : kpis.followUpsDue,
+    }),
+    {
+      quotedValue: 0,
+      openValue: 0,
+      wonValue: 0,
+      lostValue: 0,
+      winRate: decided ? (wonCount / decided) * 100 : 0,
+      followUpsDue: 0,
+    },
+  );
+}
+
+function buildDashboardInsights(
+  quotes: QuoteListItem[],
+  events: DashboardEventRecord[],
+): DashboardQuoteInsight[] {
+  const engagementByQuote = new Map<
+    string,
+    { eventCount: number; heatScore: number; lastEventAt: string | null }
+  >();
+  const now = Date.now();
+
+  for (const event of events) {
+    const existing =
+      engagementByQuote.get(event.quote_id) ??
+      ({ eventCount: 0, heatScore: 0, lastEventAt: null } satisfies {
+        eventCount: number;
+        heatScore: number;
+        lastEventAt: string | null;
+      });
+    const eventTime = new Date(event.created_at).getTime();
+    const ageDays = Number.isFinite(eventTime)
+      ? Math.max(0, (now - eventTime) / 86_400_000)
+      : 30;
+    const recencyMultiplier = ageDays <= 1 ? 3 : ageDays <= 7 ? 2 : 1;
+    const eventWeight =
+      event.event_type === "viewed"
+        ? 8
+        : event.event_type.startsWith("payment")
+          ? 16
+          : 12;
+
+    existing.eventCount += 1;
+    existing.heatScore += eventWeight * recencyMultiplier;
+    existing.lastEventAt =
+      !existing.lastEventAt || event.created_at > existing.lastEventAt
+        ? event.created_at
+        : existing.lastEventAt;
+    engagementByQuote.set(event.quote_id, existing);
+  }
+
+  return quotes.map((quote) => {
+    const engagement = engagementByQuote.get(quote.id);
+    const valueBoost = Math.min(25, quote.total / 1000);
+
+    return {
+      ...quote,
+      eventCount: engagement?.eventCount ?? 0,
+      heatScore: Math.round((engagement?.heatScore ?? 0) + valueBoost),
+      lastEventAt: engagement?.lastEventAt ?? null,
+    };
+  });
+}
+
+function mapQuoteListRecord(quote: QuoteListRecord): QuoteListItem {
+  const customer = relationOne(quote.customers);
+  const site = relationOne(quote.job_sites);
+  const requestedBy = relationOne(quote.users);
+
+  return {
+    id: quote.id,
+    quote_number: quote.quote_number,
+    status: quote.status,
+    parent_quote_id: quote.parent_quote_id,
+    revision_number: Number(quote.revision_number),
+    total: Number(quote.total),
+    created_at: quote.created_at,
+    followup_date: quote.followup_date,
+    customer_name: customer?.name ?? "Unknown customer",
+    job_site_name: site?.name ?? "Unknown site",
+    job_site_city: [site?.city, site?.state].filter(Boolean).join(", "),
+    requested_by_name: requestedBy?.full_name ?? "Unknown user",
   };
 }
 
@@ -310,7 +557,7 @@ export async function getQuoteDetail(
     return null;
   }
 
-  const [quoteResult, auditResult, documents] = await Promise.all([
+  const [quoteResult, auditResult, publicEventsResult, documents] = await Promise.all([
     supabase
       .from("quotes")
       .select(
@@ -329,6 +576,14 @@ export async function getQuoteDetail(
       .order("created_at", { ascending: false })
       .limit(10)
       .returns<AuditRecord[]>(),
+    supabase
+      .from("quote_public_events")
+      .select("id, event_type, created_at, request_ip, user_agent, metadata")
+      .eq("organization_id", user.organization_id)
+      .eq("quote_id", quoteId)
+      .order("created_at", { ascending: false })
+      .limit(10)
+      .returns<QuotePublicEventRecord[]>(),
     getQuoteDocuments({
       supabase,
       organizationId: user.organization_id,
@@ -427,6 +682,20 @@ export async function getQuoteDetail(
         created_at: entry.created_at,
         user_name: relationOne(entry.users)?.full_name ?? null,
       })) ?? [],
+    publicEvents:
+      publicEventsResult.data?.map((event) => ({
+        id: event.id,
+        event_type: event.event_type,
+        created_at: event.created_at,
+        request_ip: event.request_ip,
+        user_agent: event.user_agent,
+        metadata:
+          event.metadata &&
+          typeof event.metadata === "object" &&
+          !Array.isArray(event.metadata)
+            ? event.metadata
+            : {},
+      })) ?? [],
     documents,
     revision_parent: parentResult.data
       ? {
@@ -450,6 +719,14 @@ export async function getQuoteDetail(
   };
 }
 
+function isFollowUpDue(quote: QuoteListItem): boolean {
+  return (
+    OPEN_STATUSES.includes(quote.status) &&
+    Boolean(quote.followup_date) &&
+    quote.followup_date! <= new Date().toISOString().slice(0, 10)
+  );
+}
+
 function relationOne<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
@@ -463,6 +740,20 @@ function emptyList(): QuoteListSummary {
       pendingApproval: 0,
       approved: 0,
       sent: 0,
+      followUp: 0,
+      won: 0,
+      lost: 0,
+      winRate: 0,
     },
+    moneyKpis: {
+      quotedValue: 0,
+      openValue: 0,
+      wonValue: 0,
+      lostValue: 0,
+      winRate: 0,
+      followUpsDue: 0,
+    },
+    hotQuotes: [],
+    bigQuotes: [],
   };
 }

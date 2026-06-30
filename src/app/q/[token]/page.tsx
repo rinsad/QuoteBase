@@ -1,9 +1,11 @@
 import { CalendarDays, CheckCircle2, FileText, UserRound, XCircle } from "lucide-react";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { submitPublicQuoteResponse } from "@/app/q/[token]/actions";
 import { PublicPrintButton } from "@/app/q/[token]/public-print-button";
 import { getPublicQuoteByToken, type PublicQuoteItem } from "@/lib/quotes/delivery";
+import { isCodPaymentTerms } from "@/lib/quotes/pricing";
 
 export default async function PublicQuotePage({
   params,
@@ -18,14 +20,22 @@ export default async function PublicQuotePage({
     notFound();
   }
 
-  const quote = await getPublicQuoteByToken(token);
+  const quote = await getPublicQuoteByToken(
+    token,
+    publicRequestMetadata(await headers()),
+  );
 
   if (!quote) {
     notFound();
   }
 
-  const canRespond = quote.status === "sent" || quote.status === "viewed";
+  const canRespond =
+    quote.status === "sent" ||
+    quote.status === "viewed" ||
+    quote.status === "follow_up";
   const responseAction = submitPublicQuoteResponse.bind(null, token);
+  const requiresCardPayment = isCodPaymentTerms(quote.customer.payment_terms);
+  const companyName = quote.branding.company_name;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(135deg,#f8fbff_0%,#eef5fb_46%,#e9f6f3_100%)] px-4 py-6 text-slate-950 print:bg-white print:px-0 print:py-0">
@@ -39,7 +49,7 @@ export default async function PublicQuotePage({
             <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-sm font-semibold uppercase text-sky-700">
-                  Western Materials
+                  {companyName}
                 </p>
                 <h1 className="mt-3 text-4xl font-semibold">Quote</h1>
                 <p className="mt-2 text-sm text-slate-500">
@@ -160,10 +170,36 @@ export default async function PublicQuotePage({
                     name="response_note"
                     rows={3}
                     className="soft-control mt-2 w-full resize-none bg-white"
-                    placeholder="Add a short note for Western Materials"
+                    placeholder={`Add a short note for ${companyName}`}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-600">
+                    Your name
+                  </span>
+                  <input
+                    name="signer_name"
+                    className="soft-control mt-2 w-full bg-white"
+                    placeholder="Name for acceptance record"
                   />
                 </label>
                 <div className="grid gap-3 sm:grid-cols-2 lg:min-w-80">
+                  <p className="text-xs leading-5 text-slate-500 sm:col-span-2">
+                    {requiresCardPayment
+                      ? "Accepting opens secure card checkout. The quote is accepted after payment is approved."
+                      : `Accepting confirms you agree to the quote terms and want ${companyName} to proceed.`}
+                  </p>
+                  <p
+                    className={`rounded-md px-3 py-2 text-xs font-semibold sm:col-span-2 ${
+                      requiresCardPayment
+                        ? "bg-amber-50 text-amber-800 ring-1 ring-amber-100"
+                        : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
+                    }`}
+                  >
+                    {requiresCardPayment
+                      ? "Payment terms: COD - card payment required to accept."
+                      : "Payment terms: Net30 - no payment due at acceptance."}
+                  </p>
                   <button
                     type="submit"
                     name="response"
@@ -171,7 +207,7 @@ export default async function PublicQuotePage({
                     className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white shadow-[0_14px_32px_rgba(5,150,105,0.24)] transition hover:bg-emerald-700"
                   >
                     <CheckCircle2 className="size-4" />
-                    Accept quote
+                    {requiresCardPayment ? "Pay and accept quote" : "Accept quote"}
                   </button>
                   <button
                     type="submit"
@@ -198,6 +234,19 @@ export default async function PublicQuotePage({
       </div>
     </main>
   );
+}
+
+function publicRequestMetadata(headerList: Headers) {
+  const forwardedFor = headerList.get("x-forwarded-for");
+  const requestIp =
+    forwardedFor?.split(",")[0]?.trim() ||
+    headerList.get("x-real-ip") ||
+    null;
+
+  return {
+    requestIp,
+    userAgent: headerList.get("user-agent"),
+  };
 }
 
 function InfoLine({

@@ -191,6 +191,7 @@ export async function POST(request: Request) {
         materialId: parsed.value.material_id,
         taxRateId: parsed.value.tax_rate_id ?? "",
         quantity: parsed.value.quantity,
+        lineItems: [],
         notes: parsed.value.notes,
         useSelectedPlant: parsed.value.use_selected_plant,
         materialUnitPriceOverride:

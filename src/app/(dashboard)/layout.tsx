@@ -3,19 +3,19 @@ import { redirect } from "next/navigation";
 import {
   Bell,
   BookOpen,
-  FileCheck2,
   FileText,
   LayoutDashboard,
   Search,
   Settings,
-  ShieldCheck,
-  Truck,
   Users,
   Zap,
 } from "lucide-react";
 
 import { signOut } from "@/app/(auth)/login/actions";
+import { AssistantBox } from "@/app/(dashboard)/dashboard/assistant-box";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { createClient } from "@/lib/supabase/server";
 
 type WorkspaceLayoutProps = {
   children: React.ReactNode;
@@ -26,9 +26,11 @@ type NavItem = {
   href?: string;
   icon: typeof LayoutDashboard;
   adminOnly?: boolean;
+  accountManagerAllowed?: boolean;
   children?: Array<{
     label: string;
     href: string;
+    adminOnly?: boolean;
   }>;
 };
 
@@ -38,33 +40,56 @@ const primaryNav: NavItem[] = [
     label: "Quotes",
     href: "/quotes",
     icon: FileText,
-    children: [
-      { label: "All quotes", href: "/quotes" },
-      { label: "New quote", href: "/quotes/new" },
-      { label: "Approved", href: "/quotes/approved" },
-    ],
   },
   { label: "Customers", href: "/customers", icon: Users },
   {
-    label: "Approvals",
-    href: "/quotes/approvals",
-    icon: FileCheck2,
+    label: "Masters",
+    href: "/admin/pricing",
+    icon: BookOpen,
     adminOnly: true,
+    accountManagerAllowed: true,
+    children: [
+      { label: "Pricing rules", href: "/admin/pricing" },
+      { label: "Price book", href: "/admin/price-book" },
+      { label: "Material prices", href: "/admin/material-prices" },
+      { label: "Tax rates", href: "/admin/tax-rates" },
+      { label: "Plants", href: "/admin/plants" },
+      { label: "Suppliers", href: "/admin/suppliers" },
+      { label: "Vehicle types", href: "/admin/vehicle-types" },
+      { label: "Yards", href: "/admin/yards" },
+    ],
   },
-  { label: "Pricing", href: "/admin/pricing", icon: BookOpen, adminOnly: true },
-  { label: "Operations", href: "/admin/plants", icon: Truck, adminOnly: true },
   {
     label: "Integrations",
     href: "/admin/integrations/gmail",
     icon: Zap,
-    adminOnly: true,
     children: [
-      { label: "Gmail", href: "/admin/integrations/gmail" },
-      { label: "Slack", href: "/admin/integrations/slack" },
-      { label: "Pipedrive", href: "/admin/integrations/pipedrive" },
+      { label: "Gmail + OpenAI", href: "/admin/integrations/gmail" },
+      { label: "Slack", href: "/admin/integrations/slack", adminOnly: true },
+      {
+        label: "Stripe",
+        href: "/admin/integrations/stripe",
+        adminOnly: true,
+      },
+      {
+        label: "Authorize.net",
+        href: "/admin/integrations/authorizenet",
+        adminOnly: true,
+      },
     ],
   },
-  { label: "Admin", href: "/admin/system-check", icon: Settings, adminOnly: true },
+  {
+    label: "Admin",
+    href: "/admin/system-check",
+    icon: Settings,
+    adminOnly: true,
+    children: [
+      { label: "Onboarding", href: "/admin/onboarding" },
+      { label: "Branding", href: "/admin/branding" },
+      { label: "Users", href: "/admin/users" },
+      { label: "System check", href: "/admin/system-check" },
+    ],
+  },
 ];
 
 export default async function WorkspaceLayout({
@@ -80,8 +105,9 @@ export default async function WorkspaceLayout({
     (item) =>
       !item.adminOnly ||
       user.role === "admin" ||
-      user.role === "account_manager",
+      (item.accountManagerAllowed && user.role === "account_manager"),
   );
+  const showAssistant = await isAssistantEnabled(user.organization_id);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -111,23 +137,29 @@ export default async function WorkspaceLayout({
               const Icon = item.icon;
 
               return item.children ? (
-                <div key={item.label} className="min-w-fit lg:mb-2">
-                  <div className="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground">
+                <details key={item.label} className="group min-w-fit lg:mb-2">
+                  <summary className="flex cursor-pointer list-none items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition hover:bg-secondary hover:text-primary [&::-webkit-details-marker]:hidden">
                     <Icon className="size-4" />
-                    {item.label}
+                    <span>{item.label}</span>
+                    <span className="ml-auto text-xs transition group-open:rotate-90">
+                      ›
+                    </span>
+                  </summary>
+                  <div className="flex gap-1 border-l border-border/70 pl-2 lg:ml-5 lg:mt-1 lg:block">
+                    {item.children
+                      .filter((child) => !child.adminOnly || user.role === "admin")
+                      .map((child) => (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          className="flex min-w-fit items-center rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground/80 transition hover:bg-secondary hover:text-primary lg:mb-0.5"
+                        >
+                          <span className="mr-2 hidden h-1.5 w-1.5 rounded-full bg-border lg:inline-block" />
+                          {child.label}
+                        </Link>
+                      ))}
                   </div>
-                  <div className="flex gap-1 lg:ml-6 lg:block">
-                    {item.children.map((child) => (
-                      <Link
-                        key={child.href}
-                        href={child.href}
-                        className="flex min-w-fit items-center rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:bg-secondary hover:text-primary lg:mb-0.5"
-                      >
-                        {child.label}
-                      </Link>
-                    ))}
-                  </div>
-                </div>
+                </details>
               ) : (
                 <Link
                   key={item.href ?? item.label}
@@ -153,17 +185,25 @@ export default async function WorkspaceLayout({
 
         <section className="min-w-0">
           <header className="flex min-h-14 items-center justify-between gap-4 border-b border-border bg-card px-4 sm:px-6">
-            <div className="hidden min-w-0 items-center gap-3 rounded-md border border-border bg-background px-3 py-2 sm:flex sm:w-96">
+            <form
+              action="/dashboard"
+              className="hidden min-w-0 items-center gap-3 rounded-md border border-border bg-background px-3 py-2 transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 sm:flex sm:w-96"
+              role="search"
+            >
               <Search className="size-4 text-muted-foreground" />
-              <span className="truncate text-sm text-muted-foreground">
+              <label htmlFor="workspace-search" className="sr-only">
                 Search quotes, customers, job sites, audit events
-              </span>
-            </div>
+              </label>
+              <input
+                id="workspace-search"
+                name="q"
+                type="search"
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                placeholder="Search quotes, customers, job sites, audit events"
+              />
+            </form>
             <div className="flex items-center gap-2 sm:ml-auto">
-              <span className="hidden items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-primary sm:inline-flex">
-                <ShieldCheck className="size-3.5" />
-                Tenant-safe workspace
-              </span>
+              <ThemeToggle />
               <button
                 type="button"
                 className="rounded-md border border-border bg-card p-2 text-muted-foreground"
@@ -184,8 +224,26 @@ export default async function WorkspaceLayout({
           </div>
         </section>
       </div>
+      {showAssistant ? <AssistantBox /> : null}
     </main>
   );
+}
+
+async function isAssistantEnabled(organizationId: string): Promise<boolean> {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    return false;
+  }
+
+  const { data } = await supabase
+    .from("organization_integrations")
+    .select("is_enabled")
+    .eq("organization_id", organizationId)
+    .eq("provider", "openai")
+    .maybeSingle<{ is_enabled: boolean }>();
+
+  return data?.is_enabled ?? false;
 }
 
 function formatRole(role: string) {

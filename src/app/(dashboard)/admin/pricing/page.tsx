@@ -1,10 +1,14 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BadgeDollarSign, Save } from "lucide-react";
+import { BadgeDollarSign, Save, X } from "lucide-react";
 
 import { updatePricingConfig } from "@/app/(dashboard)/admin/pricing/actions";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
-import { getAdminPricingConfig } from "@/lib/admin/pricing";
+import {
+  getAdminPricingConfig,
+  type AdminPricingConfig,
+} from "@/lib/admin/pricing";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
 const defaultTruckRateOptions = ["standard", "target", "premium", "stretch"];
@@ -12,7 +16,7 @@ const defaultTruckRateOptions = ["standard", "target", "premium", "stretch"];
 export default async function AdminPricingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string }>;
+  searchParams: Promise<{ edit?: string; saved?: string }>;
 }) {
   const user = await getCurrentUser();
 
@@ -65,18 +69,23 @@ export default async function AdminPricingPage({
         ) : null}
 
         <section className="mt-6 glass-panel p-6 sm:p-8">
-          <div className="flex items-center gap-3">
-            <div className="icon-well text-blue-700">
-              <BadgeDollarSign className="size-6" />
-            </div>
-            <div>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="icon-well text-blue-700">
+                <BadgeDollarSign className="size-6" />
+              </div>
+              <div>
               <p className="text-sm font-medium text-muted-foreground">
                 Quote Engine
               </p>
               <h2 className="accent-title text-3xl font-semibold tracking-normal">
                 Pricing rules
               </h2>
+              </div>
             </div>
+            <Link href="/admin/pricing?edit=rules" className="mac-button-primary h-10 px-4">
+              Edit pricing
+            </Link>
           </div>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">
             These values control draft quote calculations for this organization.
@@ -84,10 +93,134 @@ export default async function AdminPricingPage({
           </p>
         </section>
 
-        <form action={updatePricingConfig} className="mt-6 space-y-6">
-          <section className="glass-panel p-5 sm:p-6">
-            <h2 className="text-xl font-semibold">Tier dollar markups</h2>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="mt-6 glass-panel overflow-hidden">
+          <div className="master-table-head lg:grid-cols-[1fr_1fr_1fr_100px] lg:gap-4">
+            <span>Rule</span>
+            <span>Value</span>
+            <span>Group</span>
+            <span>Action</span>
+          </div>
+          <div className="divide-y divide-border">
+            <PricingSummaryRow
+              label="R1 markup"
+              value={`${formatMoney(pricing.tier_r1_min)}-${formatMoney(pricing.tier_r1_max)}`}
+              group="Tier markups"
+            />
+            <PricingSummaryRow
+              label="R2 markup"
+              value={`${formatMoney(pricing.tier_r2_min)}-${formatMoney(pricing.tier_r2_max)}`}
+              group="Tier markups"
+            />
+            <PricingSummaryRow
+              label="R3 markup"
+              value={`${formatMoney(pricing.tier_r3_min)}-${formatMoney(pricing.tier_r3_max)}`}
+              group="Tier markups"
+            />
+            <PricingSummaryRow
+              label="R4 markup"
+              value={`${formatMoney(pricing.tier_r4_min)}-${formatMoney(pricing.tier_r4_max)}`}
+              group="Tier markups"
+            />
+            <PricingSummaryRow
+              label="Default truck rate"
+              value={formatLabel(pricing.default_truck_rate)}
+              group="Trucking"
+            />
+            <PricingSummaryRow
+              label="Material minimum"
+              value={formatMoney(pricing.material_minimum ?? 0)}
+              group="Minimums and fees"
+            />
+            <PricingSummaryRow
+              label="Trucking minimum"
+              value={formatMoney(pricing.trucking_minimum ?? 0)}
+              group="Minimums and fees"
+            />
+            <PricingSummaryRow
+              label="Fuel surcharge"
+              value={formatMoney(pricing.fuel_surcharge_per_load)}
+              group="Minimums and fees"
+            />
+            <PricingSummaryRow
+              label="Environmental fee"
+              value={formatMoney(pricing.environmental_fee_per_load)}
+              group="Minimums and fees"
+            />
+            <PricingSummaryRow
+              label="Overhead per ton"
+              value={formatMoney(pricing.overhead_per_ton)}
+              group="Minimums and fees"
+            />
+            <PricingSummaryRow
+              label="Big quote threshold"
+              value={formatMoney(pricing.big_quote_threshold ?? 10000)}
+              group="Follow-up agent"
+            />
+            <PricingSummaryRow
+              label="Auto-send follow-ups"
+              value={pricing.follow_up_auto_send_enabled ? "Enabled" : "Disabled"}
+              group="Follow-up agent"
+            />
+            <PricingSummaryRow
+              label="SMS follow-up drafts"
+              value={pricing.follow_up_sms_enabled ? "Enabled" : "Disabled"}
+              group="Follow-up agent"
+            />
+          </div>
+        </section>
+
+        <PricingRulesSlideOver pricing={pricing} open={params.edit === "rules"} />
+      </div>
+    </main>
+  );
+}
+
+function PricingRulesSlideOver({
+  pricing,
+  open,
+}: {
+  pricing: AdminPricingConfig;
+  open: boolean;
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <aside className="customer-slide-over" aria-label="Pricing rules editor">
+      <Link
+        href="/admin/pricing"
+        className="customer-slide-backdrop"
+        aria-label="Close pricing rules editor"
+      />
+      <div className="customer-slide-panel">
+        <div className="slide-panel-header">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-muted-foreground">
+                Edit pricing
+              </p>
+              <h2 className="mt-1 truncate text-2xl font-semibold">
+                Pricing rules
+              </h2>
+              <p className="mt-1 truncate text-sm text-muted-foreground">
+                Quote engine markups, trucking, minimums, and fees.
+              </p>
+            </div>
+            <Link
+              href="/admin/pricing"
+              className="mac-link size-9 shrink-0 px-0"
+              aria-label="Close pricing rules editor"
+            >
+              <X className="size-4" />
+            </Link>
+          </div>
+        </div>
+
+        <form action={updatePricingConfig} className="space-y-5 p-4" noValidate>
+          <section className="soft-row p-4">
+            <h3 className="text-sm font-semibold">Tier dollar markups</h3>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <RangeFields
                 label="R1"
                 minName="tier_r1_min"
@@ -119,9 +252,9 @@ export default async function AdminPricingPage({
             </div>
           </section>
 
-          <section className="glass-panel p-5 sm:p-6">
-            <h2 className="text-xl font-semibold">Trucking rates</h2>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <section className="soft-row p-4">
+            <h3 className="text-sm font-semibold">Trucking rates</h3>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <MoneyField name="truck_floor_rate" label="Floor $/hr" value={pricing.truck_floor_rate} />
               <MoneyField name="truck_standard_rate" label="Standard $/hr" value={pricing.truck_standard_rate} />
               <MoneyField name="truck_target_rate" label="Target $/hr" value={pricing.truck_target_rate} />
@@ -146,27 +279,60 @@ export default async function AdminPricingPage({
             </div>
           </section>
 
-          <section className="glass-panel p-5 sm:p-6">
-            <h2 className="text-xl font-semibold">Minimums & fees</h2>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <section className="soft-row p-4">
+            <h3 className="text-sm font-semibold">Minimums and fees</h3>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <MoneyField name="material_minimum" label="Material minimum" value={pricing.material_minimum ?? 0} />
               <MoneyField name="trucking_minimum" label="Trucking minimum" value={pricing.trucking_minimum ?? 0} />
               <MoneyField name="fuel_surcharge_per_load" label="Fuel surcharge" value={pricing.fuel_surcharge_per_load} />
               <MoneyField name="environmental_fee_per_load" label="Environmental fee" value={pricing.environmental_fee_per_load} />
               <MoneyField name="overhead_per_ton" label="Overhead per ton" value={pricing.overhead_per_ton} />
               <MoneyField name="cc_surcharge_pct" label="CC surcharge %" value={pricing.cc_surcharge_pct ?? 0} />
+              <MoneyField name="big_quote_threshold" label="Big quote threshold" value={pricing.big_quote_threshold ?? 10000} />
+            </div>
+            <div className="mt-4 grid gap-3">
+              <CheckboxField
+                name="follow_up_auto_send_enabled"
+                label="Auto-send eligible email follow-ups"
+                defaultChecked={Boolean(pricing.follow_up_auto_send_enabled)}
+              />
+              <CheckboxField
+                name="follow_up_sms_enabled"
+                label="Create SMS follow-up drafts when email is missing"
+                defaultChecked={Boolean(pricing.follow_up_sms_enabled)}
+              />
             </div>
           </section>
 
-          <div className="flex justify-end">
-            <Button type="submit" className="h-11 rounded-full">
-              <Save className="size-4" />
-              Save pricing
-            </Button>
-          </div>
+          <Button type="submit" className="h-11 w-full rounded-md">
+            <Save className="size-4" />
+            Save pricing
+          </Button>
         </form>
       </div>
-    </main>
+    </aside>
+  );
+}
+
+function PricingSummaryRow({
+  label,
+  value,
+  group,
+}: {
+  label: string;
+  value: string;
+  group: string;
+}) {
+  return (
+    <Link
+      href="/admin/pricing?edit=rules"
+      className="grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[1fr_1fr_1fr_100px] lg:items-center lg:gap-4"
+    >
+      <p className="text-sm font-semibold">{label}</p>
+      <p className="font-mono text-sm font-semibold">{value}</p>
+      <p className="text-sm text-muted-foreground">{group}</p>
+      <span className="mac-link h-9 justify-center px-3 text-xs">Edit</span>
+    </Link>
   );
 }
 
@@ -231,9 +397,39 @@ function NumberField({
   );
 }
 
+function CheckboxField({
+  name,
+  label,
+  defaultChecked,
+}: {
+  name: string;
+  label: string;
+  defaultChecked: boolean;
+}) {
+  return (
+    <label className="flex items-center gap-3 rounded-xl bg-white/70 px-3 py-3 text-sm font-medium ring-1 ring-white/80">
+      <input
+        name={name}
+        type="checkbox"
+        defaultChecked={defaultChecked}
+        className="size-4"
+      />
+      {label}
+    </label>
+  );
+}
+
 function formatLabel(value: string) {
   return value
     .split("_")
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
 }

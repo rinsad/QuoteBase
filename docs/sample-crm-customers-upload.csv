@@ -1,0 +1,6 @@
+company_name,contact_name,title,email,phone,domain,deal_title,deal_value,expected_close_date,notes
+Acme Siteworks,Maria Chen,Procurement Manager,maria.chen@acmesiteworks.test,213-555-0142,acmesiteworks.test,Los Angeles yard base material,18500,2026-07-15,"Needs Class II base and trucking for a July site prep window."
+Brightline Contractors,David Romero,Estimator,david.romero@brightlinecontractors.test,310-555-0188,brightlinecontractors.test,Westside concrete demo haul-off,9200,2026-07-08,"Asked for recycled aggregate options and fast turnaround."
+Northstar Builders,Alicia Patel,Project Manager,alicia.patel@northstarbuilders.test,626-555-0119,northstarbuilders.test,Pasadena multifamily import fill,34250,2026-07-22,"Large quote. Confirm delivery access and truck restrictions."
+Summit Civil Group,Jordan Lee,Operations Lead,jordan.lee@summitcivil.test,818-555-0164,summitcivil.test,Glendale storm drain bedding sand,12800,2026-07-12,"Prefers email follow-up. Has multiple active public works jobs."
+Harborview Development,Chris Nguyen,Owner,chris.nguyen@harborviewdev.test,562-555-0105,harborviewdev.test,Long Beach retail pad aggregate,26750,2026-07-30,"COD account. Wants quote separated by material and trucking."

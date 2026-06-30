@@ -26,7 +26,7 @@ export async function estimateAndCacheDistance(
   organizationId: string,
   origin: Coordinate,
   destination: Coordinate,
-  options: { useGoogleMaps?: boolean } = {},
+  options: { useGoogleMaps?: boolean; googleMapsApiKey?: string | null } = {},
 ): Promise<DistanceEstimate | null> {
   if (
     origin.latitude === null ||
@@ -59,7 +59,11 @@ export async function estimateAndCacheDistance(
 
   const googleMapsDistance =
     options.useGoogleMaps === true
-      ? await getGoogleMapsDistance(resolvedOrigin, resolvedDestination)
+      ? await getGoogleMapsDistance(
+          resolvedOrigin,
+          resolvedDestination,
+          options.googleMapsApiKey ?? null,
+        )
       : null;
   const distance =
     googleMapsDistance ?? estimateDistance(resolvedOrigin, resolvedDestination);
@@ -137,10 +141,11 @@ async function cacheDistance(
 async function getGoogleMapsDistance(
   origin: ResolvedCoordinate,
   destination: ResolvedCoordinate,
+  apiKey: string | null,
 ): Promise<DistanceEstimate | null> {
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  const googleMapsApiKey = apiKey?.trim() || process.env.GOOGLE_MAPS_API_KEY;
 
-  if (!apiKey) {
+  if (!googleMapsApiKey) {
     return null;
   }
 
@@ -151,7 +156,7 @@ async function getGoogleMapsDistance(
     `${destination.latitude},${destination.longitude}`,
   );
   url.searchParams.set("units", "imperial");
-  url.searchParams.set("key", apiKey);
+  url.searchParams.set("key", googleMapsApiKey);
 
   try {
     const response = await fetch(url, { cache: "no-store" });

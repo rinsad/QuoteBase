@@ -7,7 +7,6 @@ import { logAction } from "@/lib/audit/log-action";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import {
   encryptedGmailOAuthSettings,
-  encryptedGmailOAuthSettingsWithoutMailbox,
   gmailCredentialsLast4,
 } from "@/lib/integrations/gmail";
 import { createClient } from "@/lib/supabase/server";
@@ -114,10 +113,6 @@ export async function disconnectGmailIntegration() {
     redirect("/login");
   }
 
-  if (user.role !== "admin") {
-    throw new Error("Only admins can disconnect Gmail.");
-  }
-
   const supabase = await createClient();
 
   if (!supabase) {
@@ -125,31 +120,30 @@ export async function disconnectGmailIntegration() {
   }
 
   const { data: before } = await supabase
-    .from("organization_integrations")
+    .from("user_integrations")
     .select(
       "id, provider, is_enabled, config, credentials_encrypted, credentials_last4, updated_at",
     )
     .eq("organization_id", user.organization_id)
+    .eq("user_id", user.id)
     .eq("provider", "gmail")
     .maybeSingle<ExistingIntegration>();
-  const mailboxCleared = encryptedGmailOAuthSettingsWithoutMailbox(
-    before?.credentials_encrypted ?? null,
-  );
 
   const { data: after, error } = await supabase
-    .from("organization_integrations")
+    .from("user_integrations")
     .upsert(
       {
         organization_id: user.organization_id,
+        user_id: user.id,
         provider: "gmail",
         is_enabled: false,
         config: {},
-        credentials_encrypted: mailboxCleared.encrypted,
-        credentials_last4: mailboxCleared.last4,
+        credentials_encrypted: null,
+        credentials_last4: {},
         updated_by: user.id,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "organization_id,provider" },
+      { onConflict: "organization_id,user_id,provider" },
     )
     .select("id, provider, is_enabled, config, credentials_last4, updated_at")
     .single<Record<string, unknown>>();
@@ -161,7 +155,7 @@ export async function disconnectGmailIntegration() {
   await logAction({
     user,
     action: "integration.gmail.disconnected",
-    targetTable: "organization_integrations",
+    targetTable: "user_integrations",
     targetId: typeof after.id === "string" ? after.id : undefined,
     before,
     after,

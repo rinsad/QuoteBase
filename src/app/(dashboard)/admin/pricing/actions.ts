@@ -26,7 +26,7 @@ export async function updatePricingConfig(formData: FormData) {
     throw new Error("Supabase is not configured for this workspace.");
   }
 
-  const payload = {
+  const basePayload = {
     tier_r1_min: requiredNumber(formData, "tier_r1_min"),
     tier_r1_max: requiredNumber(formData, "tier_r1_max"),
     tier_r2_min: requiredNumber(formData, "tier_r2_min"),
@@ -52,6 +52,13 @@ export async function updatePricingConfig(formData: FormData) {
     overhead_per_ton: requiredNumber(formData, "overhead_per_ton"),
     updated_at: new Date().toISOString(),
   };
+  const extendedPayload = {
+    big_quote_threshold: requiredPositiveNumber(formData, "big_quote_threshold"),
+    follow_up_auto_send_enabled:
+      formData.get("follow_up_auto_send_enabled") === "on",
+    follow_up_sms_enabled: formData.get("follow_up_sms_enabled") === "on",
+  };
+  const payload = { ...basePayload, ...extendedPayload };
 
   validateRange(payload.tier_r1_min, payload.tier_r1_max, "R1 dollar markup");
   validateRange(payload.tier_r2_min, payload.tier_r2_max, "R2 dollar markup");
@@ -64,12 +71,52 @@ export async function updatePricingConfig(formData: FormData) {
     .eq("organization_id", user.organization_id)
     .single<Record<string, unknown>>();
 
-  const { data: after, error } = await supabase
+  let { data: after, error } = await supabase
     .from("pricing_config")
     .update(payload)
     .eq("organization_id", user.organization_id)
     .select("id")
-    .single<{ id: string }>();
+    .maybeSingle<{ id: string }>();
+
+  if (error && isMissingFollowUpColumnError(error.message)) {
+    const fallback = await supabase
+      .from("pricing_config")
+      .update(basePayload)
+      .eq("organization_id", user.organization_id)
+      .select("id")
+      .maybeSingle<{ id: string }>();
+
+    after = fallback.data;
+    error = fallback.error;
+  }
+
+  if (!error && !after) {
+    const created = await supabase
+      .from("pricing_config")
+      .upsert(
+        { organization_id: user.organization_id, ...payload },
+        { onConflict: "organization_id" },
+      )
+      .select("id")
+      .single<{ id: string }>();
+
+    after = created.data;
+    error = created.error;
+
+    if (error && isMissingFollowUpColumnError(error.message)) {
+      const fallbackCreated = await supabase
+        .from("pricing_config")
+        .upsert(
+          { organization_id: user.organization_id, ...basePayload },
+          { onConflict: "organization_id" },
+        )
+        .select("id")
+        .single<{ id: string }>();
+
+      after = fallbackCreated.data;
+      error = fallbackCreated.error;
+    }
+  }
 
   if (error || !after) {
     throw new Error(error?.message ?? "Could not update pricing configuration.");
@@ -99,6 +146,16 @@ function requiredNumber(formData: FormData, key: string): number {
   return Math.round((numberValue + Number.EPSILON) * 100) / 100;
 }
 
+function requiredPositiveNumber(formData: FormData, key: string): number {
+  const value = requiredNumber(formData, key);
+
+  if (value <= 0) {
+    throw new Error(`${key} must be greater than zero.`);
+  }
+
+  return value;
+}
+
 function requiredOption(formData: FormData, key: string): string {
   const value = formData.get(key);
 
@@ -113,4 +170,12 @@ function validateRange(min: number, max: number, label: string) {
   if (min > max) {
     throw new Error(`${label} minimum cannot be greater than maximum.`);
   }
+}
+
+function isMissingFollowUpColumnError(message: string): boolean {
+  return (
+    message.includes("big_quote_threshold") ||
+    message.includes("follow_up_auto_send_enabled") ||
+    message.includes("follow_up_sms_enabled")
+  );
 }

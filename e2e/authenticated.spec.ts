@@ -15,10 +15,10 @@ test.describe("authenticated admin workspace", () => {
     await expect(page.getByText("Welcome, Rinsad.")).toBeVisible();
 
     await expect(
-      page.getByText("Your workspace is scoped to Western Materials."),
+      page.getByText("Your workspace is scoped to Demo Distributor."),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "New quote" }),
+      page.getByRole("link", { name: "New Quote" }),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   });
@@ -30,8 +30,8 @@ test.describe("authenticated admin workspace", () => {
       page.getByRole("heading", { name: "Customers and job sites" }),
     ).toBeVisible();
 
-    await page.getByRole("link", { name: "Quotes" }).click();
-    await page.getByRole("link", { name: "New quote" }).click();
+    await page.getByRole("link", { name: "Pipeline" }).click();
+    await page.getByRole("link", { name: "New Quote" }).click();
     await expect(page).toHaveURL(/\/quotes\/new$/);
     await expect(
       page.getByRole("heading", { name: "New Draft Quote" }),

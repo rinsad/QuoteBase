@@ -1,6 +1,9 @@
 import type { AppUser } from "@/lib/auth/current-user";
 import {
   calculateQuoteDraft,
+  normalizeCatalogMarkupRules,
+  resolveCatalogMarkupRule,
+  type CatalogMarkupRule,
   type MaterialTier,
   type PricingConfig,
   type VehicleCapacity,
@@ -42,7 +45,13 @@ export type QuoteJobSiteOption = {
 export type QuoteMaterialOption = {
   id: string;
   supplier_id: string;
+  supplier_catalog_version_id: string | null;
+  supplier_catalog_item_id: string | null;
+  catalog_sku: string | null;
+  catalog_category: string | null;
+  catalog_markup_rule: CatalogMarkupRule | null;
   supplier_name: string;
+  supplier_parent_company: string | null;
   supplier_latitude: number | null;
   supplier_longitude: number | null;
   name: string;
@@ -75,17 +84,36 @@ export type NewQuoteContext = {
 
 type MaterialRecord = Omit<
   QuoteMaterialOption,
-  "supplier_name" | "supplier_latitude" | "supplier_longitude"
+  | "catalog_markup_rule"
+  | "supplier_name"
+  | "supplier_parent_company"
+  | "supplier_latitude"
+  | "supplier_longitude"
 > & {
   suppliers:
-    | { name: string; latitude: number | null; longitude: number | null }
-    | { name: string; latitude: number | null; longitude: number | null }[]
+    | {
+        name: string;
+        parent_company: string | null;
+        latitude: number | null;
+        longitude: number | null;
+      }
+    | {
+        name: string;
+        parent_company: string | null;
+        latitude: number | null;
+        longitude: number | null;
+      }[]
     | null;
 };
 
 type QuoteHistoryRecord = QuoteCustomerQuoteHistory & {
   customer_id: string;
 };
+
+const BASE_PRICING_SELECT =
+  "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton";
+
+const EXTENDED_PRICING_SELECT = `${BASE_PRICING_SELECT}, big_quote_threshold, follow_up_auto_send_enabled, follow_up_sms_enabled`;
 
 export async function getNewQuoteContext(
   user: AppUser,
@@ -105,6 +133,7 @@ export async function getNewQuoteContext(
     vehicleTypesResult,
     pricingConfigResult,
     quoteHistoryResult,
+    markupRulesResult,
   ] = await Promise.all([
     supabase
       .from("feature_flags")
@@ -131,7 +160,7 @@ export async function getNewQuoteContext(
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_sku, catalog_category, name, tier, unit, cost_per_unit, suppliers!inner(name, parent_company, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
@@ -151,13 +180,7 @@ export async function getNewQuoteContext(
       .eq("is_active", true)
       .order("capacity_tons", { ascending: false })
       .returns<VehicleCapacity[]>(),
-    supabase
-      .from("pricing_config")
-      .select(
-        "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton",
-      )
-      .eq("organization_id", user.organization_id)
-      .single<PricingConfig>(),
+    getQuotePricingConfig(supabase, user.organization_id),
     supabase
       .from("quotes")
       .select("id, customer_id, quote_number, status, total, created_at")
@@ -166,6 +189,14 @@ export async function getNewQuoteContext(
       .order("created_at", { ascending: false })
       .limit(250)
       .returns<QuoteHistoryRecord[]>(),
+    supabase
+      .from("supplier_markup_rules")
+      .select(
+        "id, supplier_id, scope, category, catalog_item_id, markup_type, markup_value, margin_floor_pct, priority, effective_from, effective_to",
+      )
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .returns<CatalogMarkupRule[]>(),
   ]);
   const quoteHistoryByCustomer = new Map<string, QuoteCustomerQuoteHistory[]>();
 
@@ -185,9 +216,10 @@ export async function getNewQuoteContext(
     quoteHistoryByCustomer.set(quote.customer_id, history);
   }
 
-  const pricingConfig = pricingConfigResult.data
-    ? normalizePricingConfig(pricingConfigResult.data)
+  const pricingConfig = pricingConfigResult
+    ? normalizePricingConfig(pricingConfigResult)
     : null;
+  const markupRules = normalizeCatalogMarkupRules(markupRulesResult.data ?? []);
   const firstMaterial = materialsResult.data?.[0];
   const firstTaxRate = taxRatesResult.data?.[0];
   const sampleCalculation =
@@ -200,6 +232,7 @@ export async function getNewQuoteContext(
           taxRate: Number(firstTaxRate.rate),
           pricingConfig,
           vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
+          catalogMarkupRule: resolveCatalogMarkupRule(firstMaterial, markupRules),
         })
       : null;
 
@@ -228,7 +261,13 @@ export async function getNewQuoteContext(
         return {
           id: material.id,
           supplier_id: material.supplier_id,
+          supplier_catalog_version_id: material.supplier_catalog_version_id,
+          supplier_catalog_item_id: material.supplier_catalog_item_id,
+          catalog_sku: material.catalog_sku,
+          catalog_category: material.catalog_category,
+          catalog_markup_rule: resolveCatalogMarkupRule(material, markupRules),
           supplier_name: supplier?.name ?? "Unknown supplier",
+          supplier_parent_company: supplier?.parent_company ?? null,
           supplier_latitude:
             supplier?.latitude === null || supplier?.latitude === undefined
               ? null
@@ -252,6 +291,60 @@ export async function getNewQuoteContext(
     pricingConfig,
     sampleCalculation,
   };
+}
+
+async function getQuotePricingConfig(
+  supabase: NonNullable<Awaited<ReturnType<typeof createClient>>>,
+  organizationId: string,
+): Promise<PricingConfig | null> {
+  const { data, error } = await supabase
+    .from("pricing_config")
+    .select(EXTENDED_PRICING_SELECT)
+    .eq("organization_id", organizationId)
+    .maybeSingle<PricingConfig>();
+
+  if (data) {
+    return data;
+  }
+
+  if (error) {
+    console.warn("Extended quote pricing config load failed; retrying base columns.", {
+      organizationId,
+      message: error.message,
+    });
+  }
+
+  const { data: baseData, error: baseError } = await supabase
+    .from("pricing_config")
+    .select(BASE_PRICING_SELECT)
+    .eq("organization_id", organizationId)
+    .maybeSingle<PricingConfig>();
+
+  if (baseData) {
+    return baseData;
+  }
+
+  if (baseError) {
+    console.warn("Base quote pricing config load failed; creating default row.", {
+      organizationId,
+      message: baseError.message,
+    });
+  }
+
+  const { data: created, error: createError } = await supabase
+    .from("pricing_config")
+    .upsert({ organization_id: organizationId }, { onConflict: "organization_id" })
+    .select(BASE_PRICING_SELECT)
+    .single<PricingConfig>();
+
+  if (createError) {
+    console.warn("Default quote pricing config creation failed.", {
+      organizationId,
+      message: createError.message,
+    });
+  }
+
+  return created ?? null;
 }
 
 export function normalizePricingConfig(config: PricingConfig): PricingConfig {
@@ -285,6 +378,12 @@ export function normalizePricingConfig(config: PricingConfig): PricingConfig {
         ? undefined
         : Number(config.cc_surcharge_pct),
     overhead_per_ton: Number(config.overhead_per_ton),
+    big_quote_threshold:
+      config.big_quote_threshold === undefined
+        ? undefined
+        : Number(config.big_quote_threshold),
+    follow_up_auto_send_enabled: Boolean(config.follow_up_auto_send_enabled),
+    follow_up_sms_enabled: Boolean(config.follow_up_sms_enabled),
   };
 }
 

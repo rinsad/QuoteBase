@@ -1,0 +1,8 @@
+.env*
+.codex_tmp/
+extras/
+docs/videos/
+docs/sample-emailed-quote*.pdf
+docs/quote-generation-logic.txt
+playwright-report/
+test-results/

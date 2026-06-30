@@ -15,6 +15,7 @@ export type EmailDeliveryResult = {
 type QuoteEmailInput = {
   supabase: SupabaseClient;
   organizationId: string;
+  senderUserId: string;
   to: string;
   customerName: string;
   quoteNumber: string;
@@ -23,9 +24,14 @@ type QuoteEmailInput = {
   attachments?: EmailAttachment[];
 };
 
+type EmailBrandingRecord = {
+  company_name: string;
+};
+
 export async function sendQuoteEmail({
   supabase,
   organizationId,
+  senderUserId,
   to,
   customerName,
   quoteNumber,
@@ -33,7 +39,12 @@ export async function sendQuoteEmail({
   total,
   attachments = [],
 }: QuoteEmailInput): Promise<EmailDeliveryResult> {
+  const companyName = await getEmailCompanyName({
+    supabase,
+    organizationId,
+  });
   const text = createQuoteEmailText({
+    companyName,
     customerName,
     quoteNumber,
     quoteUrl,
@@ -42,8 +53,9 @@ export async function sendQuoteEmail({
   const gmailDelivery = await sendGmailQuoteEmail({
     supabase,
     organizationId,
+    userId: senderUserId,
     to,
-    subject: `Western Materials quote ${quoteNumber}`,
+    subject: `${companyName} quote ${quoteNumber}`,
     text,
     attachments,
   });
@@ -56,11 +68,12 @@ export async function sendQuoteEmail({
     status: "skipped",
     provider: "none",
     messageId: null,
-    reason: "Gmail is not connected for this organization.",
+    reason: "Gmail is not connected for your user account.",
   };
 }
 
 function createQuoteEmailText({
+  companyName,
   customerName,
   quoteNumber,
   quoteUrl,
@@ -68,18 +81,36 @@ function createQuoteEmailText({
 }: Pick<
   QuoteEmailInput,
   "customerName" | "quoteNumber" | "quoteUrl" | "total"
->): string {
+> & {
+  companyName: string;
+}): string {
   return [
     `Hello ${customerName},`,
     "",
-    `Western Materials has prepared quote ${quoteNumber} for your review.`,
+    `${companyName} has prepared quote ${quoteNumber} for your review.`,
     `Total: ${formatCurrency(total)}`,
     "",
     `View and respond to the quote here: ${quoteUrl}`,
     "",
     "Thank you,",
-    "Western Materials",
+    companyName,
   ].join("\n");
+}
+
+async function getEmailCompanyName({
+  supabase,
+  organizationId,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+}): Promise<string> {
+  const { data } = await supabase
+    .from("quote_branding")
+    .select("company_name")
+    .eq("organization_id", organizationId)
+    .maybeSingle<EmailBrandingRecord>();
+
+  return data?.company_name ?? "QuoteBase";
 }
 
 function formatCurrency(value: number): string {

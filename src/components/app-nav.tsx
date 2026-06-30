@@ -9,10 +9,10 @@ export function WorkspaceNav({ role }: { role: AppRole }) {
         Dashboard
       </Link>
       <Link href="/quotes/new" className="mac-link">
-        New quote
+        New Quote
       </Link>
       <Link href="/quotes" className="mac-link">
-        Quotes
+        Pipeline
       </Link>
       <Link href="/customers" className="mac-link">
         Customers
@@ -35,16 +35,16 @@ export function WorkspaceNav({ role }: { role: AppRole }) {
   );
 }
 
-export function AdminNav() {
+export function AdminNav({ role = "admin" }: { role?: AppRole } = {}) {
   return (
     <nav className="toolbar-nav" aria-label="Admin navigation">
       <Link href="/dashboard" className="mac-link">
         Dashboard
       </Link>
       <Link href="/quotes" className="mac-link">
-        Quotes
+        Pipeline
       </Link>
-      <AdminMenu />
+      {role === "admin" ? <AdminMenu /> : null}
     </nav>
   );
 }
@@ -52,11 +52,9 @@ export function AdminNav() {
 export function QuoteNav({
   quoteId,
   includePrint = false,
-  userRole,
 }: {
   quoteId?: string;
   includePrint?: boolean;
-  userRole?: AppRole;
 }) {
   return (
     <nav className="toolbar-nav" aria-label="Quote navigation">
@@ -64,19 +62,11 @@ export function QuoteNav({
         Dashboard
       </Link>
       <Link href="/quotes/new" className="mac-link">
-        New quote
+        New Quote
       </Link>
       <Link href="/quotes" className="mac-link">
-        Quotes
+        Pipeline
       </Link>
-      <Link href="/quotes/approved" className="mac-link">
-        Approved
-      </Link>
-      {userRole === "admin" ? (
-        <Link href="/quotes/approvals" className="mac-link">
-          Approvals
-        </Link>
-      ) : null}
       {includePrint && quoteId ? (
         <Link href={`/quotes/${quoteId}/print`} className="mac-link">
           Print
@@ -94,16 +84,17 @@ function AdminMenu() {
         <NavGroup
           title="Operations"
           links={[
-            { href: "/admin/plants", label: "Materials" },
+            { href: "/admin/plants", label: "Plants" },
             { href: "/admin/suppliers", label: "Suppliers" },
             { href: "/admin/yards", label: "Yards" },
-            { href: "/admin/vehicle-types", label: "Vehicles" },
+            { href: "/admin/vehicle-types", label: "Vehicle types" },
           ]}
         />
         <NavGroup
           title="Pricing"
           links={[
             { href: "/admin/pricing", label: "Pricing rules" },
+            { href: "/admin/price-book", label: "Price book" },
             { href: "/admin/tax-rates", label: "Tax rates" },
             { href: "/admin/material-prices", label: "Material prices" },
           ]}
@@ -111,14 +102,14 @@ function AdminMenu() {
         <NavGroup
           title="Workspace"
           links={[
+            { href: "/admin/onboarding", label: "Onboarding" },
+            { href: "/admin/branding", label: "Branding" },
             { href: "/admin/reports", label: "Reports" },
             { href: "/admin/feature-flags", label: "Features" },
             { href: "/admin/integrations/gmail", label: "Gmail integration" },
-            {
-              href: "/admin/integrations/pipedrive",
-              label: "Pipedrive integration",
-            },
             { href: "/admin/integrations/slack", label: "Slack integration" },
+            { href: "/admin/integrations/stripe", label: "Stripe" },
+            { href: "/admin/integrations/authorizenet", label: "Authorize.net" },
             { href: "/admin/users", label: "Users" },
             { href: "/admin/audit-log", label: "Audit log" },
             { href: "/admin/system-check", label: "System check" },

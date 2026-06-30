@@ -21,6 +21,7 @@ type WorkflowAction =
   | "reject"
   | "request_changes"
   | "send"
+  | "follow_up"
   | "accept"
   | "decline";
 
@@ -70,21 +71,29 @@ const WORKFLOW_RULES: Record<WorkflowAction, WorkflowRule> = {
     notePrefix: "Sent",
     defaultNote: "Marked as sent to customer.",
   },
+  follow_up: {
+    from: "sent",
+    to: "follow_up",
+    action: "quote.follow_up",
+    allowedRoles: ["admin", "account_manager"],
+    notePrefix: "Follow-up",
+    defaultNote: "Marked for customer follow-up.",
+  },
   accept: {
     from: "sent",
-    to: "accepted",
-    action: "quote.accepted",
+    to: "won",
+    action: "quote.won",
     allowedRoles: ["admin", "account_manager"],
-    notePrefix: "Accepted",
-    defaultNote: "Marked accepted by customer.",
+    notePrefix: "Won",
+    defaultNote: "Marked won by customer acceptance.",
   },
   decline: {
     from: "sent",
-    to: "declined",
-    action: "quote.declined",
+    to: "lost",
+    action: "quote.lost",
     allowedRoles: ["admin", "account_manager"],
-    notePrefix: "Declined",
-    defaultNote: "Marked declined by customer.",
+    notePrefix: "Lost",
+    defaultNote: "Marked lost by customer decline.",
   },
 };
 
@@ -153,6 +162,30 @@ export async function PATCH(
       note: formatWorkflowNote(rule, parsed.note),
     });
 
+    if (rule.to === "sent") {
+      await supabase
+        .from("quotes")
+        .update({ followup_date: offsetDate(2) })
+        .eq("organization_id", user.organization_id)
+        .eq("id", quote.id);
+    }
+
+    if (rule.to === "follow_up") {
+      await supabase
+        .from("quotes")
+        .update({ followup_date: offsetDate(-2) })
+        .eq("organization_id", user.organization_id)
+        .eq("id", quote.id);
+    }
+
+    if (rule.to === "won" || rule.to === "lost") {
+      await supabase
+        .from("quotes")
+        .update({ followup_date: null })
+        .eq("organization_id", user.organization_id)
+        .eq("id", quote.id);
+    }
+
     revalidatePath("/quotes");
     revalidatePath(`/quotes/${quote.id}`);
 
@@ -182,6 +215,13 @@ export async function PATCH(
 
     return serverError("Could not update quote status.");
   }
+}
+
+function offsetDate(days: number): string {
+  const value = new Date();
+  value.setUTCDate(value.getUTCDate() + days);
+
+  return value.toISOString().slice(0, 10);
 }
 
 async function parseWorkflowBody(

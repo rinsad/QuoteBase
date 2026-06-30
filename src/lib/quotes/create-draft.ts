@@ -1,8 +1,8 @@
-import { randomUUID } from "crypto";
-
 import type { AppUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
 import { isFeatureEnabled } from "@/lib/features/flags";
+import { geocodeJobSiteAddress } from "@/lib/geo/geocode";
+import { getGoogleMapsIntegration } from "@/lib/integrations/google-maps";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -13,6 +13,9 @@ import {
 } from "@/lib/quotes/plant-selection";
 import {
   calculateQuoteDraft,
+  normalizeCatalogMarkupRules,
+  resolveCatalogMarkupRule,
+  type CatalogMarkupRule,
   type PricingConfig,
   type TruckRateKey,
   type VehicleCapacity,
@@ -27,6 +30,7 @@ export type CreateQuoteDraftInput = {
   materialId: string;
   taxRateId: string;
   quantity: number;
+  lineItems: CreateQuoteDraftLineInput[];
   notes: string;
   useSelectedPlant: boolean;
   materialUnitPriceOverride: number | null;
@@ -36,6 +40,12 @@ export type CreateQuoteDraftInput = {
   competitorPrice: number | null;
   manualRouteDistanceMiles: number | null;
   manualDeadheadDistanceMiles: number | null;
+};
+
+export type CreateQuoteDraftLineInput = {
+  materialId: string;
+  quantity: number;
+  materialUnitPriceOverride: number | null;
 };
 
 export type CreatedQuoteDraft = {
@@ -56,6 +66,7 @@ type JobSiteRecord = {
   city: string;
   county: string;
   state: string;
+  address: Record<string, unknown>;
   latitude: number | null;
   longitude: number | null;
 };
@@ -94,23 +105,37 @@ export async function createQuoteDraftRecord({
     throw new Error("Competitive intelligence input is not enabled.");
   }
 
+  const requestedLines = input.lineItems.length
+    ? input.lineItems
+    : [
+        {
+          materialId: input.materialId,
+          quantity: input.quantity,
+          materialUnitPriceOverride: input.materialUnitPriceOverride,
+        },
+      ];
+
   const [
-    materialResult,
+    materialsResult,
     pricingConfigResult,
     vehicleTypesResult,
     existingCustomerResult,
     existingJobSiteResult,
+    markupRulesResult,
   ] = await Promise.all([
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
-      .eq("id", input.materialId)
+      .in(
+        "id",
+        Array.from(new Set(requestedLines.map((line) => line.materialId))),
+      )
       .eq("is_active", true)
       .eq("suppliers.is_active", true)
-      .single<PlantSelectionMaterial>(),
+      .returns<PlantSelectionMaterial[]>(),
     supabase
       .from("pricing_config")
       .select(
@@ -137,15 +162,25 @@ export async function createQuoteDraftRecord({
     input.jobSiteId
       ? supabase
           .from("job_sites")
-          .select("id, customer_id, name, city, county, state, latitude, longitude")
+          .select(
+            "id, customer_id, name, city, county, state, address, latitude, longitude",
+          )
           .eq("organization_id", user.organization_id)
           .eq("id", input.jobSiteId)
           .eq("is_active", true)
           .single<JobSiteRecord>()
       : Promise.resolve({ data: null }),
+    supabase
+      .from("supplier_markup_rules")
+      .select(
+        "id, supplier_id, scope, category, catalog_item_id, markup_type, markup_value, margin_floor_pct, priority, effective_from, effective_to",
+      )
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .returns<CatalogMarkupRule[]>(),
   ]);
 
-  if (!materialResult.data || !pricingConfigResult.data) {
+  if (!materialsResult.data?.length || !pricingConfigResult.data) {
     throw new Error("Material, tax, or pricing configuration is missing.");
   }
 
@@ -153,7 +188,7 @@ export async function createQuoteDraftRecord({
     throw new Error("Select an existing customer before creating a quote.");
   }
   const customer = existingCustomerResult.data;
-  const paymentTerms = customer.payment_terms ?? "";
+  const paymentTerms = customer.payment_terms ?? "COD";
 
   if (!existingJobSiteResult.data) {
     throw new Error("Select an existing job site before creating a quote.");
@@ -179,48 +214,110 @@ export async function createQuoteDraftRecord({
 
   const pricingConfig = normalizePricingConfig(pricingConfigResult.data);
   const vehicleTypes = normalizeVehicleTypes(vehicleTypesResult.data ?? []);
-  const requestedMaterial = materialResult.data;
-  const recommendation = await selectBestPlantForQuote({
+  const catalogMarkupRules = normalizeCatalogMarkupRules(
+    markupRulesResult.data ?? [],
+  );
+  const googleMapsIntegration = await getGoogleMapsIntegration({
     supabase,
     organizationId: user.organization_id,
-    requestedMaterial,
-    jobSite: {
-      latitude: jobSite.latitude === null ? null : Number(jobSite.latitude),
-      longitude: jobSite.longitude === null ? null : Number(jobSite.longitude),
+  });
+  const googleMapsApiKey =
+    googleMapsIntegration?.isEnabled && googleMapsIntegration.apiKey
+      ? googleMapsIntegration.apiKey
+      : null;
+  const materialById = new Map(
+    materialsResult.data.map((material) => [material.id, material]),
+  );
+  const jobSiteCoordinates = await resolveJobSiteCoordinates({
+    supabase,
+    user,
+    jobSite,
+    googleMapsApiKey,
+  });
+  const pricedLines = await Promise.all(
+    requestedLines.map(async (line) => {
+      const requestedMaterial = materialById.get(line.materialId);
+
+      if (!requestedMaterial) {
+        throw new Error("One of the selected materials is no longer available.");
+      }
+
+      const recommendation = await selectBestPlantForQuote({
+        supabase,
+        organizationId: user.organization_id,
+        requestedMaterial,
+        jobSite: jobSiteCoordinates,
+        taxRate: Number(taxRate.rate),
+        quantity: line.quantity,
+        pricingConfig,
+        vehicleTypes,
+        useRequestedPlant: input.useSelectedPlant,
+        materialUnitPriceOverride: line.materialUnitPriceOverride,
+        truckRateOverride: input.truckRateOverride,
+        materialMinimumOverride: input.materialMinimumOverride,
+        truckingMinimumOverride: input.truckingMinimumOverride,
+        paymentTerms,
+        manualRouteDistanceMiles: input.manualRouteDistanceMiles,
+        manualDeadheadDistanceMiles: input.manualDeadheadDistanceMiles,
+        catalogMarkupRules,
+        googleMapsApiKey,
+      });
+      const material = recommendation.material;
+      const catalogMarkupRule = resolveCatalogMarkupRule(
+        material,
+        catalogMarkupRules,
+      );
+      const calculation = calculateQuoteDraft({
+        costPerUnit: Number(material.cost_per_unit),
+        quantity: line.quantity,
+        tier: material.tier,
+        unit: material.unit,
+        taxRate: Number(taxRate.rate),
+        pricingConfig,
+        vehicleTypes,
+        routeDurationSeconds:
+          recommendation.routeDistance?.durationSeconds ?? null,
+        deadheadDurationSeconds:
+          recommendation.deadheadDistance?.durationSeconds ?? null,
+        materialUnitPriceOverride: line.materialUnitPriceOverride,
+        truckRateOverride: input.truckRateOverride,
+        materialMinimumOverride: input.materialMinimumOverride,
+        truckingMinimumOverride: input.truckingMinimumOverride,
+        paymentTerms,
+        applyCreditCardSurcharge: false,
+        catalogMarkupRule,
+      });
+
+      return {
+        input: line,
+        requestedMaterial,
+        recommendation,
+        material,
+        calculation,
+        catalogMarkupRule,
+      };
+    }),
+  );
+  const totals = pricedLines.reduce(
+    (sum, line) => ({
+      materialSubtotal: sum.materialSubtotal + line.calculation.materialSubtotal,
+      truckingSubtotal: sum.truckingSubtotal + line.calculation.truckingSubtotal,
+      feesSubtotal: sum.feesSubtotal + line.calculation.feesSubtotal,
+      taxTotal: sum.taxTotal + line.calculation.taxTotal,
+      total: sum.total + line.calculation.total,
+    }),
+    {
+      materialSubtotal: 0,
+      truckingSubtotal: 0,
+      feesSubtotal: 0,
+      taxTotal: 0,
+      total: 0,
     },
-    taxRate: Number(taxRate.rate),
-    quantity: input.quantity,
-    pricingConfig,
-    vehicleTypes,
-    useRequestedPlant: input.useSelectedPlant,
-    materialUnitPriceOverride: input.materialUnitPriceOverride,
-    truckRateOverride: input.truckRateOverride,
-    materialMinimumOverride: input.materialMinimumOverride,
-    truckingMinimumOverride: input.truckingMinimumOverride,
-    paymentTerms,
-    manualRouteDistanceMiles: input.manualRouteDistanceMiles,
-    manualDeadheadDistanceMiles: input.manualDeadheadDistanceMiles,
+  );
+  const quoteNumber = await createQuoteNumber({
+    supabase,
+    organizationId: user.organization_id,
   });
-  const material = recommendation.material;
-  const calculation = recommendation.calculation;
-  const itemCalculation = calculateQuoteDraft({
-    costPerUnit: Number(material.cost_per_unit),
-    quantity: input.quantity,
-    tier: material.tier,
-    unit: material.unit,
-    taxRate: Number(taxRate.rate),
-    pricingConfig,
-    vehicleTypes,
-    routeDurationSeconds: recommendation.routeDistance?.durationSeconds ?? null,
-    deadheadDurationSeconds: recommendation.deadheadDistance?.durationSeconds ?? null,
-    materialUnitPriceOverride: input.materialUnitPriceOverride,
-    truckRateOverride: input.truckRateOverride,
-    materialMinimumOverride: input.materialMinimumOverride,
-    truckingMinimumOverride: input.truckingMinimumOverride,
-    paymentTerms,
-    applyCreditCardSurcharge: false,
-  });
-  const quoteNumber = createQuoteNumber();
 
   const { data: quote, error: quoteError } = await supabase
     .from("quotes")
@@ -232,11 +329,11 @@ export async function createQuoteDraftRecord({
       requested_by: user.id,
       tax_rate_id: taxRate.id,
       status: "draft",
-      material_subtotal: calculation.materialSubtotal,
-      trucking_subtotal: calculation.truckingSubtotal,
-      fees_subtotal: calculation.feesSubtotal,
-      tax_total: calculation.taxTotal,
-      total: calculation.total,
+      material_subtotal: roundMoney(totals.materialSubtotal),
+      trucking_subtotal: roundMoney(totals.truckingSubtotal),
+      fees_subtotal: roundMoney(totals.feesSubtotal),
+      tax_total: roundMoney(totals.taxTotal),
+      total: roundMoney(totals.total),
       notes: input.notes || null,
       is_active: true,
     })
@@ -247,26 +344,30 @@ export async function createQuoteDraftRecord({
     throw new Error(quoteError?.message ?? "Could not create the quote draft.");
   }
 
-  const { error: itemError } = await supabase.from("quote_items").insert({
-    organization_id: user.organization_id,
-    quote_id: quote.id,
-    supplier_id: material.supplier_id,
-    material_id: material.id,
-    quantity: input.quantity,
-    unit: material.unit,
-    unit_cost: Number(material.cost_per_unit),
-    markup_per_unit: itemCalculation.markupPerUnit,
-    markup_pct: itemCalculation.markupPct,
-    material_unit_price: itemCalculation.materialUnitPrice,
-    material_subtotal: itemCalculation.materialSubtotal,
-    vehicle_type_id: itemCalculation.vehicleTypeId,
-    load_count: itemCalculation.loadCount,
-    trucking_rate_per_unit: itemCalculation.truckingRatePerUnit,
-    trucking_subtotal: itemCalculation.truckingSubtotal,
-    fees_subtotal: itemCalculation.feesSubtotal,
-    line_total: itemCalculation.total,
-    is_active: true,
-  });
+  const { error: itemError } = await supabase.from("quote_items").insert(
+    pricedLines.map((line) => ({
+      organization_id: user.organization_id,
+      quote_id: quote.id,
+      supplier_id: line.material.supplier_id,
+      material_id: line.material.id,
+      supplier_catalog_version_id: line.material.supplier_catalog_version_id,
+      supplier_catalog_item_id: line.material.supplier_catalog_item_id,
+      quantity: line.input.quantity,
+      unit: line.material.unit,
+      unit_cost: Number(line.material.cost_per_unit),
+      markup_per_unit: line.calculation.markupPerUnit,
+      markup_pct: line.calculation.markupPct,
+      material_unit_price: line.calculation.materialUnitPrice,
+      material_subtotal: line.calculation.materialSubtotal,
+      vehicle_type_id: line.calculation.vehicleTypeId,
+      load_count: line.calculation.loadCount,
+      trucking_rate_per_unit: line.calculation.truckingRatePerUnit,
+      trucking_subtotal: line.calculation.truckingSubtotal,
+      fees_subtotal: line.calculation.feesSubtotal,
+      line_total: line.calculation.total,
+      is_active: true,
+    })),
+  );
 
   if (itemError) {
     await supabase
@@ -290,17 +391,41 @@ export async function createQuoteDraftRecord({
     after: {
       quote_number: quote.quote_number,
       status: "draft",
-      total: calculation.total,
+      total: roundMoney(totals.total),
     },
     metadata: {
       customer_id: customer.id,
       job_site_id: jobSite.id,
-      material_id: material.id,
-      requested_material_id: requestedMaterial.id,
+      line_count: pricedLines.length,
+      line_items: pricedLines.map((line) => ({
+        material_id: line.material.id,
+        requested_material_id: line.requestedMaterial.id,
+        supplier_catalog_version_id: line.material.supplier_catalog_version_id,
+        supplier_catalog_item_id: line.material.supplier_catalog_item_id,
+        catalog_markup_rule_id: line.catalogMarkupRule?.id ?? null,
+        catalog_markup_source: line.calculation.markupSource,
+        quantity: line.input.quantity,
+        material_unit_price: line.calculation.materialUnitPrice,
+        total: line.calculation.total,
+        gross_margin_pct: line.calculation.grossMarginPct,
+        margin_floor_warning: line.calculation.marginFloorWarning,
+        selected_supplier_id: line.material.supplier_id,
+        selected_supplier_name: line.recommendation.supplierName,
+        plant_selection_reason: line.recommendation.selectionReason,
+        route_distance_miles:
+          line.recommendation.routeDistance?.distanceMiles ?? null,
+        route_distance_source:
+          line.recommendation.routeDistance?.source ?? null,
+        deadhead_distance_miles:
+          line.recommendation.deadheadDistance?.distanceMiles ?? null,
+        deadhead_distance_source:
+          line.recommendation.deadheadDistance?.source ?? null,
+      })),
       new_customer: false,
       plant_override: input.useSelectedPlant,
-      price_override: input.materialUnitPriceOverride !== null,
-      material_unit_price_override: input.materialUnitPriceOverride,
+      price_override: pricedLines.some(
+        (line) => line.input.materialUnitPriceOverride !== null,
+      ),
       truck_rate_override: input.truckRateOverride,
       material_minimum_override: input.materialMinimumOverride,
       trucking_minimum_override: input.truckingMinimumOverride,
@@ -310,26 +435,70 @@ export async function createQuoteDraftRecord({
       competitor_price: competitiveIntelligenceEnabled
         ? input.competitorPrice
         : null,
-      truck_rate_key: calculation.truckingRateKey,
-      truck_hourly_rate: calculation.truckingHourlyRate,
-      selected_supplier_id: material.supplier_id,
-      selected_supplier_name: recommendation.supplierName,
-      plant_selection_reason: recommendation.selectionReason,
-      route_distance_miles:
-        recommendation.routeDistance?.distanceMiles ?? null,
-      route_duration_seconds:
-        recommendation.routeDistance?.durationSeconds ?? null,
-      route_distance_source: recommendation.routeDistance?.source ?? null,
-      deadhead_distance_miles:
-        recommendation.deadheadDistance?.distanceMiles ?? null,
-      deadhead_distance_source:
-        recommendation.deadheadDistance?.source ?? null,
       manual_route_distance_miles: input.manualRouteDistanceMiles,
       manual_deadhead_distance_miles: input.manualDeadheadDistanceMiles,
     },
   });
 
   return quote;
+}
+
+async function resolveJobSiteCoordinates({
+  supabase,
+  user,
+  jobSite,
+  googleMapsApiKey,
+}: {
+  supabase: SupabaseClient;
+  user: AppUser;
+  jobSite: JobSiteRecord;
+  googleMapsApiKey: string | null;
+}): Promise<{ latitude: number | null; longitude: number | null }> {
+  const storedCoordinates = {
+    latitude: jobSite.latitude === null ? null : Number(jobSite.latitude),
+    longitude: jobSite.longitude === null ? null : Number(jobSite.longitude),
+  };
+
+  if (
+    storedCoordinates.latitude !== null &&
+    storedCoordinates.longitude !== null
+  ) {
+    return storedCoordinates;
+  }
+
+  const geocoded = await geocodeJobSiteAddress({
+    line1: addressLine(jobSite.address),
+    city: jobSite.city,
+    county: jobSite.county,
+    state: jobSite.state,
+    apiKey: googleMapsApiKey,
+  });
+
+  if (!geocoded) {
+    return storedCoordinates;
+  }
+
+  const { error } = await supabase
+    .from("job_sites")
+    .update({
+      latitude: geocoded.latitude,
+      longitude: geocoded.longitude,
+    })
+    .eq("organization_id", user.organization_id)
+    .eq("id", jobSite.id);
+
+  if (!error) {
+    await logAction({
+      user,
+      action: "job_site.geocoded",
+      targetTable: "job_sites",
+      targetId: jobSite.id,
+      before: storedCoordinates,
+      after: geocoded,
+    });
+  }
+
+  return geocoded;
 }
 
 async function resolveSalesTaxRate({
@@ -413,15 +582,46 @@ async function findSalesTaxRate({
   return data ?? null;
 }
 
-function createQuoteNumber(): string {
-  const timestamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-  const suffix = randomUUID().slice(0, 8).toUpperCase();
+async function createQuoteNumber({
+  supabase,
+  organizationId,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+}): Promise<string> {
+  const { data } = await supabase
+    .from("quotes")
+    .select("quote_number")
+    .eq("organization_id", organizationId)
+    .like("quote_number", "Q-%")
+    .order("created_at", { ascending: false })
+    .limit(100)
+    .returns<Array<{ quote_number: string }>>();
+  const nextNumber =
+    Math.max(
+      1000,
+      ...(data ?? []).map((quote) => {
+        const match = /^Q-(\d+)$/.exec(quote.quote_number);
 
-  return `QB-${timestamp}-${suffix}`;
+        return match ? Number(match[1]) : 0;
+      }),
+    ) + 1;
+
+  return `Q-${nextNumber}`;
 }
 
 function appendDraftFailureNote(notes: string, errorMessage: string): string {
   const failureNote = `Draft item insert failed: ${errorMessage}`;
 
   return notes ? `${notes}\n\n${failureNote}` : failureNote;
+}
+
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function addressLine(address: Record<string, unknown>): string | null {
+  const line1 = address.line1;
+
+  return typeof line1 === "string" && line1.trim() ? line1.trim() : null;
 }

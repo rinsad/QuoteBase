@@ -33,6 +33,14 @@ export function isLocalSupabase() {
   );
 }
 
+export function isDevLoginEnabled() {
+  return (
+    process.env.NODE_ENV !== "production" &&
+    process.env.ENABLE_DEV_LOGIN === "true" &&
+    isLocalSupabase()
+  );
+}
+
 export async function isSupabaseReachable(): Promise<boolean> {
   const config = getSupabaseBrowserConfig();
 

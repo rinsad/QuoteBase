@@ -1,0 +1,21 @@
+QuoteBase replaces spreadsheet-driven material quoting with a structured, repeatable workflow.
+
+The estimator starts by selecting the customer, job site, material, and quantity. QuoteBase confirms the job site belongs to the customer, then loads the organization's active pricing configuration.
+
+That configuration includes R1 through R4 material markup ranges, trucking rates, minimums, per-load fuel and environmental fees, credit-card surcharge settings, and overhead per ton. These values are managed as business configuration, not hardcoded formulas.
+
+Next, QuoteBase compares eligible supplier and plant options. It looks at the full delivered result: supplier cost, route distance, deadhead distance, truck capacity, load count, fees, and tax.
+
+The recommendation logic adapts to quote size. For one load or less, lowest delivered total wins. For quotes up to three loads, QuoteBase balances material and trucking economics. For larger orders, material economics are prioritized first, with total cost and route distance used as tie-breakers.
+
+Once the best option is selected, QuoteBase calculates material price from supplier buy cost, tier markup, and overhead where applicable. It enforces material minimums when needed.
+
+Then it calculates trucking by choosing the vehicle plan, determining load count, applying the truck rate, and factoring in round-trip and deadhead time. Trucking minimums are applied when the calculated amount is below the configured threshold.
+
+After that, the system adds per-load fees, any applicable surcharge, and sales tax based on the selected tax rate or the job-site location.
+
+When the quote is saved, QuoteBase creates a traceable draft with material, trucking, fee, tax, and total breakdowns. It also records the selected supplier, recommendation reason, route details, and any manual overrides.
+
+From there, the quote can move through approval. Approved quotes can generate a branded PDF, create a secure customer link, and send the quote by email.
+
+The result is faster quoting, clearer approvals, stronger traceability, and less dependence on manual spreadsheet maintenance.

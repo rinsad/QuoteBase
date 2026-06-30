@@ -32,11 +32,11 @@ export default async function ApprovedQuoteQueuePage() {
                   Quotes
                 </p>
                 <h1 className="truncate text-lg font-semibold">
-                  Approved Queue
+                  Approved to Send
                 </h1>
               </div>
             </div>
-            <QuoteNav userRole={user.role} />
+            <QuoteNav />
           </div>
         </header>
 
@@ -47,10 +47,10 @@ export default async function ApprovedQuoteQueuePage() {
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">
-                Delivery Planning
+                Send-ready queue
               </p>
               <h2 className="accent-title text-3xl font-semibold tracking-normal">
-                {quotes.length} approved quotes ready
+                {quotes.length} quotes approved to send
               </h2>
             </div>
           </div>
@@ -61,7 +61,7 @@ export default async function ApprovedQuoteQueuePage() {
                 <Link
                   key={quote.id}
                   href={`/quotes/${quote.id}`}
-                  className="soft-row grid gap-3 px-4 py-4 transition hover:bg-white/80 md:grid-cols-[1fr_1fr_auto_auto] md:items-center"
+                  className="soft-row grid gap-3 px-4 py-4 transition hover:border-input hover:bg-secondary/70 md:grid-cols-[1fr_1fr_auto_auto] md:items-center"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">
@@ -81,7 +81,7 @@ export default async function ApprovedQuoteQueuePage() {
                     </p>
                   </div>
                   <span className="soft-chip shrink-0 bg-emerald-50 text-emerald-700 ring-emerald-100">
-                    Approved
+                    Approved to Send
                   </span>
                   <div className="text-left md:text-right">
                     <p className="text-base font-semibold">
@@ -95,10 +95,9 @@ export default async function ApprovedQuoteQueuePage() {
               ))
             ) : (
               <div className="soft-row px-4 py-10 text-center">
-                <p className="text-sm font-medium">No approved quotes ready.</p>
+                <p className="text-sm font-medium">No quotes approved to send.</p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Quotes approved by John, Judd, or an account manager will
-                  appear here oldest first.
+                  Internally approved quotes will appear here oldest first.
                 </p>
               </div>
             )}

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { createGmailAuthorizationUrl } from "@/lib/integrations/gmail";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -11,11 +11,7 @@ export async function GET() {
     redirect("/login");
   }
 
-  if (user.role !== "admin") {
-    redirect("/admin/integrations/gmail?error=unauthorized");
-  }
-
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   if (!supabase) {
     redirect("/admin/integrations/gmail?error=google_not_configured");

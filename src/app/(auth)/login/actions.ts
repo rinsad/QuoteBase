@@ -2,11 +2,7 @@
 
 import { redirect } from "next/navigation";
 
-import {
-  isAllowedWesternMaterialsEmail,
-  normalizeEmail,
-} from "@/lib/auth/allowlist";
-import { getBaseUrl, isLocalSupabase, isSupabaseReachable } from "@/lib/env";
+import { getBaseUrl, isDevLoginEnabled, isSupabaseReachable } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -20,33 +16,33 @@ type DevLoginUser = {
 const DEV_LOGIN_USERS: DevLoginUser[] = [
   {
     key: "rinsad",
-    email: "rinsad@gmail.com",
+    email: "admin@demo-distributor.test",
     password: "local-dev-rinsad-password",
-    fullName: "Rinsad",
+    fullName: "Demo Admin",
   },
   {
     key: "judd",
-    email: "admin@westernmaterials.net",
+    email: "owner@demo-distributor.test",
     password: "local-dev-judd-password",
-    fullName: "Judd",
+    fullName: "Demo Owner",
   },
   {
     key: "gloria",
-    email: "estimate@westernmaterials.net",
+    email: "sales@demo-distributor.test",
     password: "local-dev-gloria-password",
-    fullName: "Gloria",
+    fullName: "Demo Sales",
   },
   {
     key: "claudina",
-    email: "dispatch@westernmaterials.net",
+    email: "dispatch@demo-distributor.test",
     password: "local-dev-claudina-password",
-    fullName: "Claudina",
+    fullName: "Demo Dispatch",
   },
   {
     key: "john-tenant-b",
-    email: "john@westernmaterials.net",
+    email: "owner@demo-distributor.test",
     password: "local-dev-john-password",
-    fullName: "John Tenant B",
+    fullName: "Demo Tenant B",
   },
 ];
 
@@ -79,14 +75,14 @@ export async function sendMagicLink(
 
   if (!email) {
     return {
-      message: "Enter your Western Materials email.",
+      message: "Enter your work email.",
       status: "error",
     };
   }
 
-  if (!isAllowedWesternMaterialsEmail(email)) {
+  if (!(await isApprovedWorkspaceEmail(email))) {
     return {
-      message: "That email is not on the Western Materials allowlist.",
+      message: "That email is not approved for this workspace.",
       status: "error",
     };
   }
@@ -133,7 +129,7 @@ export async function signOut() {
 export async function devSignInAsTestUser(formData: FormData) {
   const unavailableRedirect = getDevLoginUnavailableRedirect(formData);
 
-  if (process.env.NODE_ENV === "production" || !isLocalSupabase()) {
+  if (!isDevLoginEnabled()) {
     redirect(unavailableRedirect);
   }
 
@@ -244,4 +240,33 @@ export async function devSignInAsTestUser(formData: FormData) {
   }
 
   redirect("/dashboard");
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+async function isApprovedWorkspaceEmail(email: string): Promise<boolean> {
+  const admin = createAdminClient();
+
+  if (!admin) {
+    return false;
+  }
+
+  const [{ data: invite }, { data: user }] = await Promise.all([
+    admin
+      .from("user_invites")
+      .select("id")
+      .eq("email", email)
+      .eq("is_active", true)
+      .maybeSingle<{ id: string }>(),
+    admin
+      .from("users")
+      .select("id")
+      .eq("email", email)
+      .eq("is_active", true)
+      .maybeSingle<{ id: string }>(),
+  ]);
+
+  return Boolean(invite || user);
 }

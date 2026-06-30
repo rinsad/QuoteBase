@@ -8,7 +8,7 @@ import {
   waitForJobSiteByName,
 } from "./helpers/db";
 
-const ACCOUNT_MANAGER_EMAIL = "estimate@westernmaterials.net";
+const ACCOUNT_MANAGER_EMAIL = "sales@demo-distributor.test";
 
 test.describe("customer and job site workflow", () => {
   test("account manager can create a customer and job site from the browser", async ({

@@ -22,6 +22,29 @@ export type PricingConfig = {
   trucking_minimum?: number;
   cc_surcharge_pct?: number;
   overhead_per_ton: number;
+  big_quote_threshold?: number;
+  follow_up_auto_send_enabled?: boolean;
+  follow_up_sms_enabled?: boolean;
+};
+
+export type CatalogMarkupRule = {
+  id: string;
+  supplier_id: string | null;
+  scope: "global" | "category" | "item";
+  category: string | null;
+  catalog_item_id: string | null;
+  markup_type: "percent" | "dollar";
+  markup_value: number;
+  margin_floor_pct: number | null;
+  priority: number;
+  effective_from?: string | null;
+  effective_to?: string | null;
+};
+
+export type CatalogPricedMaterial = {
+  supplier_id: string;
+  supplier_catalog_item_id: string | null;
+  catalog_category: string | null;
 };
 
 export type VehicleCapacity = {
@@ -48,13 +71,19 @@ export type QuoteDraftCalculationInput = {
   applyMaterialMinimum?: boolean;
   paymentTerms?: string | null;
   applyCreditCardSurcharge?: boolean;
+  catalogMarkupRule?: CatalogMarkupRule | null;
 };
 
 export type QuoteDraftCalculation = {
   markupPerUnit: number;
   markupPct: number;
+  markupSource: "tier" | "catalog";
+  markupRuleId: string | null;
   materialUnitPrice: number;
   materialSubtotal: number;
+  grossMarginPct: number | null;
+  marginFloorPct: number | null;
+  marginFloorWarning: boolean;
   vehicleTypeId: string | null;
   vehicleName: string | null;
   loadCount: number;
@@ -84,8 +113,13 @@ export function calculateQuoteDraft({
   applyMaterialMinimum = true,
   paymentTerms = null,
   applyCreditCardSurcharge = true,
+  catalogMarkupRule = null,
 }: QuoteDraftCalculationInput): QuoteDraftCalculation {
-  const markupPerUnit = getTierMarkupPerUnit(tier, pricingConfig);
+  const catalogMarkupPerUnit = catalogMarkupRule
+    ? getCatalogMarkupPerUnit(costPerUnit, catalogMarkupRule)
+    : null;
+  const markupPerUnit =
+    catalogMarkupPerUnit ?? getTierMarkupPerUnit(tier, pricingConfig);
   const truckRateKey = getTruckRateKey(pricingConfig, truckRateOverride);
   const truckHourlyRate = getTruckHourlyRate(pricingConfig, truckRateKey);
   const overheadPerUnit = unit === "ton" ? pricingConfig.overhead_per_ton : 0;
@@ -103,6 +137,19 @@ export function calculateQuoteDraft({
       )
     : 0;
   const materialSubtotal = Math.max(materialUnitPrice * quantity, materialMinimum);
+  const grossMarginPct =
+    materialSubtotal > 0
+      ? ((materialSubtotal - costPerUnit * quantity) / materialSubtotal) * 100
+      : null;
+  const marginFloorPct =
+    catalogMarkupRule?.margin_floor_pct === null ||
+    catalogMarkupRule?.margin_floor_pct === undefined
+      ? null
+      : Number(catalogMarkupRule.margin_floor_pct);
+  const marginFloorWarning =
+    grossMarginPct !== null &&
+    marginFloorPct !== null &&
+    grossMarginPct < marginFloorPct;
   const vehiclePlan = chooseVehiclePlan({ quantity, unit, vehicleTypes });
   const routeSeconds =
     routeDurationSeconds === null ? null : Math.max(0, routeDurationSeconds);
@@ -140,8 +187,16 @@ export function calculateQuoteDraft({
     markupPerUnit: roundMoney(markupPerUnit),
     // Legacy field name retained for older quote_items rows/API clients.
     markupPct: roundMoney(markupPerUnit),
+    markupSource: catalogMarkupRule ? "catalog" : "tier",
+    markupRuleId: catalogMarkupRule?.id ?? null,
     materialUnitPrice: roundMoney(materialUnitPrice),
     materialSubtotal: roundMoney(materialSubtotal),
+    grossMarginPct:
+      grossMarginPct === null
+        ? null
+        : Math.round((grossMarginPct + Number.EPSILON) * 10) / 10,
+    marginFloorPct,
+    marginFloorWarning,
     vehicleTypeId: vehiclePlan.vehicleTypeId,
     vehicleName: vehiclePlan.vehicleName,
     loadCount: roundQuantity(vehiclePlan.loadCount),
@@ -153,6 +208,67 @@ export function calculateQuoteDraft({
     taxTotal: roundMoney(taxTotal),
     total: roundMoney(taxableSubtotal + taxTotal),
   };
+}
+
+export function resolveCatalogMarkupRule(
+  material: CatalogPricedMaterial,
+  rules: CatalogMarkupRule[],
+): CatalogMarkupRule | null {
+  const normalizedCategory = normalizeRuleText(material.catalog_category);
+  const matches = rules
+    .map((rule) => {
+      const specificity = getRuleSpecificity({
+        rule,
+        material,
+        normalizedCategory,
+      });
+
+      return specificity === null ? null : { rule, specificity };
+    })
+    .filter(
+      (value): value is { rule: CatalogMarkupRule; specificity: number } =>
+        value !== null,
+    )
+    .sort((left, right) => {
+      return (
+        left.specificity - right.specificity ||
+        left.rule.priority - right.rule.priority ||
+        Number(Boolean(right.rule.supplier_id)) -
+          Number(Boolean(left.rule.supplier_id))
+      );
+    });
+
+  return matches[0]?.rule ?? null;
+}
+
+export function normalizeCatalogMarkupRules(
+  rules: CatalogMarkupRule[],
+): CatalogMarkupRule[] {
+  const today = new Date().toISOString().slice(0, 10);
+
+  return rules
+    .map((rule) => ({
+      id: rule.id,
+      supplier_id: rule.supplier_id,
+      scope: rule.scope,
+      category: rule.category,
+      catalog_item_id: rule.catalog_item_id,
+      markup_type: rule.markup_type,
+      markup_value: Number(rule.markup_value),
+      margin_floor_pct:
+        rule.margin_floor_pct === null ? null : Number(rule.margin_floor_pct),
+      priority: Number(rule.priority),
+      effective_from: rule.effective_from ?? null,
+      effective_to: rule.effective_to ?? null,
+    }))
+    .filter(
+      (rule) =>
+        ["global", "category", "item"].includes(rule.scope) &&
+        ["percent", "dollar"].includes(rule.markup_type) &&
+        Number.isFinite(rule.markup_value) &&
+        rule.markup_value >= 0 &&
+        isRuleEffective(rule, today),
+    );
 }
 
 function getTierMarkupPerUnit(
@@ -169,6 +285,64 @@ function getTierMarkupPerUnit(
   const [min, max] = tiers[tier];
 
   return (min + max) / 2;
+}
+
+function getCatalogMarkupPerUnit(
+  costPerUnit: number,
+  rule: CatalogMarkupRule,
+): number {
+  if (rule.markup_type === "percent") {
+    return costPerUnit * (rule.markup_value / 100);
+  }
+
+  return rule.markup_value;
+}
+
+function getRuleSpecificity({
+  rule,
+  material,
+  normalizedCategory,
+}: {
+  rule: CatalogMarkupRule;
+  material: CatalogPricedMaterial;
+  normalizedCategory: string;
+}): number | null {
+  if (rule.supplier_id && rule.supplier_id !== material.supplier_id) {
+    return null;
+  }
+
+  if (
+    rule.scope === "item" &&
+    rule.catalog_item_id &&
+    rule.catalog_item_id === material.supplier_catalog_item_id
+  ) {
+    return 0;
+  }
+
+  if (
+    rule.scope === "category" &&
+    normalizeRuleText(rule.category) &&
+    normalizeRuleText(rule.category) === normalizedCategory
+  ) {
+    return 1;
+  }
+
+  if (rule.scope === "global") {
+    return rule.supplier_id ? 2 : 3;
+  }
+
+  return null;
+}
+
+function normalizeRuleText(value: string | null | undefined): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function isRuleEffective(rule: CatalogMarkupRule, today: string): boolean {
+  return (
+    (!rule.effective_from || rule.effective_from <= today) &&
+    (!rule.effective_to || rule.effective_to >= today)
+  );
 }
 
 function getTruckRateKey(
@@ -230,7 +404,9 @@ function resolveMinimumOverride(
 }
 
 export function isCodPaymentTerms(paymentTerms: string | null | undefined): boolean {
-  return /\bcod\b/i.test(paymentTerms ?? "");
+  const terms = paymentTerms?.trim();
+
+  return !terms || /\bcod\b/i.test(terms);
 }
 
 function chooseVehiclePlan({

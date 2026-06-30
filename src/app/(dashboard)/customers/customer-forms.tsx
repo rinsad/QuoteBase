@@ -1,12 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { MapPin, Plus } from "lucide-react";
 
 import {
   createCustomer,
   createJobSite,
+  updateCustomer,
   type CustomerFormState,
 } from "@/app/(dashboard)/customers/actions";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,47 @@ const initialCustomerFormState: CustomerFormState = {
   status: "idle",
   fieldErrors: {},
 };
+
+type GoogleAddressComponent = {
+  long_name: string;
+  short_name: string;
+  types: string[];
+};
+
+type GooglePlaceResult = {
+  address_components?: GoogleAddressComponent[];
+  geometry?: {
+    location?: {
+      lat: () => number;
+      lng: () => number;
+    };
+  };
+  name?: string;
+};
+
+type GooglePlacesAutocomplete = {
+  addListener: (eventName: "place_changed", handler: () => void) => void;
+  getPlace: () => GooglePlaceResult;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      maps?: {
+        places?: {
+          Autocomplete: new (
+            input: HTMLInputElement,
+            options: {
+              componentRestrictions: { country: string };
+              fields: string[];
+              types: string[];
+            },
+          ) => GooglePlacesAutocomplete;
+        };
+      };
+    };
+  }
+}
 
 export function CustomerForm({
   plants,
@@ -112,12 +154,15 @@ export function CustomerForm({
           />
         </Field>
         <Field label="Payment terms" name="payment_terms" optional>
-          <input
+          <select
             id="payment-terms"
             name="payment_terms"
+            defaultValue="COD"
             className="soft-control w-full"
-            maxLength={80}
-          />
+          >
+            <option value="COD">COD</option>
+            <option value="Net30">Net30</option>
+          </select>
         </Field>
         <Field
           label="Default plant"
@@ -161,6 +206,165 @@ export function CustomerForm({
         className="mt-5 h-11 rounded-md"
       >
         {isPending ? "Saving..." : "Save customer"}
+      </Button>
+    </form>
+  );
+}
+
+export function CustomerEditForm({
+  customer,
+  plants,
+}: {
+  customer: CustomerSummary;
+  plants: CustomerPlantOption[];
+}) {
+  const [state, formAction, isPending] = useActionState(
+    updateCustomer,
+    initialCustomerFormState,
+  );
+  const safePlants = plants.filter(isPlantOption);
+
+  return (
+    <form action={formAction} noValidate>
+      <input type="hidden" name="customer_id" value={customer.id} />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Customer name"
+          name="name"
+          required
+          error={state.fieldErrors.name}
+        >
+          <input
+            id="edit-customer-name"
+            name="name"
+            defaultValue={customer.name}
+            className="soft-control w-full"
+            required
+            maxLength={160}
+            aria-invalid={Boolean(state.fieldErrors.name)}
+          />
+        </Field>
+        <Field label="Company" name="company_name" optional>
+          <input
+            id="edit-company-name"
+            name="company_name"
+            defaultValue={customer.company_name ?? ""}
+            className="soft-control w-full"
+            maxLength={160}
+          />
+        </Field>
+        <Field label="Contact name" name="contact_name" optional>
+          <input
+            id="edit-contact-name"
+            name="contact_name"
+            defaultValue={customer.contact_name ?? ""}
+            className="soft-control w-full"
+            maxLength={160}
+          />
+        </Field>
+        <Field
+          label="Email"
+          name="email"
+          optional
+          error={state.fieldErrors.email}
+        >
+          <input
+            id="edit-customer-email"
+            name="email"
+            type="email"
+            defaultValue={customer.email ?? ""}
+            className="soft-control w-full"
+            maxLength={254}
+            aria-invalid={Boolean(state.fieldErrors.email)}
+          />
+        </Field>
+        <Field label="Phone" name="phone" optional>
+          <input
+            id="edit-customer-phone"
+            name="phone"
+            defaultValue={customer.phone ?? ""}
+            className="soft-control w-full"
+            maxLength={40}
+          />
+        </Field>
+        <Field label="Address" name="address" optional>
+          <input
+            id="edit-customer-address"
+            name="address"
+            defaultValue={addressLine(customer.address)}
+            className="soft-control w-full"
+            maxLength={240}
+          />
+        </Field>
+        <Field label="Payment terms" name="payment_terms" optional>
+          <select
+            id="edit-payment-terms"
+            name="payment_terms"
+            defaultValue={customer.payment_terms ?? "COD"}
+            className="soft-control w-full"
+          >
+            <option value="COD">COD</option>
+            <option value="Net30">Net30</option>
+          </select>
+        </Field>
+        <Field
+          label="Default plant"
+          name="default_plant_id"
+          optional
+          error={state.fieldErrors.default_plant_id}
+        >
+          <select
+            id="edit-default-plant-id"
+            name="default_plant_id"
+            defaultValue={customer.default_plant_id ?? ""}
+            className="soft-control w-full"
+            aria-invalid={Boolean(state.fieldErrors.default_plant_id)}
+          >
+            <option value="">No default</option>
+            {safePlants.map((plant) => (
+              <option key={plant.id} value={plant.id}>
+                {plant.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field
+          label="Pricing notes"
+          name="pricing_notes"
+          optional
+          className="sm:col-span-2"
+        >
+          <textarea
+            id="edit-pricing-notes"
+            name="pricing_notes"
+            rows={3}
+            defaultValue={customer.pricing_notes ?? ""}
+            className="soft-control w-full resize-none"
+            maxLength={1000}
+          />
+        </Field>
+        <label className="flex items-center gap-3 rounded-md border border-border bg-background px-4 py-3">
+          <input
+            name="is_active"
+            type="checkbox"
+            defaultChecked={customer.is_active}
+            className="size-4 accent-[#3d6652]"
+          />
+          <span>
+            <span className="block text-sm font-semibold">Active customer</span>
+            <span className="block text-xs text-muted-foreground">
+              Inactive customers stay in history but are hidden from normal work.
+            </span>
+          </span>
+        </label>
+      </div>
+      <FormMessage state={state} />
+      <Button
+        type="submit"
+        disabled={isPending}
+        className="mt-5 h-11 rounded-md"
+      >
+        {isPending ? "Saving..." : "Save changes"}
       </Button>
     </form>
   );
@@ -244,6 +448,7 @@ export function JobSiteForm({
             maxLength={240}
           />
         </Field>
+        <JobSiteAddressAutocomplete />
         <Field
           label="City"
           name="city"
@@ -373,6 +578,171 @@ function LocationDatalists({
   );
 }
 
+function JobSiteAddressAutocomplete() {
+  const autocompleteRef = useRef<GooglePlacesAutocomplete | null>(null);
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    loadGooglePlaces()
+      .then(() => {
+        if (isMounted) {
+          setIsReady(true);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setIsReady(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+      autocompleteRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isReady || autocompleteRef.current) {
+      return;
+    }
+
+    const addressInput = inputById("job-site-line1");
+
+    if (!addressInput || !window.google?.maps?.places?.Autocomplete) {
+      return;
+    }
+
+    const autocomplete = new window.google.maps.places.Autocomplete(
+      addressInput,
+      {
+        componentRestrictions: { country: "us" },
+        fields: ["address_components", "geometry", "name"],
+        types: ["address"],
+      },
+    );
+
+    autocomplete.addListener("place_changed", () => {
+      const place = autocomplete.getPlace();
+
+      applySelectedPlace(place);
+    });
+    autocompleteRef.current = autocomplete;
+  }, [isReady]);
+
+  return null;
+}
+
+function applySelectedPlace(place: GooglePlaceResult) {
+  const components = place.address_components ?? [];
+  const streetNumber = componentValue(components, "street_number", "short_name");
+  const route = componentValue(components, "route", "long_name");
+  const line1 = [streetNumber, route].filter(Boolean).join(" ");
+  const city =
+    componentValue(components, "locality", "long_name") ||
+    componentValue(components, "postal_town", "long_name") ||
+    componentValue(components, "sublocality", "long_name");
+  const county = stripCountySuffix(
+    componentValue(components, "administrative_area_level_2", "long_name"),
+  );
+  const state = componentValue(
+    components,
+    "administrative_area_level_1",
+    "short_name",
+  );
+  const latitude = place.geometry?.location?.lat();
+  const longitude = place.geometry?.location?.lng();
+
+  setInputValue("job-site-line1", line1 || place.name || "");
+  setInputValue("job-site-city", city);
+  setInputValue("job-site-county", county);
+  setInputValue("job-site-state", state);
+  setInputValue(
+    "job-site-latitude",
+    typeof latitude === "number" ? formatCoordinate(latitude) : "",
+  );
+  setInputValue(
+    "job-site-longitude",
+    typeof longitude === "number" ? formatCoordinate(longitude) : "",
+  );
+}
+
+function loadGooglePlaces(): Promise<void> {
+  if (window.google?.maps?.places?.Autocomplete) {
+    return Promise.resolve();
+  }
+
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+  if (!apiKey) {
+    return Promise.reject(new Error("Google Maps browser key is not configured."));
+  }
+
+  const existingScript = document.querySelector<HTMLScriptElement>(
+    "script[data-google-places='true']",
+  );
+
+  if (existingScript) {
+    return new Promise((resolve, reject) => {
+      existingScript.addEventListener("load", () => resolve(), { once: true });
+      existingScript.addEventListener("error", () => reject(), { once: true });
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    const url = new URL("https://maps.googleapis.com/maps/api/js");
+
+    url.searchParams.set("key", apiKey);
+    url.searchParams.set("libraries", "places");
+    url.searchParams.set("loading", "async");
+    script.src = url.toString();
+    script.async = true;
+    script.dataset.googlePlaces = "true";
+    script.addEventListener("load", () => resolve(), { once: true });
+    script.addEventListener("error", () => reject(), { once: true });
+    document.head.appendChild(script);
+  });
+}
+
+function componentValue(
+  components: GoogleAddressComponent[],
+  type: string,
+  key: "long_name" | "short_name",
+): string {
+  return (
+    components.find((component) => component.types.includes(type))?.[key] ?? ""
+  );
+}
+
+function inputById(id: string): HTMLInputElement | null {
+  const element = document.getElementById(id);
+
+  return element instanceof HTMLInputElement ? element : null;
+}
+
+function setInputValue(id: string, value: string) {
+  if (!value) {
+    return;
+  }
+
+  const input = inputById(id);
+
+  if (input) {
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
+function stripCountySuffix(value: string): string {
+  return value.replace(/\s+County$/i, "");
+}
+
+function formatCoordinate(value: number): string {
+  return String(Math.round((value + Number.EPSILON) * 10_000_000) / 10_000_000);
+}
+
 function isPlantOption(value: CustomerPlantOption | null): value is CustomerPlantOption {
   return Boolean(
     value && typeof value.id === "string" && typeof value.name === "string",
@@ -468,4 +838,10 @@ function SectionHeading({
       </div>
     </div>
   );
+}
+
+function addressLine(address: Record<string, unknown>) {
+  const line1 = typeof address.line1 === "string" ? address.line1 : "";
+
+  return line1;
 }

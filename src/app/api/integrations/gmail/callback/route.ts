@@ -9,6 +9,7 @@ import {
   gmailCredentialsLast4,
   verifyGmailState,
 } from "@/lib/integrations/gmail";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: Request) {
@@ -19,10 +20,6 @@ export async function GET(request: Request) {
 
   if (!user) {
     redirect("/login");
-  }
-
-  if (user.role !== "admin") {
-    redirect("/admin/integrations/gmail?error=unauthorized");
   }
 
   if (!state) {
@@ -50,8 +47,14 @@ export async function GET(request: Request) {
   }
 
   try {
+    const admin = createAdminClient();
+
+    if (!admin) {
+      redirect("/admin/integrations/gmail?error=oauth_failed");
+    }
+
     const settings = await getGmailOAuthSettings({
-      supabase,
+      supabase: admin,
       organizationId: user.organization_id,
     });
 
@@ -62,16 +65,18 @@ export async function GET(request: Request) {
     const credentials = await exchangeGmailCode({ code, settings });
     const encrypted = encryptedGmailCredentials(credentials);
     const { data: before } = await supabase
-      .from("organization_integrations")
+      .from("user_integrations")
       .select("id, provider, is_enabled, config, credentials_last4, updated_at")
       .eq("organization_id", user.organization_id)
+      .eq("user_id", user.id)
       .eq("provider", "gmail")
       .maybeSingle<Record<string, unknown>>();
     const { data: after, error } = await supabase
-      .from("organization_integrations")
+      .from("user_integrations")
       .upsert(
         {
           organization_id: user.organization_id,
+          user_id: user.id,
           provider: "gmail",
           is_enabled: true,
           config: {},
@@ -84,7 +89,7 @@ export async function GET(request: Request) {
           updated_by: user.id,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "organization_id,provider" },
+        { onConflict: "organization_id,user_id,provider" },
       )
       .select("id, provider, is_enabled, config, credentials_last4, updated_at")
       .single<Record<string, unknown>>();
@@ -96,7 +101,7 @@ export async function GET(request: Request) {
     await logAction({
       user,
       action: "integration.gmail.connected",
-      targetTable: "organization_integrations",
+      targetTable: "user_integrations",
       targetId: typeof after.id === "string" ? after.id : undefined,
       before,
       after,

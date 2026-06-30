@@ -9,8 +9,8 @@ import {
   waitForQuoteStatus,
 } from "./helpers/db";
 
-const ADMIN_EMAIL = "rinsad@gmail.com";
-const ESTIMATOR_EMAIL = "dispatch@westernmaterials.net";
+const ADMIN_EMAIL = "admin@demo-distributor.test";
+const ESTIMATOR_EMAIL = "dispatch@demo-distributor.test";
 
 test.describe("public quote links and documents", () => {
   test("sent quote public link can be viewed and accepted without authentication", async ({

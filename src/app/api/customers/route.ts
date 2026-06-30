@@ -5,7 +5,11 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { apiOk, badRequest, serverError, unauthorized } from "@/lib/api/responses";
 import { parsePagination } from "@/lib/api/validation";
 import { logAction } from "@/lib/audit/log-action";
-import { pushCustomerToPipedrive } from "@/lib/integrations/pipedrive";
+import {
+  captureWebFormLead,
+  leadInputSchema,
+  resolveOrganizationIdFromLeadPayload,
+} from "@/lib/customers/crm";
 import { createClient } from "@/lib/supabase/server";
 
 type CustomerApiRecord = {
@@ -126,6 +130,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const url = new URL(request.url);
+
+  if (url.searchParams.get("source") === "web_form") {
+    return captureWebFormLeadRequest(request);
+  }
+
   const user = await getCurrentUser();
 
   if (!user) {
@@ -157,7 +167,7 @@ export async function POST(request: Request) {
         address: {
           line1: parsed.value.address || null,
         },
-        payment_terms: parsed.value.payment_terms || null,
+        payment_terms: parsed.value.payment_terms || "COD",
         pricing_notes: parsed.value.pricing_notes || null,
         default_plant_id: parsed.value.default_plant_id || null,
         is_active: true,
@@ -180,15 +190,68 @@ export async function POST(request: Request) {
     after: customer,
   });
 
-  await pushCustomerToPipedrive({
-    supabase,
-    user,
-    customerId: customer.id,
-  });
-
   revalidatePath("/customers");
 
   return apiOk({ customer }, { status: 201 });
+}
+
+async function captureWebFormLeadRequest(request: Request) {
+  const configuredSecret = process.env.WEB_FORM_WEBHOOK_SECRET;
+  const providedSecret =
+    request.headers.get("x-quotebase-webhook-secret") ??
+    bearerToken(request.headers.get("authorization"));
+
+  if (!configuredSecret || providedSecret !== configuredSecret) {
+    return unauthorized();
+  }
+
+  let payload: unknown;
+
+  try {
+    payload = await request.json();
+  } catch {
+    return badRequest("Request body must be valid JSON.");
+  }
+
+  if (!isRecord(payload)) {
+    return badRequest("Request body must be an object.");
+  }
+
+  const organizationId = await resolveOrganizationIdFromLeadPayload(payload);
+
+  if (!organizationId) {
+    return badRequest("organization_id or organization_slug is required.");
+  }
+
+  const parsed = leadInputSchema.safeParse({
+    company_name: payload.company_name ?? payload.company ?? payload.account,
+    contact_name: payload.contact_name ?? payload.contact ?? payload.name,
+    title: payload.title,
+    email: payload.email,
+    phone: payload.phone,
+    domain: payload.domain ?? payload.website,
+    deal_title: payload.deal_title ?? payload.deal ?? payload.opportunity,
+    deal_value: payload.deal_value ?? payload.value ?? payload.amount,
+    expected_close_date: payload.expected_close_date ?? payload.close_date,
+    notes: payload.notes ?? payload.message,
+    source_name: payload.source_name ?? payload.form_name ?? "Web form",
+  });
+
+  if (!parsed.success) {
+    return badRequest(parsed.error.issues.map((issue) => issue.message).join(" "));
+  }
+
+  const result = await captureWebFormLead({
+    organizationId,
+    lead: parsed.data,
+    rawPayload: payload,
+  });
+
+  if (!result) {
+    return serverError("Could not capture lead.");
+  }
+
+  return apiOk({ lead: result }, { status: 201 });
 }
 
 async function parseCreateCustomerBody(
@@ -215,4 +278,16 @@ async function parseCreateCustomerBody(
   }
 
   return { ok: true, value: result.data };
+}
+
+function bearerToken(value: string | null): string | null {
+  if (!value?.startsWith("Bearer ")) {
+    return null;
+  }
+
+  return value.slice("Bearer ".length).trim();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

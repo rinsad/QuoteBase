@@ -2,7 +2,11 @@ import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/app/(auth)/login/login-form";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { isLocalSupabase, isSupabaseReachable } from "@/lib/env";
+import {
+  isDevLoginEnabled,
+  isLocalSupabase,
+  isSupabaseReachable,
+} from "@/lib/env";
 
 export default async function LoginPage({
   searchParams,
@@ -15,8 +19,7 @@ export default async function LoginPage({
     ? await isSupabaseReachable()
     : true;
   const user = supabaseReachable ? await getCurrentUser() : null;
-  const showDevSignIn =
-    process.env.NODE_ENV !== "production" && localSupabase;
+  const showDevSignIn = isDevLoginEnabled();
 
   if (user) {
     redirect("/dashboard");
@@ -46,19 +49,19 @@ export default async function LoginPage({
           <div className="grid lg:grid-cols-[1.05fr_0.95fr]">
             <div className="p-6 sm:p-8 lg:p-10">
               <p className="text-sm font-medium text-muted-foreground">
-                Western Materials
+                Private workspace
               </p>
               <h1 className="accent-title mt-4 max-w-xl text-4xl font-semibold tracking-normal text-balance sm:text-5xl">
                 Sign in to QuoteBase.
               </h1>
               <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
                 Use an approved company account. Supabase will send a magic
-                link; local development can use the developer shortcut.
+                link to continue.
               </p>
               <LoginForm showDevSignIn={showDevSignIn} />
               {query.dev_login === "unavailable" || !supabaseReachable ? (
                 <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-100">
-                  Local Supabase is not running, so the test-user shortcuts are
+                  Local Supabase is not running, so the local shortcut is
                   unavailable. Start Supabase locally or use the magic-link
                   flow.
                 </p>
@@ -70,15 +73,12 @@ export default async function LoginPage({
                 Access
               </p>
               <h2 className="mt-1 text-2xl font-semibold">
-                Approved roles
+                Secure access
               </h2>
               <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
-                <AccessRole label="Operations admin" role="Admin" />
-                <AccessRole label="Pricing manager" role="Account Manager" />
-                <AccessRole label="Estimator workspace" role="Estimator" />
-                {showDevSignIn ? (
-                  <AccessRole label="Local developer shortcut" role="Dev" />
-                ) : null}
+                <AccessItem text="Approved users only" />
+                <AccessItem text="Tenant-scoped data access" />
+                <AccessItem text="Audited quote workflow" />
               </div>
             </aside>
           </div>
@@ -88,14 +88,11 @@ export default async function LoginPage({
   );
 }
 
-function AccessRole({ label, role }: { label: string; role: string }) {
+function AccessItem({ text }: { text: string }) {
   return (
-    <div className="soft-row flex items-center justify-between gap-4 px-4 py-3">
+    <div className="soft-row px-4 py-3">
       <span className="min-w-0 truncate font-medium text-foreground">
-        {label}
-      </span>
-      <span className="soft-chip shrink-0 bg-[#ecf2ed] text-[#3d6652] ring-[#d7ded5]">
-        {role}
+        {text}
       </span>
     </div>
   );

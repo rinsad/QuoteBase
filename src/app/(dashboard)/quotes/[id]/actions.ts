@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
 import { isFeatureEnabled } from "@/lib/features/flags";
+import { getGoogleMapsIntegration } from "@/lib/integrations/google-maps";
 import { sendQuoteEmail } from "@/lib/notifications/email";
 import { ensureQuotePublicLink } from "@/lib/quotes/delivery";
 import {
@@ -24,6 +25,9 @@ import {
 import {
   calculateQuoteDraft,
   isCodPaymentTerms,
+  normalizeCatalogMarkupRules,
+  resolveCatalogMarkupRule,
+  type CatalogMarkupRule,
   type PricingConfig,
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
@@ -204,29 +208,74 @@ export async function markQuoteSent(quoteId: string, formData: FormData) {
 export async function markQuoteAccepted(quoteId: string, formData: FormData) {
   const noteValue = formData.get("customer_response_note");
   const note = typeof noteValue === "string" ? noteValue.trim() : "";
+  const status = await getCurrentQuoteStatusForCustomerResponse(quoteId);
 
   await transitionQuoteStatusAction({
     quoteId,
-    from: "sent",
-    to: "accepted",
-    action: "quote.accepted",
+    from: status,
+    to: "won",
+    action: "quote.won",
     allowedRoles: ["admin", "account_manager"],
-    note: note ? `Accepted: ${note}` : "Marked accepted by customer.",
+    note: note ? `Won: ${note}` : "Marked won by customer acceptance.",
   });
 }
 
 export async function markQuoteDeclined(quoteId: string, formData: FormData) {
   const noteValue = formData.get("customer_response_note");
   const note = typeof noteValue === "string" ? noteValue.trim() : "";
+  const status = await getCurrentQuoteStatusForCustomerResponse(quoteId);
 
   await transitionQuoteStatusAction({
     quoteId,
-    from: "sent",
-    to: "declined",
-    action: "quote.declined",
+    from: status,
+    to: "lost",
+    action: "quote.lost",
     allowedRoles: ["admin", "account_manager"],
-    note: note ? `Declined: ${note}` : "Marked declined by customer.",
+    note: note ? `Lost: ${note}` : "Marked lost by customer decline.",
   });
+}
+
+async function getCurrentQuoteStatusForCustomerResponse(
+  quoteId: string,
+): Promise<"sent" | "viewed" | "follow_up"> {
+  if (!UUID_PATTERN.test(quoteId)) {
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
+  }
+
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("status")
+    .eq("organization_id", user.organization_id)
+    .eq("id", quoteId)
+    .eq("is_active", true)
+    .single<{ status: QuoteStatus }>();
+
+  if (
+    !quote ||
+    !["sent", "viewed", "follow_up"].includes(quote.status)
+  ) {
+    redirectQuoteActionError(
+      quoteId,
+      "Only sent or follow-up quotes can be marked won or lost.",
+    );
+  }
+
+  return quote.status as "sent" | "viewed" | "follow_up";
 }
 
 export async function createCustomerQuoteLink(quoteId: string) {
@@ -268,7 +317,7 @@ export async function createCustomerQuoteLink(quoteId: string) {
     redirectQuoteActionError(quoteId, "Quote not found.");
   }
 
-  if (!["sent", "viewed", "accepted", "declined"].includes(quote.status)) {
+  if (!["sent", "viewed", "follow_up", "won", "lost"].includes(quote.status)) {
     redirectQuoteActionError(
       quoteId,
       "Customer links are available after the quote is sent.",
@@ -349,7 +398,7 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
     redirectQuoteEmailError(quoteId, "Quote not found.");
   }
 
-  if (!["approved", "sent", "viewed", "accepted", "declined"].includes(quote.status)) {
+  if (!["approved", "sent", "viewed", "follow_up", "won", "lost"].includes(quote.status)) {
     redirectQuoteEmailError(
       quoteId,
       "Customer email is available after the quote is approved.",
@@ -383,6 +432,7 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
       supabase,
       user,
       quoteId,
+      quoteUrl: publicLink.url,
     });
     attachment = pdfDocument
       ? await getQuoteDocumentAttachment({
@@ -400,16 +450,29 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
       publicLink.url,
     );
   }
-  const delivery = await sendQuoteEmail({
-    supabase,
-    organizationId: user.organization_id,
-    to: customer.email,
-    customerName: customer.name,
-    quoteNumber: quote.quote_number,
-    quoteUrl: publicLink.url,
-    total: Number(quote.total),
-    attachments: attachment ? [attachment] : [],
-  });
+  let delivery: Awaited<ReturnType<typeof sendQuoteEmail>>;
+
+  try {
+    delivery = await sendQuoteEmail({
+      supabase,
+      organizationId: user.organization_id,
+      senderUserId: user.id,
+      to: customer.email,
+      customerName: customer.name,
+      quoteNumber: quote.quote_number,
+      quoteUrl: publicLink.url,
+      total: Number(quote.total),
+      attachments: attachment ? [attachment] : [],
+    });
+  } catch (error) {
+    redirectQuoteEmailError(
+      quoteId,
+      error instanceof Error
+        ? `Could not send the customer email: ${error.message}`
+        : "Could not send the customer email.",
+      publicLink.url,
+    );
+  }
 
   if (delivery.status === "sent" && quote.status === "approved") {
     await transitionQuoteStatus({
@@ -422,6 +485,11 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
       allowedRoles: ["admin", "account_manager"],
       note: `Sent to ${customer.email} by email.`,
     });
+    await supabase
+      .from("quotes")
+      .update({ followup_date: offsetDate(2) })
+      .eq("organization_id", user.organization_id)
+      .eq("id", quoteId);
   }
 
   await logAction({
@@ -608,6 +676,7 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     materialResult,
     pricingConfigResult,
     vehicleTypesResult,
+    markupRulesResult,
   ] = await Promise.all([
     supabase
       .from("quotes")
@@ -621,7 +690,7 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", materialId)
@@ -642,6 +711,14 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       .eq("is_active", true)
       .order("capacity_tons", { ascending: false })
       .returns<VehicleCapacity[]>(),
+    supabase
+      .from("supplier_markup_rules")
+      .select(
+        "id, supplier_id, scope, category, catalog_item_id, markup_type, markup_value, margin_floor_pct, priority, effective_from, effective_to",
+      )
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .returns<CatalogMarkupRule[]>(),
   ]);
 
   if (!quoteResult.data || !materialResult.data || !pricingConfigResult.data) {
@@ -689,6 +766,13 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
   }
 
   const requestedMaterial = materialResult.data;
+  const catalogMarkupRules = normalizeCatalogMarkupRules(
+    markupRulesResult.data ?? [],
+  );
+  const googleMapsIntegration = await getGoogleMapsIntegration({
+    supabase,
+    organizationId: user.organization_id,
+  });
   const recommendation = await selectBestPlantForQuote({
     supabase,
     organizationId: user.organization_id,
@@ -707,9 +791,15 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
         Number(pricingConfigResult.data.trucking_minimum),
     },
     vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
+    catalogMarkupRules,
+    googleMapsApiKey:
+      googleMapsIntegration?.isEnabled && googleMapsIntegration.apiKey
+        ? googleMapsIntegration.apiKey
+        : null,
   });
   const material = recommendation.material;
   const calculation = recommendation.calculation;
+  const catalogMarkupRule = resolveCatalogMarkupRule(material, catalogMarkupRules);
 
   const { data: item, error: itemError } = await supabase
     .from("quote_items")
@@ -718,6 +808,8 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       quote_id: quote.id,
       supplier_id: material.supplier_id,
       material_id: material.id,
+      supplier_catalog_version_id: material.supplier_catalog_version_id,
+      supplier_catalog_item_id: material.supplier_catalog_item_id,
       quantity,
       unit: material.unit,
       unit_cost: Number(material.cost_per_unit),
@@ -799,6 +891,13 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       requested_material_id: requestedMaterial.id,
       selected_supplier_id: material.supplier_id,
       selected_supplier_name: recommendation.supplierName,
+      supplier_catalog_version_id: material.supplier_catalog_version_id,
+      supplier_catalog_item_id: material.supplier_catalog_item_id,
+      catalog_markup_rule_id: catalogMarkupRule?.id ?? null,
+      catalog_markup_source: calculation.markupSource,
+      gross_margin_pct: calculation.grossMarginPct,
+      margin_floor_pct: calculation.marginFloorPct,
+      margin_floor_warning: calculation.marginFloorWarning,
       plant_selection_reason: recommendation.selectionReason,
       route_distance_miles:
         recommendation.routeDistance?.distanceMiles ?? null,
@@ -1072,6 +1171,7 @@ export async function updateQuoteItemQuantity(
     },
     vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
     applyMaterialMinimum: false,
+    materialUnitPriceOverride: Number(item.material_unit_price),
   });
 
   const beforeItem = {
@@ -1245,12 +1345,35 @@ async function transitionQuoteStatusAction({
     );
   }
 
+  if (to === "sent") {
+    await supabase
+      .from("quotes")
+      .update({ followup_date: offsetDate(2) })
+      .eq("organization_id", user.organization_id)
+      .eq("id", quote.id);
+  }
+
+  if (to === "won" || to === "lost") {
+    await supabase
+      .from("quotes")
+      .update({ followup_date: null })
+      .eq("organization_id", user.organization_id)
+      .eq("id", quote.id);
+  }
+
   revalidatePath("/quotes");
   revalidatePath(`/quotes/${quote.id}`);
   const warningParam = quote.integrationWarning
     ? `?integration_warning=${encodeURIComponent(quote.integrationWarning)}`
     : "";
   redirect(`/quotes/${quote.id}${warningParam}`);
+}
+
+function offsetDate(days: number): string {
+  const value = new Date();
+  value.setUTCDate(value.getUTCDate() + days);
+
+  return value.toISOString().slice(0, 10);
 }
 
 async function getQuoteTotals(

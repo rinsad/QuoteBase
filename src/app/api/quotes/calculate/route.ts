@@ -8,6 +8,8 @@ import {
 } from "@/lib/api/responses";
 import { UUID_PATTERN } from "@/lib/api/validation";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { geocodeJobSiteAddress } from "@/lib/geo/geocode";
+import { getGoogleMapsIntegration } from "@/lib/integrations/google-maps";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -17,6 +19,8 @@ import {
   type PlantSelectionMaterial,
 } from "@/lib/quotes/plant-selection";
 import {
+  normalizeCatalogMarkupRules,
+  type CatalogMarkupRule,
   type PricingConfig,
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
@@ -36,6 +40,7 @@ type JobSiteRecord = {
   city: string;
   county: string;
   state: string;
+  address: Record<string, unknown>;
   latitude: number | null;
   longitude: number | null;
 };
@@ -127,11 +132,12 @@ export async function POST(request: Request) {
     pricingConfigResult,
     vehicleTypesResult,
     jobSiteResult,
+    markupRulesResult,
   ] = await Promise.all([
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", parsed.value.material_id)
@@ -155,12 +161,20 @@ export async function POST(request: Request) {
     parsed.value.job_site_id
       ? supabase
           .from("job_sites")
-          .select("id, name, city, county, state, latitude, longitude")
+          .select("id, name, city, county, state, address, latitude, longitude")
           .eq("organization_id", user.organization_id)
           .eq("id", parsed.value.job_site_id)
           .eq("is_active", true)
           .single<JobSiteRecord>()
       : Promise.resolve({ data: null }),
+    supabase
+      .from("supplier_markup_rules")
+      .select(
+        "id, supplier_id, scope, category, catalog_item_id, markup_type, markup_value, margin_floor_pct, priority, effective_from, effective_to",
+      )
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .returns<CatalogMarkupRule[]>(),
   ]);
 
   if (!materialResult.data || !pricingConfigResult.data) {
@@ -171,18 +185,23 @@ export async function POST(request: Request) {
     return badRequest("Selected job site was not found.");
   }
 
-  const jobSiteCoordinates = {
-    latitude:
-      parsed.value.site_latitude === undefined ||
-      parsed.value.site_latitude === null
-        ? nullableNumber(jobSiteResult.data?.latitude ?? null)
-        : roundCoordinate(parsed.value.site_latitude),
-    longitude:
-      parsed.value.site_longitude === undefined ||
-      parsed.value.site_longitude === null
-        ? nullableNumber(jobSiteResult.data?.longitude ?? null)
-        : roundCoordinate(parsed.value.site_longitude),
-  };
+  const googleMapsIntegration = await getGoogleMapsIntegration({
+    supabase,
+    organizationId: user.organization_id,
+  });
+  const googleMapsApiKey =
+    googleMapsIntegration?.isEnabled && googleMapsIntegration.apiKey
+      ? googleMapsIntegration.apiKey
+      : null;
+  const jobSiteCoordinates = await resolveJobSiteCoordinates({
+    jobSite: jobSiteResult.data ?? null,
+    explicitLatitude: parsed.value.site_latitude ?? null,
+    explicitLongitude: parsed.value.site_longitude ?? null,
+    fallbackCity: parsed.value.site_city,
+    fallbackCounty: parsed.value.site_county,
+    fallbackState: parsed.value.site_state,
+    googleMapsApiKey,
+  });
   const taxRate = await resolveSalesTaxRate({
     supabase,
     organizationId: user.organization_id,
@@ -220,6 +239,10 @@ export async function POST(request: Request) {
         parsed.value.manual_route_distance_miles ?? null,
       manualDeadheadDistanceMiles:
         parsed.value.manual_deadhead_distance_miles ?? null,
+      catalogMarkupRules: normalizeCatalogMarkupRules(
+        markupRulesResult.data ?? [],
+      ),
+      googleMapsApiKey,
     });
     const calculation = recommendation.calculation;
 
@@ -248,6 +271,8 @@ export async function POST(request: Request) {
         unit_cost: Number(recommendation.material.cost_per_unit),
         markup_per_unit: calculation.markupPerUnit,
         markup_pct: calculation.markupPct,
+        markup_source: calculation.markupSource,
+        markup_rule_id: calculation.markupRuleId,
         price_override: parsed.value.material_unit_price_override !== undefined &&
           parsed.value.material_unit_price_override !== null,
         material_minimum_override:
@@ -261,6 +286,9 @@ export async function POST(request: Request) {
             parsed.value.trucking_minimum_override !== null,
         material_unit_price: calculation.materialUnitPrice,
         material_subtotal: calculation.materialSubtotal,
+        gross_margin_pct: calculation.grossMarginPct,
+        margin_floor_pct: calculation.marginFloorPct,
+        margin_floor_warning: calculation.marginFloorWarning,
         trucking_rate_per_unit: calculation.truckingRatePerUnit,
         trucking_subtotal: calculation.truckingSubtotal,
         fees_subtotal: calculation.feesSubtotal,
@@ -392,10 +420,63 @@ async function findSalesTaxRate({
   return data ?? null;
 }
 
+async function resolveJobSiteCoordinates({
+  jobSite,
+  explicitLatitude,
+  explicitLongitude,
+  fallbackCity,
+  fallbackCounty,
+  fallbackState,
+  googleMapsApiKey,
+}: {
+  jobSite: JobSiteRecord | null;
+  explicitLatitude: number | null;
+  explicitLongitude: number | null;
+  fallbackCity: string;
+  fallbackCounty: string;
+  fallbackState: string;
+  googleMapsApiKey: string | null;
+}): Promise<{ latitude: number | null; longitude: number | null }> {
+  if (explicitLatitude !== null && explicitLongitude !== null) {
+    return {
+      latitude: roundCoordinate(explicitLatitude),
+      longitude: roundCoordinate(explicitLongitude),
+    };
+  }
+
+  const storedCoordinates = {
+    latitude: nullableNumber(jobSite?.latitude ?? null),
+    longitude: nullableNumber(jobSite?.longitude ?? null),
+  };
+
+  if (
+    storedCoordinates.latitude !== null &&
+    storedCoordinates.longitude !== null
+  ) {
+    return storedCoordinates;
+  }
+
+  const geocoded = await geocodeJobSiteAddress({
+    line1: addressLine(jobSite?.address ?? {}),
+    city: jobSite?.city ?? fallbackCity,
+    county: jobSite?.county ?? fallbackCounty,
+    state: jobSite?.state ?? fallbackState,
+    apiKey: googleMapsApiKey,
+  });
+
+  return geocoded ?? storedCoordinates;
+}
+
 function nullableNumber(value: number | null): number | null {
   return value === null ? null : Number(value);
 }
 
 function roundCoordinate(value: number): number {
   return Math.round((value + Number.EPSILON) * 10000000) / 10000000;
+}
+
+function addressLine(address: Record<string, unknown>): string | null {
+  const line1 = address.line1;
+
+  return typeof line1 === "string" && line1.trim() ? line1.trim() : null;
 }

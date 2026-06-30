@@ -3,12 +3,15 @@ import { notFound, redirect } from "next/navigation";
 
 import { PrintButton } from "@/app/(dashboard)/quotes/[id]/print/print-button";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { getQuoteBranding } from "@/lib/admin/branding";
 import { getQuoteDetail, type QuoteDetailItem } from "@/lib/quotes/quotes";
 
 export default async function QuotePrintPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ embed?: string }>;
 }) {
   const user = await getCurrentUser();
 
@@ -16,28 +19,37 @@ export default async function QuotePrintPage({
     redirect("/login");
   }
 
-  const { id } = await params;
+  const emptyQuery: { embed?: string } = {};
+  const [{ id }, query] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve(emptyQuery),
+  ]);
   const quote = await getQuoteDetail(user, id);
 
   if (!quote) {
     notFound();
   }
 
+  const branding = await getQuoteBranding(user.organization_id);
+  const companyName = branding?.branding.company_name ?? "QuoteBase";
+
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 print:bg-white print:px-0 print:py-0">
       <div className="mx-auto max-w-5xl print:max-w-none">
-        <div className="mb-4 flex justify-end gap-2 print:hidden">
-          <Link href={`/quotes/${quote.id}`} className="mac-link">
-            Back to quote
-          </Link>
-          <PrintButton />
-        </div>
+        {query.embed === "1" ? null : (
+          <div className="mb-4 flex justify-end gap-2 print:hidden">
+            <Link href={`/quotes/${quote.id}`} className="mac-link">
+              Back to quote
+            </Link>
+            <PrintButton />
+          </div>
+        )}
 
         <article className="bg-white p-8 shadow-[0_20px_70px_rgba(15,23,42,0.12)] print:p-0 print:shadow-none">
           <header className="flex flex-col gap-8 border-b border-slate-200 pb-8 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
-                Western Materials
+                {companyName}
               </p>
               <h1 className="mt-3 text-4xl font-semibold">Quote</h1>
               <p className="mt-2 text-sm text-slate-500">

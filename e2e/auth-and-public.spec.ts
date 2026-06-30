@@ -5,13 +5,16 @@ test.describe("public and authentication surfaces", () => {
     await page.goto("/");
 
     await expect(
-      page.getByRole("heading", {
-        name: "A command center for quoting, pricing, approvals, and follow-up.",
-      }),
+      page.getByRole("heading", { name: "Sign in to QuoteBase." }),
     ).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open login" })).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "View dashboard" }),
+      page.getByText("Approved users only"),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Tenant-scoped data access"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Send magic link" }),
     ).toBeVisible();
   });
 
@@ -27,10 +30,11 @@ test.describe("public and authentication surfaces", () => {
     await expect(
       page.getByRole("button", { name: "Send magic link" }),
     ).toBeVisible();
-    await expect(page.getByText("Approved roles")).toBeVisible();
-    await expect(page.getByText("Operations admin")).toBeVisible();
-    await expect(page.getByText("john@westernmaterials.net")).toHaveCount(0);
-    await expect(page.getByText("rinsad@gmail.com")).toHaveCount(0);
+    await expect(page.getByText("Approved users only")).toBeVisible();
+    await expect(page.getByText("Tenant-scoped data access")).toBeVisible();
+    await expect(page.getByText("Audited quote workflow")).toBeVisible();
+    await expect(page.getByText("owner@demo-distributor.test")).toHaveCount(0);
+    await expect(page.getByText("admin@demo-distributor.test")).toHaveCount(0);
   });
 
   test("protected dashboard redirects anonymous users to login", async ({

@@ -13,8 +13,6 @@ export type CustomerSummary = {
   pricing_notes: string | null;
   default_plant_id: string | null;
   default_plant_name: string | null;
-  pipedrive_person_id: string | null;
-  pipedrive_synced_at: string | null;
   is_active: boolean;
   job_sites: JobSiteSummary[];
   quote_history: CustomerQuoteHistoryItem[];
@@ -94,7 +92,7 @@ export async function getCustomerDeskSummary(
   let customerQuery = supabase
     .from("customers")
     .select(
-      "id, name, company_name, contact_name, email, phone, address, payment_terms, pricing_notes, default_plant_id, pipedrive_person_id, pipedrive_synced_at, is_active, job_sites(id, customer_id, name, city, county, state, address, latitude, longitude, is_active)",
+      "id, name, company_name, contact_name, email, phone, address, payment_terms, pricing_notes, default_plant_id, is_active, job_sites(id, customer_id, name, city, county, state, address, latitude, longitude, is_active)",
     )
     .eq("organization_id", user.organization_id)
     .order("name", { ascending: true });
@@ -134,7 +132,7 @@ export async function getCustomerDeskSummary(
       ? await supabase
           .from("customers")
           .select(
-            "id, name, company_name, contact_name, email, phone, address, payment_terms, pricing_notes, default_plant_id, pipedrive_person_id, pipedrive_synced_at, is_active, job_sites(id, customer_id, name, city, county, state, address, latitude, longitude, is_active)",
+            "id, name, company_name, contact_name, email, phone, address, payment_terms, pricing_notes, default_plant_id, is_active, job_sites(id, customer_id, name, city, county, state, address, latitude, longitude, is_active)",
           )
           .eq("organization_id", user.organization_id)
           .in("id", missingCustomerIds)

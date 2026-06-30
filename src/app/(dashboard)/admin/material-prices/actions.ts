@@ -82,18 +82,30 @@ export async function updateMaterialPrice(formData: FormData) {
   const notes = optionalText(formData, "notes");
   const priceDate = requiredDate(formData, "price_date");
 
-  await updateMaterialPrices({
-    user,
-    supabase,
-    updates: [
-      {
-        materialId,
-        newPrice,
-        priceDate,
-        notes,
-      },
-    ],
-  });
+  try {
+    await updateMaterialPrices({
+      user,
+      supabase,
+      updates: [
+        {
+          materialId,
+          newPrice,
+          priceDate,
+          notes,
+        },
+      ],
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "New price must be different from the current price."
+    ) {
+      revalidatePath("/admin/material-prices");
+      redirect("/admin/material-prices?saved=1&unchanged=1");
+    }
+
+    throw error;
+  }
 
   revalidatePath("/admin/material-prices");
   revalidatePath("/admin/plants");
@@ -126,11 +138,23 @@ export async function uploadMaterialPriceCsv(formData: FormData) {
 
   const rows = parsePriceCsv(await file.text());
 
-  await updateMaterialPrices({
-    user,
-    supabase,
-    updates: rows,
-  });
+  try {
+    await updateMaterialPrices({
+      user,
+      supabase,
+      updates: rows,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "New price must be different from the current price."
+    ) {
+      revalidatePath("/admin/material-prices");
+      redirect("/admin/material-prices?saved=1&unchanged=1");
+    }
+
+    throw error;
+  }
 
   revalidatePath("/admin/material-prices");
   revalidatePath("/admin/plants");

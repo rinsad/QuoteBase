@@ -1,0 +1,3 @@
+supplier_name,material_name,tier,unit,cost_per_unit,city,state,minimum_order_quantity,price_date,notes
+SP Riverside,Fill Sand,R1,ton,6.00,,CA,1,2026-06-15,"Imported from Shelly Waggoner - Kerns - Fontana.xls quote line B; quantity 600 TON, one-way miles  9 , quoted per ton  $25.05 , fuel surcharge  $79.95 , environmental fee  $29.95 "
+FST,3/4 Crushed Rock,R2,ton,25.30,,CA,1,2026-06-15,"Imported from Shelly Waggoner - Kerns - Fontana.xls quote line C; quantity 2,550 TON, one-way miles  29 , quoted per ton  $51.21 , fuel surcharge  $79.95 , environmental fee  $29.95 "

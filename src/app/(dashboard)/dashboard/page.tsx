@@ -1,120 +1,86 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
-  AlertTriangle,
-  BadgeCheck,
-  CheckCircle2,
-  ClipboardList,
-  Columns3,
-  FileCheck2,
-  FileClock,
-  FilePlus2,
-  Flag,
+  ArrowRight,
+  Banknote,
+  Flame,
   Gauge,
-  LockKeyhole,
-  Mail,
+  ListTodo,
   MessageSquare,
-  ShieldCheck,
-  Workflow,
+  Plus,
+  Sparkles,
+  TrendingDown,
+  Trophy,
+  Search,
+  type LucideIcon,
 } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { getQuoteList } from "@/lib/quotes/quotes";
-import { getDashboardSummary } from "@/lib/system/checks";
+import {
+  normalizeSearchQuery,
+  searchWorkspace,
+  type GlobalSearchResult,
+} from "@/lib/global-search";
+import {
+  getQuoteList,
+  type DashboardQuoteInsight,
+} from "@/lib/quotes/quotes";
 
-const workflowModules = [
-  {
-    label: "Draft intake",
-    detail:
-      "Create quotes with customer, job-site, material, trucking, tax, and fee data.",
-    href: "/quotes/new",
-    icon: FilePlus2,
-  },
-  {
-    label: "Approval workflow",
-    detail: "Review pending approvals, changes requested, approvals, and rejections.",
-    href: "/quotes/approvals",
-    icon: Workflow,
-  },
-  {
-    label: "Customer delivery",
-    detail: "Send approved PDFs, public links, and track customer-facing states.",
-    href: "/quotes/approved",
-    icon: Mail,
-  },
-  {
-    label: "Quote history",
-    detail: "Review quote revisions, owner, totals, customer, and job-site context.",
-    href: "/quotes",
-    icon: FileClock,
-  },
-];
-
-const configAreas = [
-  { label: "Pricing rules", href: "/admin/pricing" },
-  { label: "Material prices", href: "/admin/material-prices" },
-  { label: "Tax rates", href: "/admin/tax-rates" },
-  { label: "Plants", href: "/admin/plants" },
-  { label: "Suppliers", href: "/admin/suppliers" },
-  { label: "Vehicle types", href: "/admin/vehicle-types" },
-];
-
-const guardrails = [
-  {
-    icon: LockKeyhole,
-    title: "Role-aware access",
-    detail: "Admin-only setup, approval, and reporting routes stay protected.",
-  },
-  {
-    icon: ClipboardList,
-    title: "Audit trail",
-    detail: "State-changing quote and admin workflows write reviewable events.",
-  },
-  {
-    icon: Flag,
-    title: "Feature gates",
-    detail: "Organization features can be enabled without changing workflow code.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Tenant scope",
-    detail: "Dashboard data is loaded through the current organization context.",
-  },
-];
-
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
   const user = await getCurrentUser();
 
   if (!user) {
     redirect("/login");
   }
 
-  const [summary, quoteList] = await Promise.all([
-    getDashboardSummary(user),
+  const query = await searchParams;
+  const searchQuery = normalizeSearchQuery(query.q ?? "");
+  const [quoteList, searchResults] = await Promise.all([
     getQuoteList(user),
+    searchQuery ? searchWorkspace({ user, query: searchQuery }) : null,
   ]);
-  const enabledFlags = summary.featureFlags.filter((flag) => flag.is_enabled).length;
-  const needsAttention = [
+  const kpis = quoteList.moneyKpis;
+  const kpiCards = [
     {
-      label: "Pending approvals",
-      value: quoteList.counts.pendingApproval,
-      detail: "Quotes waiting for review",
-      href: "/quotes/approvals",
-      icon: FileCheck2,
+      label: "Quoted",
+      value: formatCurrency(kpis.quotedValue),
+      sub: `${quoteList.counts.total} active quotes`,
+      icon: Banknote,
     },
     {
-      label: "Approved queue",
-      value: quoteList.counts.approved,
-      detail: "Ready for delivery planning",
-      href: "/quotes/approved",
-      icon: BadgeCheck,
-    },
-    {
-      label: "Sent quotes",
-      value: quoteList.counts.sent,
-      detail: "Customer-facing follow-up pool",
-      href: "/quotes",
+      label: "Open",
+      value: formatCurrency(kpis.openValue),
+      sub: `${quoteList.counts.sent + quoteList.counts.followUp} in market`,
       icon: MessageSquare,
+    },
+    {
+      label: "Won",
+      value: formatCurrency(kpis.wonValue),
+      sub: `${quoteList.counts.won} closed won`,
+      icon: Trophy,
+    },
+    {
+      label: "Lost",
+      value: formatCurrency(kpis.lostValue),
+      sub: `${quoteList.counts.lost} closed lost`,
+      icon: TrendingDown,
+    },
+    {
+      label: "Win rate",
+      value: `${kpis.winRate.toFixed(0)}%`,
+      sub: "Won / decided",
+      icon: Gauge,
+    },
+    {
+      label: "Follow-ups due",
+      value: kpis.followUpsDue.toString(),
+      sub: "Quotes in follow-up",
+      icon: ListTodo,
     },
   ];
 
@@ -126,152 +92,158 @@ export default async function DashboardPage() {
             Quote operations
           </p>
           <h1 className="mt-1 text-3xl font-semibold tracking-normal sm:text-4xl">
-            Welcome, {firstName(user.full_name)}.
+            Pipeline dashboard
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Your workspace is scoped to{" "}
-            {user.organization?.name ?? "this organization"}. Use this dashboard
-            to move quotes through intake, approval, delivery, configuration,
-            and audit review.
+            Money, engagement, and follow-up signals for{" "}
+            {user.organization?.name ?? "this organization"}.
           </p>
         </div>
-        <Link href="/quotes/new" className="mac-button-primary h-11">
-          <FilePlus2 className="size-4" />
-          New quote
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <Link href="/quotes" className="mac-link h-11 rounded-full">
+            Pipeline
+            <ArrowRight className="size-4" />
+          </Link>
+          <Link href="/quotes/new" className="mac-button-primary h-11 rounded-full">
+            <Plus className="size-4" />
+            New Quote
+          </Link>
+        </div>
       </div>
 
+      {searchQuery && searchResults ? (
+        <section className="mb-6 glass-panel p-5 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="icon-well text-primary">
+                <Search className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Workspace search
+                </p>
+                <h2 className="text-2xl font-semibold tracking-normal">
+                  Results for &quot;{searchQuery}&quot;
+                </h2>
+              </div>
+            </div>
+            <Link href="/dashboard" className="mac-link h-10 rounded-full">
+              Clear search
+            </Link>
+          </div>
+          <div className="mt-5 grid gap-4 xl:grid-cols-2">
+            <SearchResultGroup
+              title="Quotes"
+              results={searchResults.quote}
+              emptyText="No matching quotes."
+            />
+            <SearchResultGroup
+              title="Customers"
+              results={searchResults.customer}
+              emptyText="No matching customers."
+            />
+            <SearchResultGroup
+              title="Job sites"
+              results={searchResults.job_site}
+              emptyText="No matching job sites."
+            />
+            <SearchResultGroup
+              title="Audit events"
+              results={searchResults.audit}
+              emptyText="No matching audit events."
+            />
+          </div>
+        </section>
+      ) : null}
+
       <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <MetricCard label="All quotes" value={quoteList.counts.total} sub="Active records" />
-        <MetricCard label="Drafts" value={quoteList.counts.drafts} sub="In preparation" />
-        <MetricCard label="Pending" value={quoteList.counts.pendingApproval} sub="Approval queue" />
-        <MetricCard label="Approved" value={quoteList.counts.approved} sub="Ready to send" />
-        <MetricCard label="Sent" value={quoteList.counts.sent} sub="Customer follow-up" />
-        <MetricCard label="Flags on" value={enabledFlags} sub={`${summary.featureFlags.length} visible`} />
-      </section>
+        {kpiCards.map((card) => {
+          const Icon = card.icon;
 
-      <section className="mt-6 grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
-        <div className="glass-panel overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border bg-[#fbfcf8] px-4 py-3">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Quote workspace
+          return (
+            <div key={card.label} className="glass-tile min-h-32 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-xs font-medium uppercase text-muted-foreground">
+                  {card.label}
+                </p>
+                <Icon className="size-4 text-primary" />
+              </div>
+              <p className="mt-4 break-words font-mono text-2xl font-semibold">
+                {card.value}
               </p>
-              <h2 className="text-xl font-semibold">Workflow modules</h2>
+              <p className="mt-2 text-xs text-muted-foreground">{card.sub}</p>
             </div>
-            <Columns3 className="size-5 text-primary" />
-          </div>
-          <div className="grid gap-3 p-4 md:grid-cols-2">
-            {workflowModules.map((module) => {
-              const Icon = module.icon;
-
-              return (
-                <Link
-                  key={module.href}
-                  href={module.href}
-                  className="soft-row block p-4 transition hover:border-[#cfd8ce] hover:bg-secondary"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="icon-well text-primary">
-                      <Icon className="size-5" />
-                    </div>
-                    <CheckCircle2 className="size-4 text-primary" />
-                  </div>
-                  <h3 className="mt-4 text-sm font-semibold">{module.label}</h3>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {module.detail}
-                  </p>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-
-        <aside className="glass-panel overflow-hidden">
-          <div className="border-b border-border bg-[#fbfcf8] px-4 py-3">
-            <p className="text-sm font-medium text-muted-foreground">
-              Needs attention
-            </p>
-            <h2 className="text-xl font-semibold">Daily queues</h2>
-          </div>
-          <div className="space-y-2 p-4">
-            {needsAttention.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="soft-row grid grid-cols-[auto_1fr_auto] items-center gap-3 p-4 transition hover:bg-secondary"
-                >
-                  <Icon className="size-4 text-primary" />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{item.label}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {item.detail}
-                    </p>
-                  </div>
-                  <span className="font-mono text-xl font-semibold">
-                    {item.value}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-        </aside>
+          );
+        })}
       </section>
 
-      <section className="mt-6 grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-        <div className="glass-panel p-5">
+      <section className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <DashboardPanel
+          icon={Flame}
+          kicker="Engagement"
+          title="Hot Quotes"
+          actionHref="/quotes"
+          actionLabel="Open pipeline"
+        >
+          <QuoteInsightList
+            quotes={quoteList.hotQuotes}
+            emptyText="No customer engagement events yet."
+            metricLabel="Heat"
+            metric={(quote) => quote.heatScore.toString()}
+            detail={(quote) =>
+              `${quote.eventCount} event${quote.eventCount === 1 ? "" : "s"}${
+                quote.lastEventAt ? ` · ${formatDate(quote.lastEventAt)}` : ""
+              }`
+            }
+          />
+        </DashboardPanel>
+
+        <DashboardPanel
+          icon={Banknote}
+          kicker="Pipeline value"
+          title="Big Quotes"
+          actionHref="/quotes"
+          actionLabel="View board"
+        >
+          <QuoteInsightList
+            quotes={quoteList.bigQuotes}
+            emptyText="No open quotes are waiting in the pipeline."
+            metricLabel="Total"
+            metric={(quote) => formatCurrency(quote.total)}
+            detail={(quote) => formatStatus(quote.status)}
+          />
+        </DashboardPanel>
+      </section>
+
+      <section className="mt-6">
+        <div className="glass-panel p-5 sm:p-6">
           <div className="flex items-center gap-3">
-            <div className="icon-well text-amber-700">
-              <Gauge className="size-5" />
+            <div className="icon-well text-primary">
+              <Sparkles className="size-5" />
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">
-                Pricing and configuration
+                Focus
               </p>
-              <h2 className="text-xl font-semibold">Admin setup areas</h2>
+              <h2 className="text-xl font-semibold">Today&apos;s motion</h2>
             </div>
           </div>
-          <div className="mt-5 grid gap-2 sm:grid-cols-2">
-            {configAreas.map((area) => (
-              <Link
-                key={area.href}
-                href={area.href}
-                className="soft-row flex min-h-11 items-center justify-between gap-3 px-3 text-sm font-medium transition hover:bg-secondary"
-              >
-                {area.label}
-                <CheckCircle2 className="size-4 text-primary" />
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        <div className="glass-panel overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border bg-[#fbfcf8] px-4 py-3">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Governance
-              </p>
-              <h2 className="text-xl font-semibold">SaaS guardrails</h2>
-            </div>
-            <AlertTriangle className="size-5 text-amber-700" />
-          </div>
-          <div className="grid gap-3 p-4 sm:grid-cols-2">
-            {guardrails.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <div key={item.title} className="soft-row p-4">
-                  <Icon className="size-5 text-foreground" />
-                  <h3 className="mt-4 text-sm font-semibold">{item.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {item.detail}
-                  </p>
-                </div>
-              );
-            })}
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <FocusLink
+              href="/quotes"
+              label="Work follow-ups"
+              value={kpis.followUpsDue.toString()}
+            />
+            <FocusLink
+              href="/quotes"
+              label="Open money"
+              value={formatCurrency(kpis.openValue)}
+            />
+            <FocusLink
+              href="/admin/reports"
+              label="Review trend"
+              value={`${kpis.winRate.toFixed(0)}%`}
+            />
           </div>
         </div>
       </section>
@@ -279,26 +251,187 @@ export default async function DashboardPage() {
   );
 }
 
-function MetricCard({
-  label,
-  value,
-  sub,
+function SearchResultGroup({
+  title,
+  results,
+  emptyText,
 }: {
-  label: string;
-  value: number;
-  sub: string;
+  title: string;
+  results: GlobalSearchResult[];
+  emptyText: string;
 }) {
   return (
-    <div className="glass-tile min-h-28 p-4">
-      <p className="text-xs font-medium uppercase text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-3 font-mono text-3xl font-semibold">{value}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
+    <div className="rounded-md border border-border bg-background p-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <span className="rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
+          {results.length}
+        </span>
+      </div>
+      <div className="mt-3 space-y-2">
+        {results.length ? (
+          results.map((result) => (
+            <Link
+              key={`${result.type}-${result.id}`}
+              href={result.href}
+              className="soft-row block px-3 py-3 transition hover:border-input hover:bg-secondary/70"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{result.title}</p>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {result.detail}
+                  </p>
+                </div>
+                {result.createdAt ? (
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                    {formatDate(result.createdAt)}
+                  </span>
+                ) : null}
+              </div>
+            </Link>
+          ))
+        ) : (
+          <div className="soft-row px-3 py-6 text-center text-sm text-muted-foreground">
+            {emptyText}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function firstName(name: string) {
-  return name.split(" ")[0] || name;
+function DashboardPanel({
+  icon: Icon,
+  kicker,
+  title,
+  actionHref,
+  actionLabel,
+  children,
+}: {
+  icon: LucideIcon;
+  kicker: string;
+  title: string;
+  actionHref: string;
+  actionLabel: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="glass-panel overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/60 px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="icon-well text-primary">
+            <Icon className="size-5" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">{kicker}</p>
+            <h2 className="text-xl font-semibold">{title}</h2>
+          </div>
+        </div>
+        <Link href={actionHref} className="mac-link h-9 rounded-full text-xs">
+          {actionLabel}
+        </Link>
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
+function QuoteInsightList({
+  quotes,
+  emptyText,
+  metricLabel,
+  metric,
+  detail,
+}: {
+  quotes: DashboardQuoteInsight[];
+  emptyText: string;
+  metricLabel: string;
+  metric: (quote: DashboardQuoteInsight) => string;
+  detail: (quote: DashboardQuoteInsight) => string;
+}) {
+  if (!quotes.length) {
+    return (
+      <div className="soft-row px-4 py-10 text-center text-sm text-muted-foreground">
+        {emptyText}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {quotes.map((quote) => (
+        <Link
+          key={quote.id}
+          href={`/quotes/${quote.id}`}
+          className="soft-row grid gap-3 px-4 py-4 transition hover:border-input hover:bg-secondary/70 sm:grid-cols-[1fr_auto] sm:items-center"
+        >
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-sm font-semibold">{quote.quote_number}</p>
+              <span className="soft-chip shrink-0 bg-secondary text-secondary-foreground ring-border">
+                {formatStatus(quote.status)}
+              </span>
+            </div>
+            <p className="mt-1 truncate text-sm text-muted-foreground">
+              {quote.customer_name}
+            </p>
+            <p className="mt-2 truncate text-xs text-muted-foreground">
+              {quote.job_site_city || quote.job_site_name} · {detail(quote)}
+            </p>
+          </div>
+          <div className="text-left sm:text-right">
+            <p className="text-xs font-medium uppercase text-muted-foreground">
+              {metricLabel}
+            </p>
+            <p className="mt-1 font-mono text-lg font-semibold">{metric(quote)}</p>
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function FocusLink({
+  href,
+  label,
+  value,
+}: {
+  href: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="soft-row flex min-h-24 flex-col justify-between p-4 transition hover:border-input hover:bg-secondary/70"
+    >
+      <p className="text-xs font-medium uppercase text-muted-foreground">
+        {label}
+      </p>
+      <p className="break-words font-mono text-xl font-semibold">{value}</p>
+    </Link>
+  );
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatStatus(status: string) {
+  return status
+    .split("_")
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(value));
 }

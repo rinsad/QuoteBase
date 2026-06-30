@@ -2,9 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { signInWithMagicLink } from "./helpers/auth";
 
-const ADMIN_EMAIL = "rinsad@gmail.com";
-const ACCOUNT_MANAGER_EMAIL = "estimate@westernmaterials.net";
-const ESTIMATOR_EMAIL = "dispatch@westernmaterials.net";
+const ADMIN_EMAIL = "admin@demo-distributor.test";
+const ACCOUNT_MANAGER_EMAIL = "sales@demo-distributor.test";
+const ESTIMATOR_EMAIL = "dispatch@demo-distributor.test";
 
 test.describe("role-based access control", () => {
   test.describe.configure({ mode: "serial" });

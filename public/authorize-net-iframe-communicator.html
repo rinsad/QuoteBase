@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Authorize.net communicator</title>
+  </head>
+  <body>
+    <script>
+      (function () {
+        function relay(payload) {
+          if (!payload || !window.parent || !window.parent.parent) {
+            return;
+          }
+
+          window.parent.parent.postMessage(
+            {
+              source: "authorize-net-iframe",
+              payload: payload
+            },
+            window.location.origin
+          );
+        }
+
+        function receiveMessage(event) {
+          if (event && event.data) {
+            relay(String(event.data));
+          }
+        }
+
+        if (window.addEventListener) {
+          window.addEventListener("message", receiveMessage, false);
+        } else if (window.attachEvent) {
+          window.attachEvent("onmessage", receiveMessage);
+        }
+
+        relay(window.location.search.slice(1));
+        relay(window.location.hash.slice(1));
+      })();
+    </script>
+  </body>
+</html>

@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { signInWithMagicLink } from "./helpers/auth";
 import { getQuoteFixtureData, waitForAuditAction } from "./helpers/db";
 
-const ESTIMATOR_EMAIL = "dispatch@westernmaterials.net";
+const ESTIMATOR_EMAIL = "dispatch@demo-distributor.test";
 
 test.describe("quote creation UI", () => {
   test("estimator can create a draft quote from the browser form", async ({

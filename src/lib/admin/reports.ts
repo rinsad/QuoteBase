@@ -7,11 +7,11 @@ export type EstimatorPerformanceRow = {
   quote_count: number;
   approved_count: number;
   sent_count: number;
-  accepted_count: number;
-  rejected_count: number;
+  won_count: number;
+  lost_count: number;
   total_value: number;
   average_value: number;
-  approval_rate: number;
+  win_rate: number;
 };
 
 export type PricingTrendRow = {
@@ -87,11 +87,11 @@ function buildEstimatorPerformance(
         quote_count: 0,
         approved_count: 0,
         sent_count: 0,
-        accepted_count: 0,
-        rejected_count: 0,
+        won_count: 0,
+        lost_count: 0,
         total_value: 0,
         average_value: 0,
-        approval_rate: 0,
+        win_rate: 0,
       } satisfies EstimatorPerformanceRow);
 
     existing.quote_count += 1;
@@ -101,16 +101,20 @@ function buildEstimatorPerformance(
       existing.approved_count += 1;
     }
 
-    if (quote.status === "sent" || quote.status === "viewed") {
+    if (
+      quote.status === "sent" ||
+      quote.status === "viewed" ||
+      quote.status === "follow_up"
+    ) {
       existing.sent_count += 1;
     }
 
-    if (quote.status === "accepted") {
-      existing.accepted_count += 1;
+    if (quote.status === "won" || quote.status === "accepted") {
+      existing.won_count += 1;
     }
 
-    if (quote.status === "rejected" || quote.status === "declined") {
-      existing.rejected_count += 1;
+    if (quote.status === "lost" || quote.status === "declined") {
+      existing.lost_count += 1;
     }
 
     rows.set(quote.requested_by, existing);
@@ -120,10 +124,9 @@ function buildEstimatorPerformance(
     .map((row) => ({
       ...row,
       average_value: row.quote_count ? row.total_value / row.quote_count : 0,
-      approval_rate: row.quote_count
-        ? ((row.approved_count + row.sent_count + row.accepted_count) /
-            row.quote_count) *
-          100
+      win_rate:
+        row.won_count + row.lost_count
+        ? (row.won_count / (row.won_count + row.lost_count)) * 100
         : 0,
     }))
     .sort((left, right) => right.total_value - left.total_value);

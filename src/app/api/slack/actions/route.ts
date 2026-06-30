@@ -14,7 +14,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const slackActionSchema = z.object({
-  action_id: z.enum(["quote_approve", "quote_reject"]),
+  action_id: z.enum(["quote_approve", "quote_reject", "quote_suggest"]),
   value: z.string().regex(UUID_PATTERN),
 });
 
@@ -113,20 +113,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const transition =
-    action.action_id === "quote_approve"
-      ? {
-          from: "pending_approval" as const,
-          to: "approved" as const,
-          action: "quote.approved_from_slack",
-          note: `Approved from Slack by ${slackUserName(parsedPayload.data.user)}.`,
-        }
-      : {
-          from: "pending_approval" as const,
-          to: "rejected" as const,
-          action: "quote.rejected_from_slack",
-          note: `Rejected from Slack by ${slackUserName(parsedPayload.data.user)}.`,
-        };
+  const transition = slackTransitionForAction({
+    actionId: action.action_id,
+    userName: slackUserName(parsedPayload.data.user),
+  });
 
   const existingStatus = await getQuoteStatus({
     quoteId: action.value,
@@ -262,6 +252,39 @@ function slackMessage(text: string, status = 200) {
 
 function slackUserName(user: z.infer<typeof slackPayloadSchema>["user"]) {
   return user.username ?? user.name ?? user.id;
+}
+
+function slackTransitionForAction({
+  actionId,
+  userName,
+}: {
+  actionId: z.infer<typeof slackActionSchema>["action_id"];
+  userName: string;
+}) {
+  if (actionId === "quote_approve") {
+    return {
+      from: "pending_approval" as const,
+      to: "approved" as const,
+      action: "quote.approved_from_slack",
+      note: `Accepted from Slack by ${userName}.`,
+    };
+  }
+
+  if (actionId === "quote_suggest") {
+    return {
+      from: "pending_approval" as const,
+      to: "changes_requested" as const,
+      action: "quote.changes_requested_from_slack",
+      note: `Changes requested from Slack by ${userName}.`,
+    };
+  }
+
+  return {
+    from: "pending_approval" as const,
+    to: "rejected" as const,
+    action: "quote.rejected_from_slack",
+    note: `Rejected from Slack by ${userName}.`,
+  };
 }
 
 function formatStatus(status: string): string {

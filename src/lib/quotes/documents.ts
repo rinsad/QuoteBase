@@ -1,3 +1,5 @@
+import { deflateSync, inflateSync } from "node:zlib";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { AppUser } from "@/lib/auth/current-user";
@@ -71,6 +73,10 @@ type QuoteSnapshotItemRecord = {
   quantity: number;
   unit: string;
   load_count: number;
+  material_unit_price: number;
+  material_subtotal: number;
+  trucking_subtotal: number;
+  fees_subtotal: number;
   line_total: number;
   materials:
     | { name: string; tier: string }
@@ -80,8 +86,48 @@ type QuoteSnapshotItemRecord = {
   vehicle_types: { name: string } | { name: string }[] | null;
 };
 
+type QuoteDocumentPricingConfig = {
+  fuel_surcharge_per_load: number;
+  environmental_fee_per_load: number;
+};
+
+type QuoteBrandingConfig = {
+  company_name: string;
+  logo_url: string | null;
+  address_line1: string;
+  address_line2: string | null;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+  phone: string;
+  footer_note: string | null;
+  disclaimer: string;
+};
+
 type ExistingVersionRecord = {
   version: number;
+};
+
+type PdfImageInput = {
+  width: number;
+  height: number;
+  data: Buffer;
+  filter: "DCTDecode" | "FlateDecode";
+};
+
+type PdfImageRef = {
+  name: string;
+  width: number;
+  height: number;
+};
+
+type PdfLink = {
+  url: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 const BUCKET = "quote-documents";
@@ -136,7 +182,7 @@ export async function createQuoteHtmlDocument({
   const { data: quote } = await supabase
     .from("quotes")
     .select(
-      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, line_total, materials(name, tier), suppliers(name), vehicle_types(name))",
+      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, materials(name, tier), suppliers(name), vehicle_types(name))",
     )
     .eq("organization_id", user.organization_id)
     .eq("id", quoteId)
@@ -147,7 +193,11 @@ export async function createQuoteHtmlDocument({
     throw new Error("Quote not found.");
   }
 
-  if (!["approved", "sent", "viewed", "accepted", "declined"].includes(quote.status)) {
+  if (
+    !["approved", "sent", "viewed", "follow_up", "won", "lost", "accepted", "declined"].includes(
+      quote.status,
+    )
+  ) {
     throw new Error("Quote documents are available after approval.");
   }
 
@@ -156,8 +206,15 @@ export async function createQuoteHtmlDocument({
     organizationId: user.organization_id,
     quoteId,
   });
+  const { data: branding } = await supabase
+    .from("quote_branding")
+    .select(
+      "company_name, logo_url, address_line1, address_line2, city, state, postal_code, country, phone, footer_note, disclaimer",
+    )
+    .eq("organization_id", user.organization_id)
+    .maybeSingle<QuoteBrandingConfig>();
   const storagePath = `${user.organization_id}/${quote.id}/v${version}-${quote.quote_number}.html`;
-  const html = renderQuoteHtml(quote, version);
+  const html = renderQuoteHtml(quote, version, branding);
   const upload = await supabase.storage
     .from(BUCKET)
     .upload(storagePath, new Blob([html], { type: "text/html" }), {
@@ -208,10 +265,12 @@ export async function createQuotePdfDocument({
   supabase,
   user,
   quoteId,
+  quoteUrl,
 }: {
   supabase: SupabaseClient;
   user: AppUser;
   quoteId: string;
+  quoteUrl?: string | null;
 }): Promise<QuoteDocument | null> {
   if (user.role !== "admin" && user.role !== "account_manager") {
     throw new Error("You do not have permission to create quote documents.");
@@ -220,7 +279,7 @@ export async function createQuotePdfDocument({
   const { data: quote } = await supabase
     .from("quotes")
     .select(
-      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, line_total, materials(name, tier), suppliers(name), vehicle_types(name))",
+      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, materials(name, tier), suppliers(name), vehicle_types(name))",
     )
     .eq("organization_id", user.organization_id)
     .eq("id", quoteId)
@@ -231,7 +290,11 @@ export async function createQuotePdfDocument({
     throw new Error("Quote not found.");
   }
 
-  if (!["approved", "sent", "viewed", "accepted", "declined"].includes(quote.status)) {
+  if (
+    !["approved", "sent", "viewed", "follow_up", "won", "lost", "accepted", "declined"].includes(
+      quote.status,
+    )
+  ) {
     throw new Error("Quote documents are available after approval.");
   }
 
@@ -240,8 +303,20 @@ export async function createQuotePdfDocument({
     organizationId: user.organization_id,
     quoteId,
   });
+  const { data: pricingConfig } = await supabase
+    .from("pricing_config")
+    .select("fuel_surcharge_per_load, environmental_fee_per_load")
+    .eq("organization_id", user.organization_id)
+    .single<QuoteDocumentPricingConfig>();
+  const { data: branding } = await supabase
+    .from("quote_branding")
+    .select(
+      "company_name, logo_url, address_line1, address_line2, city, state, postal_code, country, phone, footer_note, disclaimer",
+    )
+    .eq("organization_id", user.organization_id)
+    .maybeSingle<QuoteBrandingConfig>();
   const storagePath = `${user.organization_id}/${quote.id}/v${version}-${quote.quote_number}.pdf`;
-  const pdf = renderQuotePdf(quote, version);
+  const pdf = await renderQuotePdf(quote, version, pricingConfig, branding, quoteUrl ?? null);
   const upload = await supabase.storage
     .from(BUCKET)
     .upload(storagePath, new Blob([Buffer.from(pdf)], { type: "application/pdf" }), {
@@ -394,10 +469,15 @@ async function getNextDocumentVersion({
   return Number(data?.version ?? 0) + 1;
 }
 
-function renderQuoteHtml(quote: QuoteSnapshotRecord, version: number): string {
+function renderQuoteHtml(
+  quote: QuoteSnapshotRecord,
+  version: number,
+  branding: QuoteBrandingConfig | null,
+): string {
   const customer = relationOne(quote.customers);
   const site = relationOne(quote.job_sites);
   const owner = relationOne(quote.users);
+  const activeBranding = branding ?? defaultQuoteBranding();
   const rows =
     quote.quote_items
       ?.map((item) => {
@@ -440,7 +520,7 @@ function renderQuoteHtml(quote: QuoteSnapshotRecord, version: number): string {
 </head>
 <body>
   <header>
-    <p class="muted">Western Materials</p>
+    <p class="muted">${escapeHtml(activeBranding.company_name)}</p>
     <h1>Quote ${escapeHtml(quote.quote_number)}</h1>
     <p class="muted">Version ${version} - ${escapeHtml(formatStatus(quote.status))} - ${formatDate(quote.created_at)}</p>
   </header>
@@ -480,105 +560,906 @@ function renderQuoteHtml(quote: QuoteSnapshotRecord, version: number): string {
 </html>`;
 }
 
-function renderQuotePdf(quote: QuoteSnapshotRecord, version: number): Uint8Array {
+async function renderQuotePdf(
+  quote: QuoteSnapshotRecord,
+  version: number,
+  pricingConfig: QuoteDocumentPricingConfig | null,
+  branding: QuoteBrandingConfig | null,
+  quoteUrl: string | null,
+): Promise<Uint8Array> {
   const customer = relationOne(quote.customers);
   const site = relationOne(quote.job_sites);
   const owner = relationOne(quote.users);
   const pdf = new PdfBuilder();
   let page = pdf.addPage();
-  let y = drawQuotePdfHeader({
+  let pageNumber = 1;
+  const activeBranding = branding ?? defaultQuoteBranding();
+  const logo = activeBranding.logo_url
+    ? pdf.embedImage(await loadPdfLogo(activeBranding.logo_url))
+    : null;
+
+  let y = drawEmailedQuoteHeader({
     page,
     quote,
-    version,
-    customerName: customer?.name ?? "Unknown customer",
+    customer,
+    site,
+    owner,
+    branding: activeBranding,
+    logo,
+    quoteUrl,
   });
-
-  y = drawInfoPanels({
-    page,
-    y,
-    customer: {
-      title: customer?.name ?? "Unknown customer",
-      lines: [
-        customer?.contact_name,
-        customer?.email,
-        customer?.phone,
-      ].filter(isPresent),
-    },
-    site: {
-      title: site?.name ?? "Unknown site",
-      lines: [
-        formatAddress(site?.address ?? {}),
-        [site?.city, site?.state].filter(isPresent).join(", "),
-        site?.county ? `${site.county} County` : null,
-      ].filter(isPresent),
-    },
-    owner: {
-      title: owner?.full_name ?? "QuoteBase",
-      lines: [owner?.email, `Prepared ${formatDate(new Date().toISOString())}`].filter(
-        isPresent,
-      ),
-    },
-  });
-
-  y = drawQuotePdfTableHeader(page, y);
+  y = drawEmailedQuoteTableHeader(page, y, site);
 
   for (const item of quote.quote_items ?? []) {
-    if (y < 158) {
-      drawQuotePdfFooter(page, quote, version);
+    if (y < 250) {
+      drawEmailedQuoteFooter(page, pageNumber);
       page = pdf.addPage();
-      y = drawQuotePdfContinuationHeader(page, quote, version);
-      y = drawQuotePdfTableHeader(page, y);
+      pageNumber += 1;
+      y = drawEmailedQuoteContinuationHeader(page, quote, version, site);
+      y = drawEmailedQuoteTableHeader(page, y, site);
     }
 
-    const material = relationOne(item.materials);
-    const supplier = relationOne(item.suppliers);
-    const vehicle = relationOne(item.vehicle_types);
-    const description = [
-      material?.name ?? "Unknown material",
-      material?.tier ? `Tier ${material.tier}` : null,
-      supplier?.name ? `Plant: ${supplier.name}` : null,
-    ]
-      .filter(isPresent)
-      .join(" - ");
-    const loadPlan = `${Number(item.load_count).toFixed(0)} load${
-      Number(item.load_count) === 1 ? "" : "s"
-    }${vehicle?.name ? ` via ${vehicle.name}` : ""}`;
-
-    y = drawQuotePdfTableRow(page, y, {
-      description,
-      quantity: `${formatQuantity(Number(item.quantity))} ${item.unit}`,
-      loads: loadPlan,
-      total: formatCurrency(Number(item.line_total)),
-    });
+    y = drawEmailedQuoteLineItem(page, y, item);
   }
 
-  if (y < 250) {
-    drawQuotePdfFooter(page, quote, version);
+  if (Number(quote.fees_subtotal) > 0) {
+    if (y < 250) {
+      drawEmailedQuoteFooter(page, pageNumber);
+      page = pdf.addPage();
+      pageNumber += 1;
+      y = drawEmailedQuoteContinuationHeader(page, quote, version, site);
+      y = drawEmailedQuoteTableHeader(page, y, site);
+    }
+
+    y = drawEmailedQuoteFeeRows(page, y, quote, pricingConfig, activeBranding);
+  }
+
+  if (y < 335) {
+    drawEmailedQuoteFooter(page, pageNumber);
     page = pdf.addPage();
-    y = drawQuotePdfContinuationHeader(page, quote, version);
+    pageNumber += 1;
+    y = drawEmailedQuoteContinuationHeader(page, quote, version, site);
   }
 
-  y = drawTotalsBox(page, y - 20, quote);
-  drawTerms(page, y - 26, quote);
-  drawQuotePdfFooter(page, quote, version);
+  y = drawEmailedQuoteClosing(page, y, quote, activeBranding, quoteUrl);
+  y = drawEmailedQuoteJobDetails(page, y, quote, site, customer);
+  drawEmailedQuoteDisclaimer(page, y, activeBranding);
+  drawEmailedQuoteFooter(page, pageNumber);
 
   return pdf.render();
 }
 
-type PdfRow = {
-  description: string;
-  quantity: string;
-  loads: string;
-  total: string;
-};
+function drawEmailedQuoteHeader({
+  page,
+  quote,
+  customer,
+  site,
+  owner,
+  branding,
+  logo,
+  quoteUrl,
+}: {
+  page: PdfPage;
+  quote: QuoteSnapshotRecord;
+  customer:
+    | {
+        name: string;
+        contact_name: string | null;
+        email: string | null;
+        phone: string | null;
+      }
+    | null;
+  site:
+    | {
+        name: string;
+        city: string;
+        county: string;
+        state: string;
+        address: Record<string, unknown>;
+      }
+    | null;
+  owner: { full_name: string; email: string } | null;
+  branding: QuoteBrandingConfig;
+  logo: PdfImageRef | null;
+  quoteUrl: string | null;
+}
+): number {
+  drawBrandLogo(page, 44, 730, branding, logo);
+  page.text({
+    value: "Quote",
+    x: 568,
+    y: 746,
+    size: 20,
+    color: "#7a7d80",
+    align: "right",
+  });
 
-type PdfInfoPanel = {
-  title: string;
-  lines: string[];
-};
+  page.text({ value: branding.company_name, x: 44, y: 680, size: 10, bold: true });
+  getBrandAddressLines(branding).forEach((line, index) => {
+    if (!line) {
+      return;
+    }
+
+    page.text({ value: line, x: 44, y: 666 - index * 12, size: 9, color: "#000000" });
+  });
+
+  drawQuoteMetadataBox(page, 426, 666, [
+    ["Quote #", quote.quote_number],
+    ["Date", formatDate(quote.created_at)],
+    ["Expires", formatDate(addDays(quote.created_at, 30))],
+    ["Contact", owner?.full_name ?? branding.company_name],
+  ]);
+  drawAcceptQuoteButton(page, quoteUrl, 426, 572);
+
+  page.text({ value: "Prepared for", x: 44, y: 542, size: 9, bold: true });
+  [
+    customer?.name,
+    customer?.contact_name,
+    getAddressLine(site),
+    ".",
+    getCityStateZip(site),
+    "United States",
+    "",
+    customer?.phone ? `Phone: ${customer.phone}` : null,
+    customer?.email ? `Email: ${customer.email}` : null,
+  ].forEach((line, index) => {
+    if (!line) {
+      return;
+    }
+
+    page.text({ value: truncate(line, 44), x: 130, y: 542 - index * 12, size: 9 });
+  });
+
+  return 394;
+}
+
+function drawEmailedQuoteContinuationHeader(
+  page: PdfPage,
+  quote: QuoteSnapshotRecord,
+  version: number,
+  site:
+    | {
+        name: string;
+        city: string;
+        county: string;
+        state: string;
+        address: Record<string, unknown>;
+      }
+    | null,
+): number {
+  page.text({
+    value: getSiteHeading(site),
+    x: 44,
+    y: 748,
+    size: 21,
+    color: "#000000",
+    bold: true,
+  });
+  page.text({
+    value: `${quote.quote_number} - v${version}`,
+    x: 568,
+    y: 748,
+    size: 8,
+    color: "#7a7d80",
+    align: "right",
+  });
+
+  return 710;
+}
+
+function drawEmailedQuoteTableHeader(
+  page: PdfPage,
+  y: number,
+  site:
+    | {
+        name: string;
+        city: string;
+        county: string;
+        state: string;
+        address: Record<string, unknown>;
+      }
+    | null,
+): number {
+  page.text({
+    value: getSiteHeading(site),
+    x: 44,
+    y,
+    size: 21,
+    color: "#000000",
+    bold: true,
+  });
+  page.line(44, y - 18, 568, y - 18, "#000000", 1.2);
+  page.text({ value: "Type", x: 48, y: y - 34, size: 8.5, bold: true });
+  page.text({ value: "Description", x: 112, y: y - 34, size: 8.5, bold: true });
+  page.text({ value: "Quantity", x: 434, y: y - 34, size: 8.5, bold: true, align: "right" });
+  page.text({ value: "Price", x: 500, y: y - 34, size: 8.5, bold: true, align: "right" });
+  page.text({ value: "Total", x: 568, y: y - 34, size: 8.5, bold: true, align: "right" });
+  page.line(44, y - 44, 568, y - 44, "#000000", 0.8);
+
+  return y - 60;
+}
+
+function drawEmailedQuoteLineItem(
+  page: PdfPage,
+  y: number,
+  item: QuoteSnapshotItemRecord,
+): number {
+  const material = relationOne(item.materials);
+  const loads = Math.max(1, Number(item.load_count) || 1);
+  const itemSubtotal = Number(item.material_subtotal) + Number(item.trucking_subtotal);
+  const pricePerLoad = itemSubtotal / loads;
+  const description = `${material?.name ?? "Material"} ${formatQuantity(
+    Number(item.quantity),
+  )} ${item.unit} (${loads} load${loads === 1 ? "" : "s"})`;
+
+  page.text({ value: "Sand & Gravel", x: 48, y, size: 8.5 });
+  page.text({ value: truncate(description, 52), x: 112, y, size: 8.5, bold: true });
+  page.text({ value: String(loads), x: 434, y, size: 8.5, align: "right" });
+  page.text({
+    value: formatCurrency(pricePerLoad),
+    x: 500,
+    y,
+    size: 8.5,
+    align: "right",
+  });
+  page.text({
+    value: formatCurrency(itemSubtotal),
+    x: 568,
+    y,
+    size: 8.5,
+    bold: true,
+    align: "right",
+  });
+  page.text({
+    value: "Your Unit Price Includes the Materials, Tax and Delivery",
+    x: 112,
+    y: y - 22,
+    size: 8.5,
+    bold: true,
+  });
+
+  return y - 50;
+}
+
+function drawEmailedQuoteFeeRows(
+  page: PdfPage,
+  y: number,
+  quote: QuoteSnapshotRecord,
+  pricingConfig: QuoteDocumentPricingConfig | null,
+  branding: QuoteBrandingConfig,
+): number {
+  const loads = Math.max(
+    1,
+    (quote.quote_items ?? []).reduce((sum, item) => sum + Number(item.load_count || 0), 0),
+  );
+  const total = Number(quote.fees_subtotal);
+  const configuredRows =
+    pricingConfig === null
+      ? []
+      : [
+          {
+            label: "Environmental Fee Per Load",
+            perLoad: Number(pricingConfig.environmental_fee_per_load),
+          },
+          {
+            label: "Per Load Fuel Surcharge",
+            perLoad: Number(pricingConfig.fuel_surcharge_per_load),
+          },
+        ].filter((row) => row.perLoad > 0);
+  const configuredTotal = configuredRows.reduce(
+    (sum, row) => sum + row.perLoad * loads,
+    0,
+  );
+  const rows =
+    configuredRows.length > 0 && configuredTotal <= total + 0.01
+      ? [
+          ...configuredRows.map((row) => ({
+            ...row,
+            total: row.perLoad * loads,
+          })),
+          ...(total - configuredTotal > 0.01
+            ? [
+                {
+                  label: "Payment Processing Surcharge",
+                  perLoad: (total - configuredTotal) / loads,
+                  total: total - configuredTotal,
+                },
+              ]
+            : []),
+        ]
+      : [
+          {
+            label: "Fees and Surcharges Per Load",
+            perLoad: total / loads,
+            total,
+          },
+        ];
+
+  rows.forEach((row, index) => {
+    const rowY = y - index * 36;
+
+    page.text({
+      value: truncate(branding.company_name, 18),
+      x: 48,
+      y: rowY,
+      size: 8.5,
+    });
+    page.text({ value: row.label, x: 112, y: rowY, size: 8.5, bold: true });
+    page.text({ value: String(loads), x: 434, y: rowY, size: 8.5, align: "right" });
+    page.text({
+      value: formatCurrency(row.perLoad),
+      x: 500,
+      y: rowY,
+      size: 8.5,
+      align: "right",
+    });
+    page.text({
+      value: formatCurrency(row.total),
+      x: 568,
+      y: rowY,
+      size: 8.5,
+      bold: true,
+      align: "right",
+    });
+  });
+
+  return y - rows.length * 36 - 12;
+}
+
+function drawEmailedQuoteClosing(
+  page: PdfPage,
+  y: number,
+  quote: QuoteSnapshotRecord,
+  branding: QuoteBrandingConfig,
+  quoteUrl: string | null,
+): number {
+  page.line(44, y + 8, 568, y + 8, "#000000", 0.8);
+  const paragraph =
+    branding.footer_note ??
+    `Thank you for contacting ${branding.company_name} for your Sand and Gravel needs. Please contact us if you would like to schedule a delivery or if you have any questions. Have a wonderful day.`;
+
+  drawPdfParagraph({
+    page,
+    value: paragraph,
+    x: 48,
+    y: y - 10,
+    maxChars: 70,
+    lineHeight: 11,
+    size: 8.3,
+    color: "#000000",
+  });
+
+  page.line(472, y - 2, 568, y - 2, "#000000", 0.8);
+  page.text({ value: "Total", x: 444, y: y - 20, size: 9.5, bold: true, align: "right" });
+  page.text({
+    value: `${formatCurrency(Number(quote.total))} USD`,
+    x: 568,
+    y: y - 20,
+    size: 9.5,
+    bold: true,
+    align: "right",
+  });
+  page.line(472, y - 32, 568, y - 32, "#000000", 0.8);
+
+  if (quoteUrl) {
+    drawAcceptQuoteButton(page, quoteUrl, 426, y - 78);
+  }
+
+  return y - 146;
+}
+
+function drawAcceptQuoteButton(
+  page: PdfPage,
+  quoteUrl: string | null,
+  x: number,
+  y: number,
+): void {
+  if (!quoteUrl) {
+    return;
+  }
+
+  const width = 142;
+  const height = 22;
+
+  page.rect(x, y, width, height, "#0f9d58");
+  page.text({
+    value: "ACCEPT QUOTE",
+    x: x + width / 2,
+    y: y + 7,
+    size: 8.2,
+    color: "#ffffff",
+    bold: true,
+    align: "center",
+  });
+  page.link(quoteUrl, x, y, width, height);
+}
+
+function drawEmailedQuoteJobDetails(
+  page: PdfPage,
+  y: number,
+  quote: QuoteSnapshotRecord,
+  site:
+    | {
+        name: string;
+        city: string;
+        county: string;
+        state: string;
+        address: Record<string, unknown>;
+      }
+    | null,
+  customer:
+    | {
+        name: string;
+        contact_name: string | null;
+        email: string | null;
+        phone: string | null;
+      }
+    | null,
+): number {
+  page.text({ value: "Job Address:", x: 48, y, size: 8.5, bold: true });
+  page.text({ value: getAddressLine(site), x: 48, y: y - 12, size: 8.5 });
+  page.text({
+    value: "Estimated Start Date: To be scheduled",
+    x: 48,
+    y: y - 28,
+    size: 8.5,
+    bold: true,
+  });
+  page.text({
+    value: customer?.phone ? `Cell Phone: ${customer.phone}` : "Cell Phone: .",
+    x: 48,
+    y: y - 44,
+    size: 8.5,
+    bold: true,
+  });
+
+  return y - 86;
+}
+
+function drawEmailedQuoteDisclaimer(
+  page: PdfPage,
+  y: number,
+  branding: QuoteBrandingConfig,
+): void {
+  drawPdfParagraph({
+    page,
+    value: `Disclaimer: ${branding.disclaimer}`,
+    x: 48,
+    y,
+    maxWidth: 520,
+    lineHeight: 9,
+    size: 7.3,
+    color: "#000000",
+    maxLines: 14,
+  });
+}
+
+function drawEmailedQuoteFooter(page: PdfPage, pageNumber: number): void {
+  page.text({
+    value: `Page ${pageNumber}`,
+    x: 568,
+    y: 34,
+    size: 8,
+    color: "#53645c",
+    align: "right",
+  });
+}
+
+function drawBrandLogo(
+  page: PdfPage,
+  x: number,
+  y: number,
+  branding: QuoteBrandingConfig,
+  logo: PdfImageRef | null,
+): void {
+  if (logo) {
+    const maxWidth = 178;
+    const maxHeight = 46;
+    const scale = Math.min(maxWidth / logo.width, maxHeight / logo.height, 1);
+    const width = logo.width * scale;
+    const height = logo.height * scale;
+
+    page.image(logo, x, y - height + 8, width, height);
+    return;
+  }
+
+  page.text({
+    value: truncate(branding.company_name.toUpperCase(), 28),
+    x,
+    y,
+    size: 13,
+    color: "#164a9b",
+    bold: true,
+  });
+  page.text({
+    value: "SAND & GRAVEL",
+    x,
+    y: y - 16,
+    size: 6,
+    color: "#164a9b",
+    bold: true,
+  });
+}
+
+function drawQuoteMetadataBox(page: PdfPage, x: number, y: number, rows: string[][]): void {
+  rows.forEach(([label, value], index) => {
+    const rowY = y - index * 24;
+
+    page.rect(x, rowY - 20, 142, 22, index % 2 === 0 ? "#d8d8d8" : "#eeeeee");
+    page.text({ value: label, x: x + 6, y: rowY - 12, size: 8.8, bold: true });
+    page.text({
+      value: truncate(value, 20),
+      x: x + 136,
+      y: rowY - 12,
+      size: 8.2,
+      bold: true,
+      align: "right",
+    });
+  });
+}
+
+function drawPdfParagraph({
+  page,
+  value,
+  x,
+  y,
+  maxChars,
+  maxWidth,
+  lineHeight,
+  size,
+  color,
+  maxLines,
+  align = "left",
+}: {
+  page: PdfPage;
+  value: string;
+  x: number;
+  y: number;
+  maxChars?: number;
+  maxWidth?: number;
+  lineHeight: number;
+  size: number;
+  color: string;
+  maxLines?: number;
+  align?: "left" | "center" | "right";
+}): number {
+  const lines = (maxWidth
+    ? wrapTextByWidth(value, maxWidth, size)
+    : wrapText(value, maxChars ?? 80)
+  ).slice(0, maxLines);
+
+  lines.forEach((line, index) => {
+    page.text({
+      value: line,
+      x,
+      y: y - index * lineHeight,
+      size,
+      color,
+      align,
+    });
+  });
+
+  return y - lines.length * lineHeight;
+}
+
+function getSiteHeading(
+  site:
+    | {
+        name: string;
+        city: string;
+        county: string;
+        state: string;
+        address: Record<string, unknown>;
+      }
+    | null,
+): string {
+  return site?.city || site?.name || "Job Site";
+}
+
+function getAddressLine(
+  site:
+    | {
+        name: string;
+        city: string;
+        county: string;
+        state: string;
+        address: Record<string, unknown>;
+      }
+    | null,
+): string {
+  const line1 = typeof site?.address.line1 === "string" ? site.address.line1 : "";
+
+  return line1 || site?.name || ".";
+}
+
+function getCityStateZip(
+  site:
+    | {
+        name: string;
+        city: string;
+        county: string;
+        state: string;
+        address: Record<string, unknown>;
+      }
+    | null,
+): string {
+  const address = site?.address ?? {};
+  const postalCode =
+    typeof address.postal_code === "string"
+      ? address.postal_code
+      : typeof address.zip === "string"
+        ? address.zip
+        : "";
+  const city = site?.city || (typeof address.city === "string" ? address.city : "");
+  const state = site?.state || (typeof address.state === "string" ? address.state : "");
+  const place = [city, state].filter(Boolean).join(", ");
+
+  return [place, postalCode].filter(Boolean).join(" ") || ".";
+}
+
+function getBrandAddressLines(branding: QuoteBrandingConfig): string[] {
+  return [
+    branding.address_line1,
+    branding.address_line2,
+    [branding.city, branding.state, branding.postal_code].filter(Boolean).join(" "),
+    branding.country,
+    "",
+    `Phone: ${branding.phone}`,
+  ].filter((line): line is string => typeof line === "string");
+}
+
+function defaultQuoteBranding(): QuoteBrandingConfig {
+  return {
+    company_name: "QuoteBase",
+    logo_url: null,
+    address_line1: "",
+    address_line2: null,
+    city: "",
+    state: "",
+    postal_code: "",
+    country: "United States",
+    phone: "",
+    footer_note: null,
+    disclaimer:
+      "All quotes are valid for 30 days. All materials quoted are subject to availability. This estimated price is subject to change at any time. All prices include material, tax and freight unless otherwise specified. Delivery minimums, standby time, returned materials, restocking, fuel, environmental, and other applicable charges follow the current approved quote configuration and customer terms. Once customer orders materials, and material are loaded into the truck at the plant, the customer owns the material and is responsible for the payment; FOB Shipping Point. All invoices are due according to approved payment terms. Late balances may be subject to service charges, collection costs, and attorney fees where permitted. Upon acceptance of this quote, buyer may be required to sign this quote, complete credit documentation, and provide preliminary lien notice information prior to the commencement of delivery.",
+  };
+}
+
+function addDays(value: string, days: number): string {
+  const date = new Date(value);
+
+  date.setDate(date.getDate() + days);
+  return date.toISOString();
+}
+
+async function loadPdfLogo(url: string): Promise<PdfImageInput | null> {
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const contentType = response.headers.get("content-type") ?? "";
+
+    if (contentType.includes("jpeg") || contentType.includes("jpg") || isJpeg(buffer)) {
+      return parseJpegImage(buffer);
+    }
+
+    if (contentType.includes("png") || isPng(buffer)) {
+      return parsePngImage(buffer);
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseJpegImage(buffer: Buffer): PdfImageInput | null {
+  if (!isJpeg(buffer)) {
+    return null;
+  }
+
+  let offset = 2;
+
+  while (offset < buffer.length) {
+    if (buffer[offset] !== 0xff) {
+      return null;
+    }
+
+    const marker = buffer[offset + 1];
+    const length = buffer.readUInt16BE(offset + 2);
+    const isStartOfFrame =
+      (marker >= 0xc0 && marker <= 0xc3) ||
+      (marker >= 0xc5 && marker <= 0xc7) ||
+      (marker >= 0xc9 && marker <= 0xcb) ||
+      (marker >= 0xcd && marker <= 0xcf);
+
+    if (isStartOfFrame) {
+      return {
+        width: buffer.readUInt16BE(offset + 7),
+        height: buffer.readUInt16BE(offset + 5),
+        data: buffer,
+        filter: "DCTDecode",
+      };
+    }
+
+    offset += 2 + length;
+  }
+
+  return null;
+}
+
+function parsePngImage(buffer: Buffer): PdfImageInput | null {
+  if (!isPng(buffer)) {
+    return null;
+  }
+
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  const idatChunks: Buffer[] = [];
+
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString("ascii", offset + 4, offset + 8);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+
+    if (type === "IHDR") {
+      width = buffer.readUInt32BE(dataStart);
+      height = buffer.readUInt32BE(dataStart + 4);
+      bitDepth = buffer[dataStart + 8];
+      colorType = buffer[dataStart + 9];
+    } else if (type === "IDAT") {
+      idatChunks.push(buffer.subarray(dataStart, dataEnd));
+    } else if (type === "IEND") {
+      break;
+    }
+
+    offset = dataEnd + 4;
+  }
+
+  const channels = getPngChannels(colorType);
+
+  if (!width || !height || bitDepth !== 8 || !channels || idatChunks.length === 0) {
+    return null;
+  }
+
+  const inflated = inflateSync(Buffer.concat(idatChunks));
+  const bytesPerPixel = channels;
+  const sourceStride = width * channels;
+  const rgb = Buffer.alloc(width * height * 3);
+  let sourceOffset = 0;
+  let rgbOffset = 0;
+  let previous = Buffer.alloc(sourceStride);
+
+  for (let row = 0; row < height; row += 1) {
+    const filter = inflated[sourceOffset];
+    sourceOffset += 1;
+    const current = Buffer.from(inflated.subarray(sourceOffset, sourceOffset + sourceStride));
+    sourceOffset += sourceStride;
+    unfilterPngRow(current, previous, filter, bytesPerPixel);
+
+    for (let x = 0; x < width; x += 1) {
+      const pixelOffset = x * channels;
+
+      if (colorType === 0) {
+        const gray = current[pixelOffset];
+        rgb[rgbOffset++] = gray;
+        rgb[rgbOffset++] = gray;
+        rgb[rgbOffset++] = gray;
+      } else if (colorType === 4) {
+        const gray = blendOnWhite(current[pixelOffset], current[pixelOffset + 1]);
+        rgb[rgbOffset++] = gray;
+        rgb[rgbOffset++] = gray;
+        rgb[rgbOffset++] = gray;
+      } else {
+        const alpha = colorType === 6 ? current[pixelOffset + 3] : 255;
+        rgb[rgbOffset++] = blendOnWhite(current[pixelOffset], alpha);
+        rgb[rgbOffset++] = blendOnWhite(current[pixelOffset + 1], alpha);
+        rgb[rgbOffset++] = blendOnWhite(current[pixelOffset + 2], alpha);
+      }
+    }
+
+    previous = current;
+  }
+
+  return {
+    width,
+    height,
+    data: deflateSync(rgb),
+    filter: "FlateDecode",
+  };
+}
+
+function unfilterPngRow(
+  row: Buffer,
+  previous: Buffer,
+  filter: number,
+  bytesPerPixel: number,
+): void {
+  for (let index = 0; index < row.length; index += 1) {
+    const left = index >= bytesPerPixel ? row[index - bytesPerPixel] : 0;
+    const up = previous[index] ?? 0;
+    const upLeft = index >= bytesPerPixel ? previous[index - bytesPerPixel] : 0;
+
+    if (filter === 1) {
+      row[index] = (row[index] + left) & 0xff;
+    } else if (filter === 2) {
+      row[index] = (row[index] + up) & 0xff;
+    } else if (filter === 3) {
+      row[index] = (row[index] + Math.floor((left + up) / 2)) & 0xff;
+    } else if (filter === 4) {
+      row[index] = (row[index] + paethPredictor(left, up, upLeft)) & 0xff;
+    }
+  }
+}
+
+function getPngChannels(colorType: number): number | null {
+  if (colorType === 0) {
+    return 1;
+  }
+
+  if (colorType === 2) {
+    return 3;
+  }
+
+  if (colorType === 4) {
+    return 2;
+  }
+
+  if (colorType === 6) {
+    return 4;
+  }
+
+  return null;
+}
+
+function blendOnWhite(value: number, alpha: number): number {
+  return Math.round((value * alpha + 255 * (255 - alpha)) / 255);
+}
+
+function paethPredictor(left: number, up: number, upLeft: number): number {
+  const estimate = left + up - upLeft;
+  const leftDistance = Math.abs(estimate - left);
+  const upDistance = Math.abs(estimate - up);
+  const upLeftDistance = Math.abs(estimate - upLeft);
+
+  if (leftDistance <= upDistance && leftDistance <= upLeftDistance) {
+    return left;
+  }
+
+  return upDistance <= upLeftDistance ? up : upLeft;
+}
+
+function isPng(buffer: Buffer): boolean {
+  return buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+}
+
+function isJpeg(buffer: Buffer): boolean {
+  return buffer.length > 2 && buffer[0] === 0xff && buffer[1] === 0xd8;
+}
+
+function pdfObject(value: string): Buffer {
+  return Buffer.from(value, "utf8");
+}
+
+function pdfStreamObject(dictionary: string, stream: Buffer): Buffer {
+  return Buffer.concat([
+    Buffer.from(`${dictionary}\nstream\n`, "binary"),
+    stream,
+    Buffer.from("\nendstream", "binary"),
+  ]);
+}
 
 class PdfBuilder {
   private readonly pages: PdfPage[] = [];
+  private readonly images: (PdfImageInput & PdfImageRef)[] = [];
 
   addPage(): PdfPage {
     const page = new PdfPage();
@@ -587,52 +1468,108 @@ class PdfBuilder {
     return page;
   }
 
+  embedImage(image: PdfImageInput | null): PdfImageRef | null {
+    if (!image) {
+      return null;
+    }
+
+    const embeddedImage = {
+      ...image,
+      name: `Im${this.images.length + 1}`,
+    };
+
+    this.images.push(embeddedImage);
+    return embeddedImage;
+  }
+
   render(): Uint8Array {
-    const objectCount = 4 + this.pages.length * 2;
-    const pageObjectIds = this.pages.map((_, index) => 5 + index * 2);
-    const contentObjectIds = this.pages.map((_, index) => 6 + index * 2);
-    const objects = [
-      "<< /Type /Catalog /Pages 2 0 R >>",
-      `<< /Type /Pages /Kids [${pageObjectIds
+    const pageLinks = this.pages.map((page) => page.links());
+    const linkCount = pageLinks.reduce((total, links) => total + links.length, 0);
+    const objectCount = 4 + this.images.length + linkCount + this.pages.length * 2;
+    const imageObjectIds = this.images.map((_, index) => 5 + index);
+    const linkStartObjectId = 5 + this.images.length;
+    const pageLinkObjectIds = pageLinks.reduce<number[][]>((groups, links) => {
+      const previousCount = groups.reduce((total, group) => total + group.length, 0);
+
+      groups.push(links.map((_, index) => linkStartObjectId + previousCount + index));
+      return groups;
+    }, []);
+    const pageStartObjectId = 5 + this.images.length + linkCount;
+    const pageObjectIds = this.pages.map((_, index) => pageStartObjectId + index * 2);
+    const contentObjectIds = this.pages.map((_, index) => pageStartObjectId + 1 + index * 2);
+    const objects: Buffer[] = [
+      pdfObject("<< /Type /Catalog /Pages 2 0 R >>"),
+      pdfObject(`<< /Type /Pages /Kids [${pageObjectIds
         .map((id) => `${id} 0 R`)
-        .join(" ")}] /Count ${this.pages.length} >>`,
-      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+        .join(" ")}] /Count ${this.pages.length} >>`),
+      pdfObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"),
+      pdfObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"),
+      ...this.images.map((image) => pdfStreamObject(
+        `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /${image.filter} /Length ${image.data.length} >>`,
+        image.data,
+      )),
+      ...pageLinks.flatMap((links) =>
+        links.map((link) =>
+          pdfObject(
+            `<< /Type /Annot /Subtype /Link /Rect [${link.x.toFixed(2)} ${link.y.toFixed(2)} ${(link.x + link.width).toFixed(2)} ${(link.y + link.height).toFixed(2)}] /Border [0 0 0] /A << /S /URI /URI (${escapePdf(link.url)}) >> >>`,
+          ),
+        ),
+      ),
       ...this.pages.flatMap((page, index) => {
         const content = page.content();
+        const annots = pageLinkObjectIds[index]?.length
+          ? ` /Annots [${pageLinkObjectIds[index].map((id) => `${id} 0 R`).join(" ")}]`
+          : "";
+        const xObjects = this.images
+          .map((image, imageIndex) => `/${image.name} ${imageObjectIds[imageIndex]} 0 R`)
+          .join(" ");
 
         return [
-          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >>`,
-          `<< /Length ${Buffer.byteLength(content, "utf8")} >>\nstream\n${content}\nendstream`,
+          pdfObject(
+            `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xObjects ? ` /XObject << ${xObjects} >>` : ""} >>${annots} /Contents ${contentObjectIds[index]} 0 R >>`,
+          ),
+          pdfStreamObject(
+            `<< /Length ${Buffer.byteLength(content, "utf8")} >>`,
+            Buffer.from(content, "utf8"),
+          ),
         ];
       }),
     ];
 
-    let pdf = "%PDF-1.4\n";
+    const chunks: Buffer[] = [Buffer.from("%PDF-1.4\n", "binary")];
     const offsets = [0];
+    let byteLength = chunks[0].length;
 
     objects.forEach((object, index) => {
-      offsets.push(Buffer.byteLength(pdf, "utf8"));
-      pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+      offsets.push(byteLength);
+      const objectHeader = Buffer.from(`${index + 1} 0 obj\n`, "binary");
+      const objectFooter = Buffer.from("\nendobj\n", "binary");
+
+      chunks.push(objectHeader, object, objectFooter);
+      byteLength += objectHeader.length + object.length + objectFooter.length;
     });
 
-    const xrefOffset = Buffer.byteLength(pdf, "utf8");
-    pdf += `xref\n0 ${objectCount + 1}\n0000000000 65535 f \n`;
-    pdf += offsets
+    const xrefOffset = byteLength;
+    const xref = `xref\n0 ${objectCount + 1}\n0000000000 65535 f \n${offsets
       .slice(1)
       .map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`)
-      .join("");
-    pdf += `trailer\n<< /Size ${objectCount + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+      .join("")}trailer\n<< /Size ${objectCount + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+    chunks.push(Buffer.from(xref, "binary"));
 
-    return new Uint8Array(Buffer.from(pdf, "utf8"));
+    return new Uint8Array(Buffer.concat(chunks));
   }
 }
 
 class PdfPage {
   private readonly commands: string[] = [];
+  private readonly pageLinks: PdfLink[] = [];
 
   content(): string {
     return this.commands.join("\n");
+  }
+
+  links(): PdfLink[] {
+    return this.pageLinks;
   }
 
   rect(
@@ -667,6 +1604,16 @@ class PdfPage {
     this.commands.push(`${x1} ${y1} m ${x2} ${y2} l S`);
   }
 
+  image(image: PdfImageRef, x: number, y: number, width: number, height: number): void {
+    this.commands.push(
+      `q ${width.toFixed(2)} 0 0 ${height.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm /${image.name} Do Q`,
+    );
+  }
+
+  link(url: string, x: number, y: number, width: number, height: number): void {
+    this.pageLinks.push({ url, x, y, width, height });
+  }
+
   text({
     value,
     x,
@@ -682,10 +1629,14 @@ class PdfPage {
     size: number;
     color?: string;
     bold?: boolean;
-    align?: "left" | "right";
+    align?: "left" | "center" | "right";
   }): void {
     const textX =
-      align === "right" ? x - approximateTextWidth(value, size, bold) : x;
+      align === "right"
+        ? x - approximateTextWidth(value, size, bold)
+        : align === "center"
+          ? x - approximateTextWidth(value, size, bold) / 2
+          : x;
 
     this.commands.push(`${rgb(color)} rg`);
     this.commands.push(
@@ -694,296 +1645,6 @@ class PdfPage {
       )} Td (${escapePdf(value)}) Tj ET`,
     );
   }
-}
-
-function drawQuotePdfHeader({
-  page,
-  quote,
-  version,
-  customerName,
-}: {
-  page: PdfPage;
-  quote: QuoteSnapshotRecord;
-  version: number;
-  customerName: string;
-}): number {
-  page.rect(0, 704, 612, 88, "#17345f");
-  page.rect(0, 704, 612, 7, "#d69e2e");
-  page.rect(44, 724, 44, 44, "#f8fafc");
-  page.text({ value: "QB", x: 53, y: 741, size: 15, color: "#17345f", bold: true });
-  page.text({
-    value: "Western Materials",
-    x: 104,
-    y: 754,
-    size: 11,
-    color: "#dbeafe",
-    bold: true,
-  });
-  page.text({
-    value: "Customer Quote",
-    x: 104,
-    y: 730,
-    size: 26,
-    color: "#ffffff",
-    bold: true,
-  });
-  page.text({
-    value: quote.quote_number,
-    x: 568,
-    y: 754,
-    size: 12,
-    color: "#ffffff",
-    bold: true,
-    align: "right",
-  });
-  page.text({
-    value: `Version ${version} - ${formatDate(quote.created_at)}`,
-    x: 568,
-    y: 733,
-    size: 9,
-    color: "#bfdbfe",
-    align: "right",
-  });
-  page.rect(44, 664, 524, 26, "#fff7ed", "#fed7aa");
-  page.text({
-    value: `Prepared for ${customerName}`,
-    x: 58,
-    y: 672,
-    size: 11,
-    color: "#7c4a03",
-    bold: true,
-  });
-
-  return 632;
-}
-
-function drawQuotePdfContinuationHeader(
-  page: PdfPage,
-  quote: QuoteSnapshotRecord,
-  version: number,
-): number {
-  page.rect(0, 742, 612, 50, "#17345f");
-  page.rect(0, 742, 612, 6, "#d69e2e");
-  page.text({
-    value: "Western Materials",
-    x: 44,
-    y: 763,
-    size: 12,
-    color: "#ffffff",
-    bold: true,
-  });
-  page.text({
-    value: `${quote.quote_number} - Version ${version}`,
-    x: 568,
-    y: 763,
-    size: 10,
-    color: "#dbeafe",
-    align: "right",
-  });
-
-  return 710;
-}
-
-function drawInfoPanels({
-  page,
-  y,
-  customer,
-  site,
-  owner,
-}: {
-  page: PdfPage;
-  y: number;
-  customer: PdfInfoPanel;
-  site: PdfInfoPanel;
-  owner: PdfInfoPanel;
-}): number {
-  drawInfoPanel(page, 44, y, 160, "Bill To", customer);
-  drawInfoPanel(page, 224, y, 160, "Deliver To", site);
-  drawInfoPanel(page, 404, y, 164, "Prepared By", owner);
-
-  return y - 116;
-}
-
-function drawInfoPanel(
-  page: PdfPage,
-  x: number,
-  y: number,
-  width: number,
-  label: string,
-  panel: PdfInfoPanel,
-): void {
-  page.rect(x, y - 94, width, 94, "#ffffff", "#d8dee8");
-  page.text({
-    value: label.toUpperCase(),
-    x: x + 14,
-    y: y - 22,
-    size: 8,
-    color: "#64748b",
-    bold: true,
-  });
-  page.text({
-    value: truncate(panel.title, 24),
-    x: x + 14,
-    y: y - 42,
-    size: 11,
-    color: "#172033",
-    bold: true,
-  });
-  panel.lines.slice(0, 3).forEach((line, index) => {
-    page.text({
-      value: truncate(line, 28),
-      x: x + 14,
-      y: y - 60 - index * 14,
-      size: 8.5,
-      color: "#526173",
-    });
-  });
-}
-
-function drawQuotePdfTableHeader(page: PdfPage, y: number): number {
-  page.text({
-    value: "Quoted Materials",
-    x: 44,
-    y,
-    size: 16,
-    color: "#172033",
-    bold: true,
-  });
-  page.rect(44, y - 34, 524, 24, "#17345f");
-  page.text({ value: "Description", x: 56, y: y - 26, size: 8, color: "#ffffff", bold: true });
-  page.text({ value: "Quantity", x: 342, y: y - 26, size: 8, color: "#ffffff", bold: true });
-  page.text({ value: "Truck Plan", x: 414, y: y - 26, size: 8, color: "#ffffff", bold: true });
-  page.text({
-    value: "Line Total",
-    x: 556,
-    y: y - 26,
-    size: 8,
-    color: "#ffffff",
-    bold: true,
-    align: "right",
-  });
-
-  return y - 54;
-}
-
-function drawQuotePdfTableRow(page: PdfPage, y: number, row: PdfRow): number {
-  const wrapped = wrapText(row.description, 48);
-  const height = Math.max(38, wrapped.length * 12 + 18);
-
-  page.rect(44, y - height + 8, 524, height, "#ffffff", "#e2e8f0");
-  wrapped.slice(0, 3).forEach((line, index) => {
-    page.text({
-      value: line,
-      x: 56,
-      y: y - 8 - index * 12,
-      size: index === 0 ? 9.5 : 8,
-      color: index === 0 ? "#172033" : "#64748b",
-      bold: index === 0,
-    });
-  });
-  page.text({ value: row.quantity, x: 342, y: y - 10, size: 8.5, color: "#172033" });
-  page.text({ value: truncate(row.loads, 19), x: 414, y: y - 10, size: 8.5, color: "#172033" });
-  page.text({
-    value: row.total,
-    x: 556,
-    y: y - 10,
-    size: 9,
-    color: "#172033",
-    bold: true,
-    align: "right",
-  });
-
-  return y - height - 6;
-}
-
-function drawTotalsBox(
-  page: PdfPage,
-  y: number,
-  quote: QuoteSnapshotRecord,
-): number {
-  const x = 332;
-  const width = 236;
-
-  page.rect(x, y - 154, width, 154, "#f8fafc", "#d8dee8");
-  page.text({ value: "Quote Summary", x: x + 16, y: y - 24, size: 12, bold: true });
-  drawTotalLine(page, x + 16, y - 48, "Material", quote.material_subtotal);
-  drawTotalLine(page, x + 16, y - 70, "Trucking", quote.trucking_subtotal);
-  drawTotalLine(page, x + 16, y - 92, "Fees", quote.fees_subtotal);
-  drawTotalLine(page, x + 16, y - 114, "Tax", quote.tax_total);
-  page.line(x + 16, y - 126, x + width - 16, y - 126, "#cbd5e1");
-  page.text({ value: "Total", x: x + 16, y: y - 144, size: 12, bold: true });
-  page.text({
-    value: formatCurrency(Number(quote.total)),
-    x: x + width - 16,
-    y: y - 144,
-    size: 13,
-    color: "#17345f",
-    bold: true,
-    align: "right",
-  });
-
-  return y - 154;
-}
-
-function drawTotalLine(
-  page: PdfPage,
-  x: number,
-  y: number,
-  label: string,
-  value: number,
-): void {
-  page.text({ value: label, x, y, size: 9, color: "#526173" });
-  page.text({
-    value: formatCurrency(Number(value)),
-    x: x + 188,
-    y,
-    size: 9,
-    color: "#172033",
-    bold: true,
-    align: "right",
-  });
-}
-
-function drawTerms(page: PdfPage, y: number, quote: QuoteSnapshotRecord): void {
-  const terms =
-    quote.notes ??
-    "Pricing is subject to material availability, trucking availability, and final job-site conditions. Taxes and fees are calculated from the current quote configuration. QuoteBase generated this document from the approved quote record.";
-  const lines = wrapText(terms, 76).slice(0, 5);
-
-  page.text({ value: "Notes and Terms", x: 44, y, size: 12, bold: true });
-  lines.forEach((line, index) => {
-    page.text({
-      value: line,
-      x: 44,
-      y: y - 18 - index * 12,
-      size: 8.5,
-      color: "#526173",
-    });
-  });
-}
-
-function drawQuotePdfFooter(
-  page: PdfPage,
-  quote: QuoteSnapshotRecord,
-  version: number,
-): void {
-  page.line(44, 54, 568, 54, "#d8dee8");
-  page.text({
-    value: "Western Materials - QuoteBase",
-    x: 44,
-    y: 34,
-    size: 8,
-    color: "#64748b",
-    bold: true,
-  });
-  page.text({
-    value: `${quote.quote_number} - v${version}`,
-    x: 568,
-    y: 34,
-    size: 8,
-    color: "#64748b",
-    align: "right",
-  });
 }
 
 function rgb(hex: string): string {
@@ -1027,16 +1688,36 @@ function wrapText(value: string, maxChars: number): string[] {
   return lines.length ? lines : [""];
 }
 
+function wrapTextByWidth(value: string, maxWidth: number, size: number): string[] {
+  const words = value.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+
+  words.forEach((word) => {
+    const next = current ? `${current} ${word}` : word;
+
+    if (approximateTextWidth(next, size) > maxWidth && current) {
+      lines.push(current);
+      current = word;
+      return;
+    }
+
+    current = next;
+  });
+
+  if (current) {
+    lines.push(current);
+  }
+
+  return lines.length ? lines : [""];
+}
+
 function truncate(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
 }
 
 function formatQuantity(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
-}
-
-function isPresent(value: string | null | undefined): value is string {
-  return typeof value === "string" && value.trim().length > 0;
 }
 
 function formatCurrency(value: number): string {

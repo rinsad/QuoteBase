@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export type AdminGmailIntegration = {
   id: string | null;
@@ -6,6 +7,7 @@ export type AdminGmailIntegration = {
   email: string | null;
   oauth_configured: boolean;
   client_id_last4: string | null;
+  user_integration_id: string | null;
   updated_at: string | null;
 };
 
@@ -20,13 +22,35 @@ export type AdminSlackIntegration = {
   updated_at: string | null;
 };
 
-export type AdminPipedriveIntegration = {
+export type AdminAuthorizeNetIntegration = {
   id: string | null;
   is_enabled: boolean;
-  api_base_url: string;
-  sync_interval_minutes: number;
-  api_token_configured: boolean;
-  unsynced_customer_count: number;
+  environment: "sandbox" | "production";
+  api_login_id_last4: string | null;
+  transaction_key_configured: boolean;
+  updated_at: string | null;
+};
+
+export type AdminStripeIntegration = {
+  id: string | null;
+  is_enabled: boolean;
+  secret_key_last4: string | null;
+  webhook_secret_configured: boolean;
+  updated_at: string | null;
+};
+
+export type AdminOpenAIIntegration = {
+  id: string | null;
+  is_enabled: boolean;
+  model: string;
+  api_key_last4: string | null;
+  updated_at: string | null;
+};
+
+export type AdminGoogleMapsIntegration = {
+  id: string | null;
+  is_enabled: boolean;
+  api_key_last4: string | null;
   updated_at: string | null;
 };
 
@@ -40,31 +64,43 @@ type OrganizationIntegrationRecord = {
 
 export async function getAdminGmailIntegration(
   organizationId: string,
+  userId: string,
 ): Promise<AdminGmailIntegration> {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   if (!supabase) {
     return emptyGmailIntegration();
   }
 
-  const { data } = await supabase
-    .from("organization_integrations")
-    .select("id, is_enabled, credentials_last4, updated_at")
-    .eq("organization_id", organizationId)
-    .eq("provider", "gmail")
-    .maybeSingle<OrganizationIntegrationRecord>();
-
-  if (!data) {
-    return emptyGmailIntegration();
-  }
+  const [{ data: organizationIntegration }, { data: userIntegration }] =
+    await Promise.all([
+      supabase
+        .from("organization_integrations")
+        .select("id, is_enabled, credentials_last4, updated_at")
+        .eq("organization_id", organizationId)
+        .eq("provider", "gmail")
+        .maybeSingle<OrganizationIntegrationRecord>(),
+      supabase
+        .from("user_integrations")
+        .select("id, is_enabled, credentials_last4, updated_at")
+        .eq("organization_id", organizationId)
+        .eq("user_id", userId)
+        .eq("provider", "gmail")
+        .maybeSingle<OrganizationIntegrationRecord>(),
+    ]);
 
   return {
-    id: data.id,
-    is_enabled: data.is_enabled,
-    email: stringValue(data.credentials_last4?.email) ?? null,
-    oauth_configured: Boolean(data.credentials_last4?.client_secret),
-    client_id_last4: stringValue(data.credentials_last4?.client_id) ?? null,
-    updated_at: data.updated_at,
+    id: organizationIntegration?.id ?? null,
+    is_enabled: Boolean(userIntegration?.is_enabled),
+    email: stringValue(userIntegration?.credentials_last4?.email) ?? null,
+    oauth_configured: Boolean(
+      organizationIntegration?.credentials_last4?.client_secret,
+    ),
+    client_id_last4:
+      stringValue(organizationIntegration?.credentials_last4?.client_id) ?? null,
+    user_integration_id: userIntegration?.id ?? null,
+    updated_at:
+      userIntegration?.updated_at ?? organizationIntegration?.updated_at ?? null,
   };
 }
 
@@ -100,47 +136,126 @@ export async function getAdminSlackIntegration(
   };
 }
 
-export async function getAdminPipedriveIntegration(
+export async function getAdminAuthorizeNetIntegration(
   organizationId: string,
-): Promise<AdminPipedriveIntegration> {
+): Promise<AdminAuthorizeNetIntegration> {
   const supabase = await createClient();
 
   if (!supabase) {
-    return emptyPipedriveIntegration();
+    return emptyAuthorizeNetIntegration();
   }
 
-  const [integrationResult, unsyncedCustomersResult] = await Promise.all([
-    supabase
-      .from("organization_integrations")
-      .select("id, is_enabled, config, credentials_last4, updated_at")
-      .eq("organization_id", organizationId)
-      .eq("provider", "pipedrive")
-      .maybeSingle<OrganizationIntegrationRecord>(),
-    supabase
-      .from("customers")
-      .select("id", { count: "exact", head: true })
-      .eq("organization_id", organizationId)
-      .eq("is_active", true)
-      .is("pipedrive_person_id", null),
-  ]);
-  const data = integrationResult.data;
-  const unsyncedCustomerCount = unsyncedCustomersResult.count ?? 0;
+  const { data } = await supabase
+    .from("organization_integrations")
+    .select("id, is_enabled, config, credentials_last4, updated_at")
+    .eq("organization_id", organizationId)
+    .eq("provider", "authorizenet")
+    .maybeSingle<OrganizationIntegrationRecord>();
 
   if (!data) {
-    return {
-      ...emptyPipedriveIntegration(),
-      unsynced_customer_count: unsyncedCustomerCount,
-    };
+    return emptyAuthorizeNetIntegration();
   }
 
   return {
     id: data.id,
     is_enabled: data.is_enabled,
-    api_base_url:
-      stringValue(data.config?.api_base_url) ?? "https://api.pipedrive.com/v1",
-    sync_interval_minutes: numberValue(data.config?.sync_interval_minutes) ?? 30,
-    api_token_configured: Boolean(data.credentials_last4?.api_token),
-    unsynced_customer_count: unsyncedCustomerCount,
+    environment:
+      stringValue(data.config?.environment) === "production"
+        ? "production"
+        : "sandbox",
+    api_login_id_last4:
+      stringValue(data.credentials_last4?.api_login_id) ?? null,
+    transaction_key_configured: Boolean(
+      data.credentials_last4?.transaction_key,
+    ),
+    updated_at: data.updated_at,
+  };
+}
+
+export async function getAdminStripeIntegration(
+  organizationId: string,
+): Promise<AdminStripeIntegration> {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    return emptyStripeIntegration();
+  }
+
+  const { data } = await supabase
+    .from("organization_integrations")
+    .select("id, is_enabled, credentials_last4, updated_at")
+    .eq("organization_id", organizationId)
+    .eq("provider", "stripe")
+    .maybeSingle<OrganizationIntegrationRecord>();
+
+  if (!data) {
+    return emptyStripeIntegration();
+  }
+
+  return {
+    id: data.id,
+    is_enabled: data.is_enabled,
+    secret_key_last4: stringValue(data.credentials_last4?.secret_key) ?? null,
+    webhook_secret_configured: Boolean(
+      data.credentials_last4?.webhook_secret,
+    ),
+    updated_at: data.updated_at,
+  };
+}
+
+export async function getAdminOpenAIIntegration(
+  organizationId: string,
+): Promise<AdminOpenAIIntegration> {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    return emptyOpenAIIntegration();
+  }
+
+  const { data } = await supabase
+    .from("organization_integrations")
+    .select("id, is_enabled, config, credentials_last4, updated_at")
+    .eq("organization_id", organizationId)
+    .eq("provider", "openai")
+    .maybeSingle<OrganizationIntegrationRecord>();
+
+  if (!data) {
+    return emptyOpenAIIntegration();
+  }
+
+  return {
+    id: data.id,
+    is_enabled: data.is_enabled,
+    model: stringValue(data.config?.model) ?? "gpt-5.4-mini",
+    api_key_last4: stringValue(data.credentials_last4?.api_key) ?? null,
+    updated_at: data.updated_at,
+  };
+}
+
+export async function getAdminGoogleMapsIntegration(
+  organizationId: string,
+): Promise<AdminGoogleMapsIntegration> {
+  const supabase = await createClient();
+
+  if (!supabase) {
+    return emptyGoogleMapsIntegration();
+  }
+
+  const { data } = await supabase
+    .from("organization_integrations")
+    .select("id, is_enabled, credentials_last4, updated_at")
+    .eq("organization_id", organizationId)
+    .eq("provider", "google_maps")
+    .maybeSingle<OrganizationIntegrationRecord>();
+
+  if (!data) {
+    return emptyGoogleMapsIntegration();
+  }
+
+  return {
+    id: data.id,
+    is_enabled: data.is_enabled,
+    api_key_last4: stringValue(data.credentials_last4?.api_key) ?? null,
     updated_at: data.updated_at,
   };
 }
@@ -152,6 +267,7 @@ function emptyGmailIntegration(): AdminGmailIntegration {
     email: null,
     oauth_configured: false,
     client_id_last4: null,
+    user_integration_id: null,
     updated_at: null,
   };
 }
@@ -169,22 +285,46 @@ function emptySlackIntegration(): AdminSlackIntegration {
   };
 }
 
-function emptyPipedriveIntegration(): AdminPipedriveIntegration {
+function emptyAuthorizeNetIntegration(): AdminAuthorizeNetIntegration {
   return {
     id: null,
     is_enabled: false,
-    api_base_url: "https://api.pipedrive.com/v1",
-    sync_interval_minutes: 30,
-    api_token_configured: false,
-    unsynced_customer_count: 0,
+    environment: "sandbox",
+    api_login_id_last4: null,
+    transaction_key_configured: false,
+    updated_at: null,
+  };
+}
+
+function emptyStripeIntegration(): AdminStripeIntegration {
+  return {
+    id: null,
+    is_enabled: false,
+    secret_key_last4: null,
+    webhook_secret_configured: false,
+    updated_at: null,
+  };
+}
+
+function emptyOpenAIIntegration(): AdminOpenAIIntegration {
+  return {
+    id: null,
+    is_enabled: false,
+    model: "gpt-5.4-mini",
+    api_key_last4: null,
+    updated_at: null,
+  };
+}
+
+function emptyGoogleMapsIntegration(): AdminGoogleMapsIntegration {
+  return {
+    id: null,
+    is_enabled: false,
+    api_key_last4: null,
     updated_at: null,
   };
 }
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function numberValue(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

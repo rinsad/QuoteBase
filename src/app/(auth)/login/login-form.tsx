@@ -16,11 +16,11 @@ const initialState: LoginState = {
 };
 
 const devUsers = [
-  { key: "rinsad", label: "Rinsad", role: "Admin" },
-  { key: "judd", label: "Judd", role: "Admin" },
-  { key: "gloria", label: "Gloria", role: "Account Manager" },
-  { key: "claudina", label: "Claudina", role: "Estimator" },
-  { key: "john-tenant-b", label: "John", role: "Tenant B Admin" },
+  { key: "rinsad", label: "Local user 1" },
+  { key: "judd", label: "Local user 2" },
+  { key: "gloria", label: "Local user 3" },
+  { key: "claudina", label: "Local user 4" },
+  { key: "john-tenant-b", label: "Local user 5" },
 ];
 
 export function LoginForm({
@@ -99,9 +99,6 @@ export function LoginForm({
               >
                 <span className="grid text-left leading-tight">
                   <span>Continue as {user.label}</span>
-                  <span className="text-xs font-normal text-muted-foreground">
-                    {user.role}
-                  </span>
                 </span>
               </Button>
             ))}

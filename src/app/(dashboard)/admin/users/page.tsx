@@ -123,7 +123,7 @@ export default async function AdminUsersPage({
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">
-                Allowlist
+                Approved access
               </p>
               <h2 className="text-xl font-semibold">
                 {data.invites.length} invited emails

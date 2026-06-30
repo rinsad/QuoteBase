@@ -1,10 +1,17 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ListChecks } from "lucide-react";
+import Link from "next/link";
+import { Bot, ListChecks, Plus, Send, XCircle } from "lucide-react";
 
+import {
+  approveFollowUpDraft,
+  cancelFollowUpDraft,
+  runFollowUpAgentNow,
+} from "@/app/(dashboard)/quotes/actions";
 import { QuoteNav } from "@/components/app-nav";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { getQuoteList, type QuoteStatus } from "@/lib/quotes/quotes";
+import { listFollowUpDrafts, type FollowUpDraft } from "@/lib/quotes/follow-up-agent";
+import { getQuoteList } from "@/lib/quotes/quotes";
+import { QuotePipelineBoard } from "@/app/(dashboard)/quotes/quote-pipeline-board";
 
 export default async function QuotesPage() {
   const user = await getCurrentUser();
@@ -13,7 +20,10 @@ export default async function QuotesPage() {
     redirect("/login");
   }
 
-  const summary = await getQuoteList(user);
+  const [summary, followUpDrafts] = await Promise.all([
+    getQuoteList(user),
+    listFollowUpDrafts({ organizationId: user.organization_id }),
+  ]);
 
   return (
     <main className="app-background">
@@ -31,10 +41,10 @@ export default async function QuotesPage() {
                 <p className="truncate text-sm font-medium text-muted-foreground">
                   Quotes
                 </p>
-                <h1 className="truncate text-lg font-semibold">Quote Desk</h1>
+                <h1 className="truncate text-lg font-semibold">Pipeline</h1>
               </div>
             </div>
-            <QuoteNav userRole={user.role} />
+            <QuoteNav />
           </div>
         </header>
 
@@ -44,20 +54,26 @@ export default async function QuotesPage() {
               <ListChecks className="size-6" />
             </div>
             <h2 className="accent-title mt-6 text-3xl font-semibold tracking-normal">
-              Review active quotes.
+              Work the quote pipeline.
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Drafts and submitted quotes are shown with tenant-scoped customer,
-              job-site, owner, and total information.
+              Move quotes from draft to sent, follow-up, won, or lost with
+              tenant-scoped customer, job-site, owner, and total information.
             </p>
+            <Link href="/quotes/new" className="mac-button-primary mt-6 h-11 w-fit">
+              <Plus className="size-4" />
+              New Quote
+            </Link>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="Total" value={summary.counts.total} />
             <Metric label="Drafts" value={summary.counts.drafts} />
-            <Metric label="Pending" value={summary.counts.pendingApproval} />
-            <Metric label="Approved" value={summary.counts.approved} />
             <Metric label="Sent" value={summary.counts.sent} />
+            <Metric label="Follow-up" value={summary.counts.followUp} />
+            <Metric label="Win rate" value={`${summary.counts.winRate.toFixed(0)}%`} />
+            <Metric label="Won" value={summary.counts.won} />
+            <Metric label="Lost" value={summary.counts.lost} />
           </div>
         </section>
 
@@ -65,62 +81,75 @@ export default async function QuotesPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-medium text-muted-foreground">
-                Recent quotes
+                Sales pipeline
               </p>
               <h2 className="text-2xl font-semibold tracking-normal">
-                Last 50 active records
+                Kanban board
               </h2>
             </div>
+            <Link href="/quotes/new" className="mac-button-primary h-10 w-fit">
+              <Plus className="size-4" />
+              New Quote
+            </Link>
           </div>
 
-          <div className="mt-6 space-y-3">
+          <div className="mt-6">
             {summary.quotes.length ? (
-              summary.quotes.map((quote) => (
-                <Link
-                  key={quote.id}
-                  href={`/quotes/${quote.id}`}
-                  className="soft-row grid gap-3 px-4 py-4 transition hover:bg-white/80 md:grid-cols-[1fr_1fr_auto_auto] md:items-center"
-                >
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <p className="truncate text-sm font-semibold">
-                        {quote.quote_number}
-                      </p>
-                      {quote.revision_number > 1 ? (
-                        <span className="soft-chip shrink-0 bg-sky-50 text-sky-700 ring-sky-100">
-                          R{quote.revision_number}
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="mt-1 truncate text-sm text-muted-foreground">
-                      {quote.customer_name}
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {quote.job_site_name}
-                    </p>
-                    <p className="mt-1 truncate text-xs text-muted-foreground">
-                      {quote.job_site_city || "Location pending"} -{" "}
-                      {quote.requested_by_name}
-                    </p>
-                  </div>
-                  <StatusPill status={quote.status} />
-                  <div className="text-left md:text-right">
-                    <p className="text-base font-semibold">
-                      {formatCurrency(quote.total)}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {formatDate(quote.created_at)}
-                    </p>
-                  </div>
-                </Link>
-              ))
+              <QuotePipelineBoard quotes={summary.quotes} />
             ) : (
               <div className="soft-row px-4 py-10 text-center">
                 <p className="text-sm font-medium">No quotes yet.</p>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Create the first draft quote to start building the pipeline.
+                </p>
+                <Link
+                  href="/quotes/new"
+                  className="mac-button-primary mx-auto mt-5 h-10 w-fit"
+                >
+                  <Plus className="size-4" />
+                  New Quote
+                </Link>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section id="follow-up-queue" className="mt-6 glass-panel p-5 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="icon-well text-primary">
+                <Bot className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  AI follow-up agent
+                </p>
+                <h2 className="text-2xl font-semibold tracking-normal">
+                  Approval queue
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                  Auto-send is off. Review each context-aware draft, then approve
+                  to send by Gmail. Big quotes are escalated to the owner.
+                </p>
+              </div>
+            </div>
+            <form action={runFollowUpAgentNow}>
+              <button type="submit" className="mac-link h-10 rounded-full">
+                Generate drafts
+              </button>
+            </form>
+          </div>
+
+          <div className="mt-6 space-y-4">
+            {followUpDrafts.length ? (
+              followUpDrafts.map((draft) => (
+                <FollowUpDraftCard key={draft.id} draft={draft} />
+              ))
+            ) : (
+              <div className="soft-row px-4 py-10 text-center">
+                <p className="text-sm font-medium">No follow-up drafts waiting.</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  The scheduler creates drafts for open quotes past their follow-up date.
                 </p>
               </div>
             )}
@@ -131,7 +160,77 @@ export default async function QuotesPage() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function FollowUpDraftCard({ draft }: { draft: FollowUpDraft }) {
+  const quote = relationOne(draft.quotes);
+  const customer = relationOne(quote?.customers ?? null);
+  const owner = relationOne(quote?.users ?? null);
+  const recipient = draft.recipient_email ?? draft.recipient_phone ?? "Missing recipient";
+
+  return (
+    <div className="soft-row p-4">
+      <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="soft-chip bg-secondary text-secondary-foreground ring-border">
+              {formatStatus(draft.tone)}
+            </span>
+            <span className="soft-chip bg-card text-muted-foreground ring-border">
+              Day {draft.stage_day}
+            </span>
+            {draft.big_quote_escalation ? (
+              <span className="soft-chip bg-amber-50 text-amber-800 ring-amber-100">
+                Owner escalation
+              </span>
+            ) : null}
+            <span className="soft-chip bg-card text-muted-foreground ring-border">
+              {draft.channel.toUpperCase()}
+            </span>
+          </div>
+          <h3 className="mt-3 text-lg font-semibold">{draft.subject}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {quote?.quote_number ?? "Quote"} · {customer?.name ?? "Unknown customer"} ·{" "}
+            {owner?.full_name ?? "Unknown owner"} · {recipient}
+          </p>
+          <pre className="mt-4 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-4 text-sm leading-6">
+            {draft.body}
+          </pre>
+          {draft.failure_reason ? (
+            <p className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-100">
+              {draft.failure_reason}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-col gap-2 lg:w-44">
+          <Link href={`/quotes/${draft.quote_id}`} className="mac-link h-10 justify-center rounded-full">
+            Open quote
+          </Link>
+          <form action={approveFollowUpDraft}>
+            <input type="hidden" name="draft_id" value={draft.id} />
+            <button
+              type="submit"
+              className="mac-button-primary h-10 w-full rounded-full"
+            >
+              <Send className="size-4" />
+              Approve/send
+            </button>
+          </form>
+          <form action={cancelFollowUpDraft}>
+            <input type="hidden" name="draft_id" value={draft.id} />
+            <button
+              type="submit"
+              className="mac-link h-10 w-full justify-center rounded-full text-rose-700"
+            >
+              <XCircle className="size-4" />
+              Cancel
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="glass-tile min-h-32 p-5">
       <p className="text-xs font-medium uppercase text-muted-foreground">
@@ -142,27 +241,6 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function StatusPill({ status }: { status: QuoteStatus }) {
-  const tone = {
-    draft: "bg-blue-50 text-blue-700 ring-blue-100",
-    pending_approval: "bg-amber-50 text-amber-700 ring-amber-100",
-    changes_requested: "bg-orange-50 text-orange-700 ring-orange-100",
-    approved: "bg-emerald-50 text-emerald-700 ring-emerald-100",
-    rejected: "bg-rose-50 text-rose-700 ring-rose-100",
-    sent: "bg-cyan-50 text-cyan-700 ring-cyan-100",
-    viewed: "bg-indigo-50 text-indigo-700 ring-indigo-100",
-    accepted: "bg-lime-50 text-lime-700 ring-lime-100",
-    declined: "bg-orange-50 text-orange-700 ring-orange-100",
-    expired: "bg-slate-100 text-slate-600 ring-slate-200",
-  } satisfies Record<QuoteStatus, string>;
-
-  return (
-    <span className={`soft-chip shrink-0 ${tone[status]}`}>
-      {formatStatus(status)}
-    </span>
-  );
-}
-
 function formatStatus(status: string) {
   return status
     .split("_")
@@ -170,17 +248,6 @@ function formatStatus(status: string) {
     .join(" ");
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(value);
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(value));
+function relationOne<T>(value: T | T[] | null): T | null {
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }

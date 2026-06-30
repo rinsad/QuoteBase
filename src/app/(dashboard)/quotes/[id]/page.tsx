@@ -8,13 +8,13 @@ import {
   FileText,
   GitBranch,
   MapPin,
-  PackagePlus,
   Send,
   Share2,
   XCircle,
   UserRound,
 } from "lucide-react";
 
+import { AddMaterialLineForm } from "@/app/(dashboard)/quotes/[id]/add-material-line-form";
 import {
   addQuoteItem,
   approveQuote,
@@ -27,7 +27,6 @@ import {
   requestQuoteChanges,
   rejectQuote,
   removeQuoteItem,
-  sendCustomerQuoteEmail,
   submitQuoteForApproval,
   updateQuoteItemQuantity,
 } from "@/app/(dashboard)/quotes/[id]/actions";
@@ -89,7 +88,6 @@ export default async function QuoteDetailPage({
   const addItemAction = addQuoteItem.bind(null, quote.id);
   const createPublicLinkAction = createCustomerQuoteLink.bind(null, quote.id);
   const generateDocumentAction = generateQuoteDocument.bind(null, quote.id);
-  const sendEmailAction = sendCustomerQuoteEmail.bind(null, quote.id);
   const createRevisionAction = createQuoteRevisionAction.bind(null, quote.id);
   const canSubmit =
     quote.status === "draft" || quote.status === "changes_requested";
@@ -99,21 +97,20 @@ export default async function QuoteDetailPage({
     quote.status === "approved" &&
     (user.role === "admin" || user.role === "account_manager");
   const canRecordCustomerResponse =
-    quote.status === "sent" &&
+    ["sent", "viewed", "follow_up"].includes(quote.status) &&
     (user.role === "admin" || user.role === "account_manager");
   const canCreateCustomerLink =
-    ["sent", "viewed", "accepted", "declined"].includes(quote.status) &&
+    ["approved", "sent", "viewed", "follow_up"].includes(quote.status) &&
     (user.role === "admin" || user.role === "account_manager");
   const canSendCustomerEmail =
-    ["approved", "sent", "viewed", "accepted", "declined"].includes(
-      quote.status,
-    ) && (user.role === "admin" || user.role === "account_manager");
+    ["approved", "sent", "viewed", "follow_up"].includes(quote.status) &&
+    (user.role === "admin" || user.role === "account_manager");
   const canGenerateDocument =
-    ["approved", "sent", "viewed", "accepted", "declined"].includes(
+    ["approved", "sent", "viewed", "follow_up", "won", "lost"].includes(
       quote.status,
     ) && (user.role === "admin" || user.role === "account_manager");
   const canCreateRevision =
-    ["approved", "sent", "viewed", "accepted", "declined", "expired"].includes(
+    ["approved", "sent", "viewed", "follow_up", "won", "lost", "expired"].includes(
       quote.status,
     ) && user.role === "admin";
 
@@ -139,7 +136,7 @@ export default async function QuoteDetailPage({
                 </h1>
               </div>
             </div>
-            <QuoteNav quoteId={quote.id} includePrint userRole={user.role} />
+            <QuoteNav quoteId={quote.id} includePrint />
           </div>
         </header>
 
@@ -234,10 +231,17 @@ export default async function QuoteDetailPage({
                     ? emailStatusMessage(query.email_status)
                     : "Customer link created"}
                 </p>
+                <label
+                  htmlFor="customer-acceptance-link"
+                  className="mt-3 block text-xs font-semibold uppercase text-emerald-800/80"
+                >
+                  Customer acceptance link
+                </label>
                 <input
+                  id="customer-acceptance-link"
                   readOnly
                   value={query.public_link}
-                  className="soft-control mt-3 w-full bg-white/85 font-mono text-xs"
+                  className="soft-control mt-2 w-full bg-white/85 font-mono text-xs"
                 />
               </div>
             ) : null}
@@ -318,21 +322,21 @@ export default async function QuoteDetailPage({
                       <textarea
                         name="customer_response_note"
                         className="soft-control min-h-24 w-full resize-none py-3"
-                        placeholder="Acceptance note"
+                        placeholder="Win note"
                       />
                       <Button
                         type="submit"
                         className="h-11 w-full rounded-full bg-emerald-600 text-white hover:bg-emerald-700"
                       >
                         <CheckCircle2 className="size-4" />
-                        Mark accepted
+                        Mark won
                       </Button>
                     </form>
                     <form action={declinedAction} className="space-y-3">
                       <textarea
                         name="customer_response_note"
                         className="soft-control min-h-24 w-full resize-none py-3"
-                        placeholder="Decline note"
+                        placeholder="Loss note"
                       />
                       <Button
                         type="submit"
@@ -340,7 +344,7 @@ export default async function QuoteDetailPage({
                         className="h-11 w-full rounded-full bg-rose-50 text-rose-700 hover:bg-rose-100"
                       >
                         <XCircle className="size-4" />
-                        Mark declined
+                        Mark lost
                       </Button>
                     </form>
                   </div>
@@ -350,12 +354,12 @@ export default async function QuoteDetailPage({
             {canSendCustomerEmail || canCreateCustomerLink ? (
               <div className="mt-3 grid gap-3">
                 {canSendCustomerEmail ? (
-                  <form action={sendEmailAction}>
-                    <Button type="submit" className="h-11 w-full rounded-full">
+                  <Link href={`/quotes/${quote.id}/send`} className="block">
+                    <Button type="button" className="h-11 w-full rounded-full">
                       <Send className="size-4" />
-                      Send PDF quote by email
+                      Preview and send PDF quote
                     </Button>
-                  </form>
+                  </Link>
                 ) : null}
                 {canCreateCustomerLink ? (
                   <form action={createPublicLinkAction}>
@@ -447,59 +451,10 @@ export default async function QuoteDetailPage({
               ))}
             </div>
             {quoteContext ? (
-              <form
+              <AddMaterialLineForm
                 action={addItemAction}
-                className="mt-5 rounded-[20px] border border-sky-100 bg-sky-50/60 p-4"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="icon-well text-blue-700">
-                    <PackagePlus className="size-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">
-                      Draft editor
-                    </p>
-                    <h3 className="text-lg font-semibold">Add material line</h3>
-                  </div>
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_140px_auto] sm:items-end">
-                  <label className="block">
-                    <span className="text-sm font-medium text-muted-foreground">
-                      Material
-                    </span>
-                    <select
-                      name="material_id"
-                      className="soft-control mt-2 w-full"
-                      required
-                    >
-                      <option value="">Select material...</option>
-                      {quoteContext.materials.map((material) => (
-                        <option key={material.id} value={material.id}>
-                          {material.supplier_name} - {material.name} (
-                          {material.tier})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="text-sm font-medium text-muted-foreground">
-                      Quantity
-                    </span>
-                    <input
-                      name="quantity"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      className="soft-control mt-2 w-full"
-                      required
-                    />
-                  </label>
-                  <Button type="submit" className="h-12 rounded-full">
-                    <PackagePlus className="size-4" />
-                    Add line
-                  </Button>
-                </div>
-              </form>
+                materials={quoteContext.materials}
+              />
             ) : null}
           </div>
 
@@ -586,6 +541,35 @@ export default async function QuoteDetailPage({
                 title="Recent events"
               />
               <div className="mt-5 space-y-3">
+                {quote.publicEvents.length ? (
+                  <div className="rounded-[18px] border border-border bg-secondary p-4 text-secondary-foreground">
+                    <p className="text-sm font-semibold">
+                      Customer activity
+                    </p>
+                    <div className="mt-3 space-y-2">
+                      {quote.publicEvents.map((event) => (
+                        <div
+                          key={event.id}
+                          className="rounded-[14px] bg-white/80 px-3 py-2 text-xs"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-semibold">
+                              {formatPublicEvent(event.event_type)}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {formatDateTime(event.created_at)}
+                            </span>
+                          </div>
+                          <p className="mt-1 truncate text-muted-foreground">
+                            {[event.request_ip, publicEventDetail(event.metadata)]
+                              .filter(Boolean)
+                              .join(" - ") || "Customer quote link"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {quote.auditEntries.length ? (
                   quote.auditEntries.map((entry) => (
                     <div key={entry.id} className="soft-row px-4 py-3">
@@ -766,6 +750,9 @@ function StatusPill({ status }: { status: QuoteStatus }) {
     rejected: "bg-rose-50 text-rose-700 ring-rose-100",
     sent: "bg-cyan-50 text-cyan-700 ring-cyan-100",
     viewed: "bg-indigo-50 text-indigo-700 ring-indigo-100",
+    follow_up: "bg-violet-50 text-violet-700 ring-violet-100",
+    won: "bg-lime-50 text-lime-700 ring-lime-100",
+    lost: "bg-orange-50 text-orange-700 ring-orange-100",
     accepted: "bg-lime-50 text-lime-700 ring-lime-100",
     declined: "bg-orange-50 text-orange-700 ring-orange-100",
     expired: "bg-slate-100 text-slate-600 ring-slate-200",
@@ -795,6 +782,33 @@ function formatAction(action: string) {
     .join(" ");
 }
 
+function formatPublicEvent(eventType: string) {
+  return eventType
+    .split("_")
+    .map(formatStatus)
+    .join(" ");
+}
+
+function publicEventDetail(metadata: Record<string, unknown>) {
+  const transactionId = metadata.transaction_id;
+  const viewCount = metadata.view_count;
+  const signerName = metadata.signer_name;
+
+  if (typeof transactionId === "string" && transactionId) {
+    return `Transaction ${transactionId}`;
+  }
+
+  if (typeof signerName === "string" && signerName) {
+    return `Signed by ${signerName}`;
+  }
+
+  if (typeof viewCount === "number") {
+    return `View ${viewCount}`;
+  }
+
+  return "";
+}
+
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -807,7 +821,7 @@ function formatDateTime(value: string) {
 
 function emailStatusMessage(status: string) {
   if (status === "sent") {
-    return "Customer email sent";
+    return "Quote email sent";
   }
 
   if (status === "skipped") {

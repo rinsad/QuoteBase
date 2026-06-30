@@ -7,7 +7,6 @@ export const A81_FEATURE_FLAGS = [
   "quote_creation",
   "approval_workflow",
   "quoter_integration",
-  "pipedrive_sync",
   "slack_notifications",
   "google_maps_distance_api",
   "competitive_intelligence_input",

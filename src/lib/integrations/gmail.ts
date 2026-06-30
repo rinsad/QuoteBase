@@ -33,6 +33,7 @@ type GmailCredentials = {
 type GmailIntegrationRecord = {
   id: string;
   organization_id: string;
+  user_id?: string;
   is_enabled: boolean;
   credentials_last4: Record<string, unknown> | null;
   credentials_encrypted: string | null;
@@ -87,6 +88,7 @@ export async function createGmailAuthorizationUrl({
   url.searchParams.set("scope", GMAIL_SCOPE);
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
+  url.searchParams.set("include_granted_scopes", "false");
   url.searchParams.set(
     "state",
     signGmailState({
@@ -211,6 +213,7 @@ export async function exchangeGmailCode({
 export async function sendGmailQuoteEmail({
   supabase,
   organizationId,
+  userId,
   to,
   subject,
   text,
@@ -218,15 +221,17 @@ export async function sendGmailQuoteEmail({
 }: {
   supabase: SupabaseClient;
   organizationId: string;
+  userId: string;
   to: string;
   subject: string;
   text: string;
   attachments: EmailAttachment[];
 }): Promise<GmailDeliveryResult> {
   const { data: integration } = await supabase
-    .from("organization_integrations")
-    .select("id, organization_id, is_enabled, credentials_last4, credentials_encrypted")
+    .from("user_integrations")
+    .select("id, organization_id, user_id, is_enabled, credentials_last4, credentials_encrypted")
     .eq("organization_id", organizationId)
+    .eq("user_id", userId)
     .eq("provider", "gmail")
     .maybeSingle<GmailIntegrationRecord>();
 
@@ -235,7 +240,7 @@ export async function sendGmailQuoteEmail({
       status: "skipped",
       provider: "gmail",
       messageId: null,
-      reason: "Gmail is not connected for this organization.",
+      reason: "Gmail is not connected for your user account.",
     };
   }
 
@@ -253,7 +258,7 @@ export async function sendGmailQuoteEmail({
       provider: "gmail",
       messageId: null,
       reason:
-        "Saved Gmail credentials cannot be read with the current encryption key. Reconnect Gmail in integration settings.",
+        "Saved Gmail credentials cannot be read with the current encryption key. Reconnect your Gmail account in integration settings.",
     };
   }
 
@@ -266,11 +271,23 @@ export async function sendGmailQuoteEmail({
     };
   }
 
-  credentials = await refreshGmailCredentialsIfNeeded({
-    supabase,
-    integration,
-    credentials,
-  });
+  try {
+    credentials = await refreshGmailCredentialsIfNeeded({
+      supabase,
+      integration,
+      credentials,
+    });
+  } catch (error) {
+    return {
+      status: "failed",
+      provider: "gmail",
+      messageId: null,
+      reason:
+        error instanceof Error
+          ? friendlyGmailAuthError(error.message)
+          : "Gmail authorization failed. Reconnect your Gmail account in integration settings.",
+    };
+  }
 
   const raw = createMimeMessage({
     to,
@@ -299,7 +316,9 @@ export async function sendGmailQuoteEmail({
       provider: "gmail",
       messageId: null,
       reason:
-        error instanceof Error ? error.message : "Gmail send request failed.",
+        error instanceof Error
+          ? friendlyGmailAuthError(error.message)
+          : "Gmail send request failed.",
     };
   }
 }
@@ -399,7 +418,7 @@ async function refreshGmailCredentialsIfNeeded({
   };
 
   await supabase
-    .from("organization_integrations")
+    .from("user_integrations")
     .update({
       credentials_encrypted: encryptedGmailCredentials(refreshed),
       credentials_last4: {
@@ -410,9 +429,29 @@ async function refreshGmailCredentialsIfNeeded({
       updated_at: new Date().toISOString(),
     })
     .eq("organization_id", integration.organization_id)
+    .eq("user_id", integration.user_id ?? "")
     .eq("id", integration.id);
 
   return refreshed;
+}
+
+function friendlyGmailAuthError(message: string): string {
+  if (message.includes("Google token refresh returned HTTP 400")) {
+    return "Gmail authorization expired or was revoked. Reconnect Gmail in integration settings, then send the quote again.";
+  }
+
+  if (
+    message.includes("Gmail API returned HTTP 403") &&
+    message.includes("insufficient authentication scopes")
+  ) {
+    return "Gmail is connected without the required send permission. Reconnect Gmail in integration settings and approve the Gmail send permission, then send the quote again.";
+  }
+
+  if (message.includes("PERMISSION_DENIED")) {
+    return "Gmail denied the send request. Reconnect Gmail in integration settings and approve the Gmail send permission, then send the quote again.";
+  }
+
+  return message;
 }
 
 async function gmailFetch(
@@ -582,56 +621,6 @@ export function encryptedGmailOAuthSettings({
     expiresAt: undefined,
     email: undefined,
   });
-}
-
-export function encryptedGmailOAuthSettingsWithoutMailbox(
-  existingCredentials: string | null,
-): {
-  encrypted: string | null;
-  last4: Record<string, unknown>;
-} {
-  let existing: Partial<GmailCredentials> | null = null;
-
-  try {
-    existing = decryptSecretPayload<Partial<GmailCredentials>>(
-      existingCredentials,
-    );
-  } catch (error) {
-    console.error("Existing Gmail credentials could not be decrypted.", error);
-  }
-
-  if (!existing?.clientId || !existing.clientSecret) {
-    return {
-      encrypted: null,
-      last4: {},
-    };
-  }
-
-  return {
-    encrypted: encryptSecretPayload({
-      clientId: existing.clientId,
-      clientSecret: existing.clientSecret,
-    }),
-    last4: gmailCredentialsLast4({
-      clientId: existing.clientId,
-      clientSecret: existing.clientSecret,
-      email: null,
-    }),
-  };
-}
-
-export function mergeGmailConnectedCredentials({
-  settings,
-  credentials,
-}: {
-  settings: GmailOAuthSettings;
-  credentials: Omit<GmailCredentials, "clientId" | "clientSecret">;
-}): GmailCredentials {
-  return {
-    ...credentials,
-    clientId: settings.clientId,
-    clientSecret: settings.clientSecret,
-  };
 }
 
 export function gmailCredentialsLast4({

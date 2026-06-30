@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   Building2,
@@ -7,15 +8,23 @@ import {
   PackageOpen,
   ShieldCheck,
   Truck,
+  X,
 } from "lucide-react";
 
 import { togglePlantActive } from "@/app/(dashboard)/admin/plants/actions";
 import { AdminNav, WorkspaceNav } from "@/components/app-nav";
-import { getAdminPlantsSummary } from "@/lib/admin/plants";
+import {
+  getAdminPlantsSummary,
+  type AdminSupplier,
+} from "@/lib/admin/plants";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
 
-export default async function AdminPlantsPage() {
+export default async function AdminPlantsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ supplier?: string }>;
+}) {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -35,7 +44,12 @@ export default async function AdminPlantsPage() {
     },
   });
 
-  const summary = await getAdminPlantsSummary(user.organization_id);
+  const [params, summary] = await Promise.all([
+    searchParams,
+    getAdminPlantsSummary(user.organization_id),
+  ]);
+  const selectedSupplier =
+    summary.suppliers.find((supplier) => supplier.id === params.supplier) ?? null;
 
   return (
     <main className="app-background">
@@ -95,8 +109,9 @@ export default async function AdminPlantsPage() {
           />
         </section>
 
-        <section className="mt-6 glass-panel p-5 sm:p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <section className="mt-6 glass-panel overflow-hidden">
+          <div className="slide-panel-header">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-medium text-muted-foreground">
                 Read-only view
@@ -109,100 +124,184 @@ export default async function AdminPlantsPage() {
               <ShieldCheck className="size-4" />
                 Admin and account manager
             </div>
+            </div>
           </div>
 
-          <div className="mt-6 space-y-4">
-            {summary.suppliers.map((supplier) => (
-              <article
-                key={supplier.id}
-                className="overflow-hidden rounded-[22px] border border-white/70 bg-white/60 shadow-[0_12px_34px_rgba(15,23,42,0.055)]"
-              >
-                <div className="grid gap-4 border-b border-white/70 px-5 py-4 md:grid-cols-[1fr_auto] md:items-center">
-                  <div>
-                    <h3 className="text-lg font-semibold">{supplier.name}</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {supplier.parent_company ?? "Independent supplier"} -{" "}
-                      {formatAddress(supplier.address)}
-                    </p>
-                    <p className="mt-1 font-mono text-xs text-muted-foreground">
-                      {supplier.latitude ?? "lat pending"},{" "}
-                      {supplier.longitude ?? "lng pending"}
-                    </p>
-                  </div>
-                  <form
-                    action={togglePlantActive}
-                    className="flex items-center gap-3"
-                  >
-                    <input
-                      type="hidden"
-                      name="supplier_id"
-                      value={supplier.id}
-                    />
-                    <input
-                      type="hidden"
-                      name="is_active"
-                      value={supplier.is_active ? "false" : "true"}
-                    />
-                    <span
-                      className={`w-fit rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
-                        supplier.is_active
-                          ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-                          : "bg-slate-100 text-slate-600 ring-slate-200"
-                      }`}
-                    >
-                      {supplier.is_active ? "Active" : "Inactive"}
-                    </span>
-                    <button type="submit" className="mac-link px-3 py-1.5">
-                      {supplier.is_active ? "Flag inactive" : "Reactivate"}
-                    </button>
-                  </form>
-                </div>
+          <div className="master-table-head lg:grid-cols-[minmax(220px,1fr)_minmax(240px,1fr)_160px_120px_100px] lg:gap-4">
+            <span>Plant</span>
+            <span>Location</span>
+            <span>Coordinates</span>
+            <span>Materials</span>
+            <span>Status</span>
+          </div>
 
-                <div className="grid gap-2 p-4">
-                  {supplier.materials.length ? (
-                    supplier.materials.map((material) => (
-                      <div
-                        key={material.id}
-                        className="soft-row grid gap-3 px-4 py-3 text-sm sm:grid-cols-[1fr_auto_auto_auto] sm:items-center"
-                      >
-                        <div>
-                          <p className="font-semibold">{material.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {material.unit}
-                          </p>
-                        </div>
-                        <TierBadge tier={material.tier} />
-                        <div>
-                          <p className="font-mono text-sm font-semibold">
-                            ${Number(material.cost_per_unit).toFixed(2)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Updated {formatDate(material.last_price_update)}
-                          </p>
-                        </div>
-                        <span
-                          className={`w-fit rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
-                            material.is_active
-                              ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-                              : "bg-slate-100 text-slate-600 ring-slate-200"
-                          }`}
-                        >
-                          {material.is_active ? "Active" : "Inactive"}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="soft-row px-4 py-5 text-sm text-muted-foreground">
-                      No materials loaded for this supplier yet.
-                    </div>
-                  )}
+          <div className="divide-y divide-border">
+            {summary.suppliers.map((supplier) => (
+              <Link
+                key={supplier.id}
+                href={`/admin/plants?supplier=${supplier.id}`}
+                className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[minmax(220px,1fr)_minmax(240px,1fr)_160px_120px_100px] lg:items-center lg:gap-4 ${
+                  selectedSupplier?.id === supplier.id ? "bg-secondary" : ""
+                }`}
+              >
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-semibold">{supplier.name}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {supplier.parent_company ?? "Independent supplier"}
+                  </p>
                 </div>
-              </article>
+                <p className="truncate text-sm text-muted-foreground">
+                  {formatAddress(supplier.address)}
+                </p>
+                <p className="font-mono text-xs text-muted-foreground">
+                  {supplier.latitude ?? "lat pending"},{" "}
+                  {supplier.longitude ?? "lng pending"}
+                </p>
+                <p className="text-sm font-medium">
+                  {supplier.materials.length} material
+                  {supplier.materials.length === 1 ? "" : "s"}
+                </p>
+                <span
+                  className={`soft-chip w-fit ${
+                    supplier.is_active
+                      ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                      : "bg-slate-100 text-slate-600 ring-slate-200"
+                  }`}
+                >
+                  {supplier.is_active ? "Active" : "Inactive"}
+                </span>
+              </Link>
             ))}
           </div>
         </section>
+        <PlantSlideOver supplier={selectedSupplier} />
       </div>
     </main>
+  );
+}
+
+function PlantSlideOver({ supplier }: { supplier: AdminSupplier | null }) {
+  if (!supplier) {
+    return null;
+  }
+
+  return (
+    <aside className="customer-slide-over" aria-label="Plant details">
+      <Link
+        href="/admin/plants"
+        className="customer-slide-backdrop"
+        aria-label="Close plant details"
+      />
+      <div className="customer-slide-panel">
+        <div className="slide-panel-header">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-muted-foreground">
+                Plant details
+              </p>
+              <h2 className="mt-1 truncate text-2xl font-semibold">
+                {supplier.name}
+              </h2>
+              <p className="mt-1 truncate text-sm text-muted-foreground">
+                {supplier.parent_company ?? "Independent supplier"}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <span
+                className={`soft-chip ${
+                  supplier.is_active
+                    ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                    : "bg-slate-100 text-slate-600 ring-slate-200"
+                }`}
+              >
+                {supplier.is_active ? "Active" : "Inactive"}
+              </span>
+              <Link
+                href="/admin/plants"
+                className="mac-link size-9 px-0"
+                aria-label="Close plant details"
+              >
+                <X className="size-4" />
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 p-4">
+          <section className="soft-row p-4">
+            <h3 className="text-xs font-semibold uppercase text-muted-foreground">
+              Location
+            </h3>
+            <p className="mt-2 text-sm font-medium">
+              {formatAddress(supplier.address)}
+            </p>
+            <p className="mt-2 font-mono text-xs text-muted-foreground">
+              {supplier.latitude ?? "lat pending"},{" "}
+              {supplier.longitude ?? "lng pending"}
+            </p>
+          </section>
+
+          <form action={togglePlantActive} className="soft-row flex items-center justify-between gap-3 p-4">
+            <div>
+              <p className="text-sm font-semibold">Plant status</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Inactive plants are hidden from active quote setup.
+              </p>
+            </div>
+            <input type="hidden" name="supplier_id" value={supplier.id} />
+            <input
+              type="hidden"
+              name="is_active"
+              value={supplier.is_active ? "false" : "true"}
+            />
+            <button type="submit" className="mac-link h-10 px-3">
+              {supplier.is_active ? "Flag inactive" : "Reactivate"}
+            </button>
+          </form>
+
+          <section>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h3 className="text-xs font-semibold uppercase text-muted-foreground">
+                Materials ({supplier.materials.length})
+              </h3>
+              <Link
+                href="/admin/material-prices"
+                className="text-xs font-semibold text-primary hover:text-foreground"
+              >
+                Manage prices
+              </Link>
+            </div>
+            <div className="grid gap-2">
+              {supplier.materials.length ? (
+                supplier.materials.map((material) => (
+                  <div key={material.id} className="soft-row p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">
+                          {material.name}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {material.unit} - Updated{" "}
+                          {formatDate(material.last_price_update)}
+                        </p>
+                      </div>
+                      <TierBadge tier={material.tier} />
+                    </div>
+                    <p className="mt-3 font-mono text-sm font-semibold">
+                      ${Number(material.cost_per_unit).toFixed(2)}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <div className="soft-row px-4 py-5 text-sm text-muted-foreground">
+                  No materials loaded for this supplier yet.
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
+    </aside>
   );
 }
 

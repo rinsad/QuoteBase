@@ -55,9 +55,9 @@ create index if not exists idx_feature_flags_org_name on public.feature_flags(or
 insert into public.organizations (id, name, slug, industry)
 values (
   '00000000-0000-0000-0000-000000000001',
-  'Western Materials',
-  'western-materials',
-  'construction_materials'
+  'Demo Distributor',
+  'demo-distributor',
+  'distribution'
 )
 on conflict (id) do update
 set
@@ -68,13 +68,12 @@ set
 
 insert into public.user_invites (organization_id, email, full_name, role)
 values
-  ('00000000-0000-0000-0000-000000000001', 'john@westernmaterials.net', 'John Montazeri', 'admin'),
-  ('00000000-0000-0000-0000-000000000001', 'admin@westernmaterials.net', 'Judd', 'admin'),
-  ('00000000-0000-0000-0000-000000000001', 'estimate@westernmaterials.net', 'Gloria', 'account_manager'),
-  ('00000000-0000-0000-0000-000000000001', 'bid@westernmaterials.net', 'Kristina', 'account_manager'),
-  ('00000000-0000-0000-0000-000000000001', 'dispatch@westernmaterials.net', 'Claudina', 'estimator'),
-  ('00000000-0000-0000-0000-000000000001', 'info@westernmaterials.net', 'Carlos', 'estimator'),
-  ('00000000-0000-0000-0000-000000000001', 'rinsad@gmail.com', 'Rinsad', 'admin')
+  ('00000000-0000-0000-0000-000000000001', 'owner@demo-distributor.test', 'Demo Owner', 'admin'),
+  ('00000000-0000-0000-0000-000000000001', 'admin@demo-distributor.test', 'Demo Admin', 'admin'),
+  ('00000000-0000-0000-0000-000000000001', 'sales@demo-distributor.test', 'Demo Sales', 'account_manager'),
+  ('00000000-0000-0000-0000-000000000001', 'quotes@demo-distributor.test', 'Demo Quotes', 'account_manager'),
+  ('00000000-0000-0000-0000-000000000001', 'dispatch@demo-distributor.test', 'Demo Dispatch', 'estimator'),
+  ('00000000-0000-0000-0000-000000000001', 'info@demo-distributor.test', 'Demo Info', 'estimator')
 on conflict (email) do update
 set
   full_name = excluded.full_name,
@@ -151,7 +150,7 @@ begin
   limit 1;
 
   if invite_record.id is null then
-    raise exception 'Email % is not allowlisted for this application', new.email;
+    raise exception 'Email % is not approved for this application', new.email;
   end if;
 
   insert into public.users (

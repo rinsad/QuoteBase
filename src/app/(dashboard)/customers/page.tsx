@@ -3,8 +3,10 @@ import Link from "next/link";
 import {
   AlertCircle,
   ArrowUpRight,
+  BriefcaseBusiness,
   Building2,
   CheckCircle2,
+  ContactRound,
   Plus,
   Search,
   UsersRound,
@@ -12,10 +14,14 @@ import {
 } from "lucide-react";
 
 import {
+  CustomerEditForm,
   CustomerForm,
   JobSiteForm,
 } from "@/app/(dashboard)/customers/customer-forms";
+import { CrmDealBoard } from "@/app/(dashboard)/customers/crm-deal-board";
+import { CrmLeadImportForm } from "@/app/(dashboard)/customers/crm-lead-import-form";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { getCrmLiteSummary, type CrmCompany } from "@/lib/customers/crm";
 import {
   getCustomerDeskSummary,
   type CustomerSummary,
@@ -25,7 +31,13 @@ import {
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; customer?: string; page?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    customer?: string;
+    page?: string;
+    crm_import?: string;
+    crm_failed?: string;
+  }>;
 }) {
   const user = await getCurrentUser();
 
@@ -35,7 +47,10 @@ export default async function CustomersPage({
 
   const query = await searchParams;
   const search = query.q?.trim() ?? "";
-  const summary = await getCustomerDeskSummary(user, search);
+  const [summary, crmSummary] = await Promise.all([
+    getCustomerDeskSummary(user, search),
+    getCrmLiteSummary(user),
+  ]);
   const pageSize = 25;
   const requestedPage = Number(query.page ?? "1");
   const totalPages = Math.max(1, Math.ceil(summary.customers.length / pageSize));
@@ -52,9 +67,6 @@ export default async function CustomersPage({
       ? (summary.customers.find((customer) => customer.id === query.customer) ??
         null)
       : null;
-  const pipedriveLinked = summary.customers.filter(
-    (customer) => customer.pipedrive_person_id,
-  ).length;
 
   return (
     <>
@@ -77,7 +89,75 @@ export default async function CustomersPage({
 
       <section className="space-y-4">
         <div className="glass-panel overflow-hidden">
-          <div className="border-b border-border bg-[#fbfcf8] p-4">
+          <div className="slide-panel-header">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex items-center gap-3">
+                  <div className="icon-well text-primary">
+                    <BriefcaseBusiness className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      CRM-lite
+                    </p>
+                    <h2 className="text-2xl font-semibold">
+                      Companies, contacts, and deals
+                    </h2>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-2 text-xs text-muted-foreground sm:grid-cols-4">
+                  <DeskStat label="Companies" value={crmSummary.counts.companies} />
+                  <DeskStat label="Contacts" value={crmSummary.counts.contacts} />
+                  <DeskStat label="Open deals" value={crmSummary.counts.openDeals} />
+                  <DeskStat label="Captures" value={crmSummary.counts.capturedLeads} />
+                </div>
+              </div>
+
+              <CrmLeadImportForm
+                imported={query.crm_import}
+                failed={query.crm_failed}
+              />
+            </div>
+          </div>
+
+          <div className="p-4">
+            <CrmDealBoard deals={crmSummary.deals} />
+          </div>
+
+          <div className="grid gap-4 border-t border-border p-4 xl:grid-cols-2">
+            <CrmColumn
+              title="Companies"
+              emptyText="No CRM companies yet."
+              icon={Building2}
+            >
+              {crmSummary.companies.slice(0, 8).map((company) => (
+                <CrmCompanyCard key={company.id} company={company} />
+              ))}
+            </CrmColumn>
+
+            <CrmColumn
+              title="Contacts"
+              emptyText="No CRM contacts yet."
+              icon={ContactRound}
+            >
+              {crmSummary.contacts.slice(0, 8).map((contact) => (
+                <div key={contact.id} className="soft-row p-3">
+                  <p className="truncate text-sm font-semibold">
+                    {contact.full_name}
+                  </p>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {[contact.title, contact.email, contact.phone]
+                      .filter(Boolean)
+                      .join(" - ") || "Contact detail pending"}
+                  </p>
+                </div>
+              ))}
+            </CrmColumn>
+          </div>
+        </div>
+
+        <div className="glass-panel overflow-hidden">
+          <div className="slide-panel-header">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div className="flex items-center gap-3">
@@ -93,10 +173,9 @@ export default async function CustomersPage({
                     </h2>
                   </div>
                 </div>
-                <div className="mt-4 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                <div className="mt-4 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
                   <DeskStat label="Active" value={summary.counts.activeCustomers} />
                   <DeskStat label="Job sites" value={summary.counts.jobSites} />
-                  <DeskStat label="Pipedrive linked" value={pipedriveLinked} />
                 </div>
               </div>
 
@@ -184,6 +263,12 @@ export default async function CustomersPage({
           variant="bare"
         />
       </CrudModal>
+
+      {selectedCustomer ? (
+        <CrudModal id="edit-customer" title="Edit customer">
+          <CustomerEditForm customer={selectedCustomer} plants={summary.plants} />
+        </CrudModal>
+      ) : null}
     </>
   );
 }
@@ -274,7 +359,7 @@ function PaginationBar({
   const end = Math.min(currentPage * pageSize, totalRecords);
 
   return (
-    <div className="flex flex-col gap-3 border-t border-border bg-[#fbfcf8] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 border-t border-border bg-muted/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-sm text-muted-foreground">
         Showing {start}-{end} of {totalRecords} customers
       </p>
@@ -328,7 +413,7 @@ function CustomerSlideOver({
         aria-label="Close selected customer details"
       />
       <div className="customer-slide-panel">
-      <div className="border-b border-border bg-[#fbfcf8] p-4">
+      <div className="slide-panel-header">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-medium text-muted-foreground">
@@ -360,11 +445,11 @@ function CustomerSlideOver({
           >
             Create quote
           </Link>
+          <a href="#edit-customer" className="mac-link h-10 px-4">
+            Edit customer
+          </a>
           <a href="#add-job-site" className="mac-link h-10 px-4">
             Add site
-          </a>
-          <a href="#add-customer" className="mac-link h-10 px-4">
-            Add customer
           </a>
         </div>
       </div>
@@ -376,15 +461,7 @@ function CustomerSlideOver({
           <DetailLine label="Address" value={formatAddress(customer.address)} />
           <DetailLine
             label="Payment terms"
-            value={customer.payment_terms ?? "Not set"}
-          />
-          <DetailLine
-            label="Pipedrive"
-            value={
-              customer.pipedrive_person_id
-                ? `Person #${customer.pipedrive_person_id}`
-                : "Not linked"
-            }
+            value={customer.payment_terms ?? "COD"}
           />
         </DetailGroup>
 
@@ -416,7 +493,7 @@ function CustomerSlideOver({
                 <Link
                   key={quote.id}
                   href={`/quotes/${quote.id}`}
-                  className="soft-row flex min-h-12 items-center justify-between gap-3 px-3 text-sm transition hover:bg-white"
+                  className="soft-row flex min-h-12 items-center justify-between gap-3 px-3 text-sm transition hover:border-input hover:bg-secondary/70"
                 >
                   <span className="min-w-0 truncate font-medium">
                     {quote.quote_number}
@@ -435,7 +512,7 @@ function CustomerSlideOver({
         </DetailGroup>
       </div>
 
-      <div className="border-t border-border bg-[#fbfcf8] px-4 py-3">
+      <div className="border-t border-border bg-muted/60 px-4 py-3">
         <Link
           href={customerHref(customer.id, search, currentPage)}
           className="inline-flex items-center gap-2 text-xs font-semibold text-primary hover:text-foreground"
@@ -467,7 +544,7 @@ function CrudModal({
         aria-modal="true"
         aria-labelledby={`${id}-title`}
       >
-        <div className="flex items-center justify-between gap-4 border-b border-border bg-[#fbfcf8] px-5 py-4">
+        <div className="flex items-center justify-between gap-4 border-b border-border bg-muted/60 px-5 py-4">
           <h2 id={`${id}-title`} className="text-xl font-semibold">
             {title}
           </h2>
@@ -540,6 +617,67 @@ function DeskStat({ label, value }: { label: string; value: number }) {
       <span className="mt-1 block font-mono text-lg font-semibold text-foreground">
         {value}
       </span>
+    </div>
+  );
+}
+
+function CrmColumn({
+  title,
+  emptyText,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  emptyText: string;
+  icon: typeof Building2;
+  children: React.ReactNode;
+}) {
+  const childArray = Array.isArray(children) ? children : [children];
+  const hasChildren = childArray.some(Boolean);
+
+  return (
+    <section>
+      <div className="mb-3 flex items-center gap-2">
+        <Icon className="size-4 text-primary" />
+        <h3 className="text-sm font-semibold">{title}</h3>
+      </div>
+      <div className="grid gap-2">
+        {hasChildren ? (
+          children
+        ) : (
+          <p className="soft-row px-3 py-6 text-center text-sm text-muted-foreground">
+            {emptyText}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function CrmCompanyCard({ company }: { company: CrmCompany }) {
+  const primaryContact = company.contacts[0];
+  const openDeals = company.deals.filter(
+    (deal) => deal.stage !== "won" && deal.stage !== "lost",
+  );
+
+  return (
+    <div className="soft-row p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="truncate text-sm font-semibold">{company.name}</p>
+        <span className="soft-chip shrink-0 bg-secondary text-secondary-foreground ring-border">
+          {formatLabel(company.lifecycle_stage)}
+        </span>
+      </div>
+      <p className="mt-1 truncate text-xs text-muted-foreground">
+        {[primaryContact?.full_name, company.email, company.phone]
+          .filter(Boolean)
+          .join(" - ") || company.domain || "Company detail pending"}
+      </p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {company.contacts.length} contact{company.contacts.length === 1 ? "" : "s"} -
+        {" "}
+        {openDeals.length} open deal{openDeals.length === 1 ? "" : "s"}
+      </p>
     </div>
   );
 }
@@ -642,4 +780,11 @@ function formatCurrency(value: number) {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function formatLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
 }

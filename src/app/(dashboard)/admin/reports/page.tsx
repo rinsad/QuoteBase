@@ -85,8 +85,8 @@ export default async function AdminReportsPage() {
                       value={row.approved_count}
                     />
                     <ReportMetric
-                      label="Rate"
-                      value={`${row.approval_rate.toFixed(0)}%`}
+                      label="Win rate"
+                      value={`${row.win_rate.toFixed(0)}%`}
                     />
                     <ReportMetric
                       label="Value"

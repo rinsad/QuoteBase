@@ -3,9 +3,9 @@ import { expect, test } from "@playwright/test";
 import { getQuoteFixtureData, waitForAuditAction } from "./helpers/db";
 import { signInWithMagicLink } from "./helpers/auth";
 
-const ADMIN_EMAIL = "rinsad@gmail.com";
-const ACCOUNT_MANAGER_EMAIL = "estimate@westernmaterials.net";
-const ESTIMATOR_EMAIL = "dispatch@westernmaterials.net";
+const ADMIN_EMAIL = "admin@demo-distributor.test";
+const ACCOUNT_MANAGER_EMAIL = "sales@demo-distributor.test";
+const ESTIMATOR_EMAIL = "dispatch@demo-distributor.test";
 
 test.describe("quote calculation and draft workflow", () => {
   test.describe.configure({ mode: "serial" });

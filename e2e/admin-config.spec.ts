@@ -12,9 +12,9 @@ import {
   waitForTaxRateByCity,
 } from "./helpers/db";
 
-const ADMIN_EMAIL = "rinsad@gmail.com";
-const ACCOUNT_MANAGER_EMAIL = "estimate@westernmaterials.net";
-const ESTIMATOR_EMAIL = "dispatch@westernmaterials.net";
+const ADMIN_EMAIL = "admin@demo-distributor.test";
+const ACCOUNT_MANAGER_EMAIL = "sales@demo-distributor.test";
+const ESTIMATOR_EMAIL = "dispatch@demo-distributor.test";
 
 test.describe("admin configuration workflows", () => {
   test("material price admin UI is available only to operational roles", async ({

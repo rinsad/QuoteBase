@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CalendarDays, MapPinned, Percent, Save } from "lucide-react";
+import { CalendarDays, MapPinned, Save, X } from "lucide-react";
 
 import { saveTaxRate } from "@/app/(dashboard)/admin/tax-rates/actions";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
-import { getAdminTaxRates } from "@/lib/admin/tax-rates";
+import { getAdminTaxRates, type AdminTaxRate } from "@/lib/admin/tax-rates";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
 export default async function AdminTaxRatesPage({
@@ -27,7 +27,11 @@ export default async function AdminTaxRatesPage({
     searchParams,
     getAdminTaxRates(user.organization_id),
   ]);
-  const editing = taxRates.find((taxRate) => taxRate.id === params.edit);
+  const editing =
+    params.edit && params.edit !== "new"
+      ? (taxRates.find((taxRate) => taxRate.id === params.edit) ?? null)
+      : null;
+  const showEditor = params.edit === "new" || Boolean(editing);
 
   return (
     <main className="app-background">
@@ -58,75 +62,10 @@ export default async function AdminTaxRatesPage({
           </div>
         ) : null}
 
-        <section className="mt-6 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-          <form action={saveTaxRate} className="glass-panel p-5 sm:p-6">
-            <div className="flex items-center gap-3">
-              <div className="icon-well text-blue-700">
-                <Percent className="size-6" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  {editing ? "Edit Area" : "New Area"}
-                </p>
-                <h2 className="accent-title text-2xl font-semibold tracking-normal">
-                  Sales tax setup
-                </h2>
-              </div>
-            </div>
-
-            <input type="hidden" name="id" value={editing?.id ?? ""} />
-
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <TextField
-                name="city"
-                label="City"
-                defaultValue={editing?.city ?? ""}
-              />
-              <TextField
-                name="county"
-                label="County"
-                defaultValue={editing?.county ?? ""}
-              />
-              <TextField
-                name="state"
-                label="State"
-                defaultValue={editing?.state ?? "CA"}
-                maxLength={2}
-              />
-              <NumberField
-                name="rate_percent"
-                label="Rate %"
-                defaultValue={editing ? (editing.rate * 100).toFixed(3) : ""}
-              />
-              <label className="block sm:col-span-2">
-                <span className="text-sm font-medium text-muted-foreground">
-                  Effective date
-                </span>
-                <input
-                  name="effective_date"
-                  type="date"
-                  defaultValue={editing?.effective_date ?? today()}
-                  className="soft-control mt-2 w-full"
-                  required
-                />
-              </label>
-            </div>
-
-            <div className="mt-6 flex flex-wrap justify-end gap-2">
-              {editing ? (
-                <Link href="/admin/tax-rates" className="mac-button-secondary">
-                  New rate
-                </Link>
-              ) : null}
-              <Button type="submit" className="h-11 rounded-full">
-                <Save className="size-4" />
-                Save tax rate
-              </Button>
-            </div>
-          </form>
-
-          <section className="glass-panel p-5 sm:p-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <section className="mt-6">
+          <section className="glass-panel overflow-hidden">
+            <div className="slide-panel-header">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
                   Active Dataset
@@ -139,50 +78,147 @@ export default async function AdminTaxRatesPage({
                 <MapPinned className="size-4" />
                 Tenant scoped
               </div>
+              <Link href="/admin/tax-rates?edit=new" className="mac-button-primary h-10 px-4">
+                New tax rate
+              </Link>
+              </div>
             </div>
 
-            <div className="mt-6 space-y-3">
+            <div className="master-table-head lg:grid-cols-[1fr_1fr_90px_150px_90px] lg:gap-4">
+              <span>City</span>
+              <span>County</span>
+              <span>Rate</span>
+              <span>Effective</span>
+              <span>Action</span>
+            </div>
+
+            <div className="divide-y divide-border">
               {taxRates.length ? (
                 taxRates.map((taxRate) => (
-                  <article
+                  <Link
                     key={taxRate.id}
-                    className="soft-row grid gap-4 px-4 py-4 sm:grid-cols-[1fr_auto] sm:items-center"
+                    href={`/admin/tax-rates?edit=${taxRate.id}`}
+                    className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[1fr_1fr_90px_150px_90px] lg:items-center lg:gap-4 ${
+                      editing?.id === taxRate.id ? "bg-secondary" : ""
+                    }`}
                   >
-                    <div>
-                      <h3 className="font-semibold">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-sm font-semibold">
                         {taxRate.city}, {taxRate.state}
                       </h3>
-                      <p className="mt-1 text-sm text-muted-foreground">
+                      <p className="mt-1 text-xs text-muted-foreground lg:hidden">
                         {taxRate.county} County
                       </p>
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium text-muted-foreground">
-                        <span className="soft-chip bg-white/70 text-slate-700 ring-slate-200">
-                          {(taxRate.rate * 100).toFixed(3)}%
-                        </span>
-                        <span className="soft-chip bg-white/70 text-slate-700 ring-slate-200">
-                          <CalendarDays className="size-3.5" />
-                          {taxRate.effective_date}
-                        </span>
-                      </div>
                     </div>
-                    <Link
-                      href={`/admin/tax-rates?edit=${taxRate.id}`}
-                      className="mac-button-secondary justify-center"
-                    >
+                    <p className="hidden truncate text-sm text-muted-foreground lg:block">
+                      {taxRate.county} County
+                    </p>
+                    <span className="soft-chip w-fit bg-white/70 text-slate-700 ring-slate-200">
+                      {(taxRate.rate * 100).toFixed(3)}%
+                    </span>
+                    <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <CalendarDays className="size-3.5" />
+                      {taxRate.effective_date}
+                    </span>
+                    <span className="mac-button-secondary justify-center">
                       Edit
-                    </Link>
-                  </article>
+                    </span>
+                  </Link>
                 ))
               ) : (
-                <div className="soft-row px-4 py-6 text-sm text-muted-foreground">
+                <div className="px-4 py-6 text-sm text-muted-foreground">
                   No tax rates loaded yet.
                 </div>
               )}
             </div>
           </section>
         </section>
+        <TaxRateSlideOver taxRate={editing} open={showEditor} />
       </div>
     </main>
+  );
+}
+
+function TaxRateSlideOver({
+  taxRate,
+  open,
+}: {
+  taxRate: AdminTaxRate | null;
+  open: boolean;
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <aside className="customer-slide-over" aria-label="Tax rate editor">
+      <Link
+        href="/admin/tax-rates"
+        className="customer-slide-backdrop"
+        aria-label="Close tax rate editor"
+      />
+      <div className="customer-slide-panel">
+        <div className="slide-panel-header">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-muted-foreground">
+                {taxRate ? "Edit tax area" : "New tax area"}
+              </p>
+              <h2 className="mt-1 truncate text-2xl font-semibold">
+                Sales tax setup
+              </h2>
+              <p className="mt-1 truncate text-sm text-muted-foreground">
+                City, county, state, rate, and effective date.
+              </p>
+            </div>
+            <Link
+              href="/admin/tax-rates"
+              className="mac-link size-9 shrink-0 px-0"
+              aria-label="Close tax rate editor"
+            >
+              <X className="size-4" />
+            </Link>
+          </div>
+        </div>
+
+        <form action={saveTaxRate} className="grid gap-4 p-4" noValidate>
+          <input type="hidden" name="id" value={taxRate?.id ?? ""} />
+          <TextField name="city" label="City" defaultValue={taxRate?.city ?? ""} />
+          <TextField
+            name="county"
+            label="County"
+            defaultValue={taxRate?.county ?? ""}
+          />
+          <TextField
+            name="state"
+            label="State"
+            defaultValue={taxRate?.state ?? "CA"}
+            maxLength={2}
+          />
+          <NumberField
+            name="rate_percent"
+            label="Rate %"
+            defaultValue={taxRate ? (taxRate.rate * 100).toFixed(3) : ""}
+          />
+          <label className="block">
+            <span className="text-sm font-medium text-muted-foreground">
+              Effective date
+            </span>
+            <input
+              name="effective_date"
+              type="date"
+              defaultValue={taxRate?.effective_date ?? today()}
+              className="soft-control mt-2 w-full"
+              required
+            />
+          </label>
+          <Button type="submit" className="h-11 rounded-md">
+            <Save className="size-4" />
+            Save tax rate
+          </Button>
+        </form>
+      </div>
+    </aside>
   );
 }
 

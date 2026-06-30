@@ -2,7 +2,11 @@ import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/app/(auth)/login/login-form";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { isLocalSupabase, isSupabaseReachable } from "@/lib/env";
+import {
+  isDevLoginEnabled,
+  isLocalSupabase,
+  isSupabaseReachable,
+} from "@/lib/env";
 
 export default async function Home({
   searchParams,
@@ -15,8 +19,7 @@ export default async function Home({
     ? await isSupabaseReachable()
     : true;
   const user = supabaseReachable ? await getCurrentUser() : null;
-  const showDevSignIn =
-    process.env.NODE_ENV !== "production" && localSupabase;
+  const showDevSignIn = isDevLoginEnabled();
 
   if (user) {
     redirect("/dashboard");
@@ -46,14 +49,14 @@ export default async function Home({
           <div className="grid lg:grid-cols-[1.05fr_0.95fr]">
             <div className="p-6 sm:p-8 lg:p-10">
               <p className="text-sm font-medium text-muted-foreground">
-                Western Materials
+                Private workspace
               </p>
               <h1 className="accent-title mt-4 max-w-xl text-4xl font-semibold tracking-normal text-balance sm:text-5xl">
                 Sign in to QuoteBase.
               </h1>
               <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
-                Use an approved company account. For local testing, choose one
-                of the role-based test users below.
+                Use an approved company account. Supabase will send a magic
+                link to continue.
               </p>
               <LoginForm
                 showDevSignIn={showDevSignIn}
@@ -61,7 +64,7 @@ export default async function Home({
               />
               {query.dev_login === "unavailable" || !supabaseReachable ? (
                 <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-100">
-                  Local Supabase is not running, so the test-user shortcuts are
+                  Local Supabase is not running, so the local shortcut is
                   unavailable. Start Supabase locally or use the magic-link
                   flow.
                 </p>
@@ -70,30 +73,15 @@ export default async function Home({
 
             <aside className="border-t border-white/70 bg-white/40 p-6 sm:p-8 lg:border-l lg:border-t-0 lg:p-10">
               <p className="text-sm font-medium text-muted-foreground">
-                {showDevSignIn ? "Test coverage" : "Access"}
+                Access
               </p>
               <h2 className="mt-1 text-2xl font-semibold">
-                Role-based access
+                Secure workspace
               </h2>
               <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
-                {showDevSignIn ? (
-                  <>
-                    <AccessRole label="Rinsad" role="Admin" />
-                    <AccessRole label="Judd" role="Admin" />
-                    <AccessRole label="Gloria" role="Account Manager" />
-                    <AccessRole label="Claudina" role="Estimator" />
-                    <AccessRole label="John" role="Tenant B Admin" />
-                  </>
-                ) : (
-                  <>
-                    <AccessRole label="Operations admin" role="Admin" />
-                    <AccessRole
-                      label="Pricing manager"
-                      role="Account Manager"
-                    />
-                    <AccessRole label="Estimator workspace" role="Estimator" />
-                  </>
-                )}
+                <AccessItem text="Approved users only" />
+                <AccessItem text="Tenant-scoped data access" />
+                <AccessItem text="Audited quote workflow" />
               </div>
             </aside>
           </div>
@@ -103,14 +91,11 @@ export default async function Home({
   );
 }
 
-function AccessRole({ label, role }: { label: string; role: string }) {
+function AccessItem({ text }: { text: string }) {
   return (
-    <div className="soft-row flex items-center justify-between gap-4 px-4 py-3">
+    <div className="soft-row px-4 py-3">
       <span className="min-w-0 truncate font-medium text-foreground">
-        {label}
-      </span>
-      <span className="soft-chip shrink-0 bg-[#ecf2ed] text-[#3d6652] ring-[#d7ded5]">
-        {role}
+        {text}
       </span>
     </div>
   );

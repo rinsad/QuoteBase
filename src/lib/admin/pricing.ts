@@ -6,6 +6,11 @@ export type AdminPricingConfig = PricingConfig & {
   updated_at: string;
 };
 
+const BASE_PRICING_SELECT =
+  "id, tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton, updated_at";
+
+const EXTENDED_PRICING_SELECT = `${BASE_PRICING_SELECT}, big_quote_threshold, follow_up_auto_send_enabled, follow_up_sms_enabled`;
+
 export async function getAdminPricingConfig(
   organizationId: string,
 ): Promise<AdminPricingConfig | null> {
@@ -15,18 +20,43 @@ export async function getAdminPricingConfig(
     return null;
   }
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("pricing_config")
-    .select(
-      "id, tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton, updated_at",
-    )
+    .select(EXTENDED_PRICING_SELECT)
     .eq("organization_id", organizationId)
-    .single<AdminPricingConfig>();
+    .maybeSingle<AdminPricingConfig>();
 
-  if (!data) {
-    return null;
+  if (data) {
+    return normalizePricingConfig(data);
   }
 
+  if (error) {
+    console.warn("Extended pricing config load failed; retrying base columns.", {
+      organizationId,
+      message: error.message,
+    });
+  }
+
+  const { data: baseData } = await supabase
+    .from("pricing_config")
+    .select(BASE_PRICING_SELECT)
+    .eq("organization_id", organizationId)
+    .maybeSingle<AdminPricingConfig>();
+
+  if (baseData) {
+    return normalizePricingConfig(baseData);
+  }
+
+  const { data: created } = await supabase
+    .from("pricing_config")
+    .upsert({ organization_id: organizationId }, { onConflict: "organization_id" })
+    .select(BASE_PRICING_SELECT)
+    .single<AdminPricingConfig>();
+
+  return created ? normalizePricingConfig(created) : null;
+}
+
+function normalizePricingConfig(data: AdminPricingConfig): AdminPricingConfig {
   return {
     ...data,
     tier_r1_min: Number(data.tier_r1_min),
@@ -51,5 +81,11 @@ export async function getAdminPricingConfig(
     cc_surcharge_pct:
       data.cc_surcharge_pct === undefined ? undefined : Number(data.cc_surcharge_pct),
     overhead_per_ton: Number(data.overhead_per_ton),
+    big_quote_threshold:
+      data.big_quote_threshold === undefined
+        ? undefined
+        : Number(data.big_quote_threshold),
+    follow_up_auto_send_enabled: Boolean(data.follow_up_auto_send_enabled),
+    follow_up_sms_enabled: Boolean(data.follow_up_sms_enabled),
   };
 }

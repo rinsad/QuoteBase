@@ -1,8 +1,6 @@
 import { loadEnvConfig } from "@next/env";
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 
-import { encryptedPipedriveCredentials } from "../../src/lib/integrations/pipedrive";
-
 loadEnvConfig(process.cwd());
 
 type DatabaseRecord = Record<string, unknown>;
@@ -55,16 +53,8 @@ type PricingConfigFixture = {
   overheadPerTon: number;
 };
 
-type IntegrationRecord = {
-  id: string;
-  is_enabled: boolean;
-  config: Record<string, unknown>;
-  credentials_encrypted: string | null;
-  credentials_last4: Record<string, unknown>;
-};
-
 export const SECOND_TENANT_ORG_ID = "00000000-0000-0000-0000-000000000002";
-export const SECOND_TENANT_ADMIN_EMAIL = "john@westernmaterials.net";
+export const SECOND_TENANT_ADMIN_EMAIL = "owner@demo-distributor.test";
 
 export function createE2EAdminClient(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -370,124 +360,6 @@ export async function getMaterialPrice(materialId: string): Promise<number> {
   }
 
   return Number(data.cost_per_unit);
-}
-
-export async function enablePipedriveIntegration({
-  email,
-  apiBaseUrl,
-  apiToken = "e2e-pipedrive-token",
-}: {
-  email: string;
-  apiBaseUrl: string;
-  apiToken?: string;
-}): Promise<IntegrationRecord> {
-  const supabase = createE2EAdminClient();
-  const organizationId = await getOrganizationIdForEmail(email);
-
-  await assertNoError(
-    supabase.from("feature_flags").upsert(
-      {
-        organization_id: organizationId,
-        feature_name: "pipedrive_sync",
-        is_enabled: true,
-        config: null,
-      },
-      { onConflict: "organization_id,feature_name" },
-    ),
-    "Could not enable the Pipedrive feature flag.",
-  );
-
-  const { data, error } = await supabase
-    .from("organization_integrations")
-    .upsert(
-      {
-        organization_id: organizationId,
-        provider: "pipedrive",
-        is_enabled: true,
-        config: {
-          api_base_url: apiBaseUrl,
-          sync_interval_minutes: 30,
-          source_of_truth: "pipedrive",
-        },
-        credentials_encrypted: encryptedPipedriveCredentials({ apiToken }),
-        credentials_last4: {
-          api_token: true,
-        },
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "organization_id,provider" },
-    )
-    .select("id, is_enabled, config, credentials_encrypted, credentials_last4")
-    .single<IntegrationRecord>();
-
-  if (error || !data) {
-    throw new Error(error?.message ?? "Could not seed Pipedrive integration.");
-  }
-
-  return data;
-}
-
-export async function disablePipedriveIntegration(email: string): Promise<void> {
-  const supabase = createE2EAdminClient();
-  const organizationId = await getOrganizationIdForEmail(email);
-
-  await assertNoError(
-    supabase
-      .from("organization_integrations")
-      .upsert(
-        {
-          organization_id: organizationId,
-          provider: "pipedrive",
-          is_enabled: false,
-          config: {
-            api_base_url: "https://api.pipedrive.com/v1",
-            sync_interval_minutes: 30,
-            source_of_truth: "pipedrive",
-          },
-          credentials_encrypted: null,
-          credentials_last4: {},
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "organization_id,provider" },
-      ),
-    "Could not disable the Pipedrive integration.",
-  );
-}
-
-export async function waitForCustomerByPipedrivePersonId({
-  organizationId,
-  pipedrivePersonId,
-}: {
-  organizationId: string;
-  pipedrivePersonId: string;
-}): Promise<DatabaseRecord> {
-  const supabase = createE2EAdminClient();
-  const deadline = Date.now() + 10_000;
-
-  while (Date.now() < deadline) {
-    const { data, error } = await supabase
-      .from("customers")
-      .select(
-        "id, name, company_name, contact_name, email, phone, pipedrive_person_id, pipedrive_organization_id, pipedrive_synced_at, sync_source",
-      )
-      .eq("organization_id", organizationId)
-      .eq("pipedrive_person_id", pipedrivePersonId)
-      .maybeSingle<DatabaseRecord>();
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    if (data) {
-      return data;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-
-  throw new Error(
-    `Pipedrive customer ${pipedrivePersonId} was not imported.`,
-  );
 }
 
 export async function waitForMaterialPrice({

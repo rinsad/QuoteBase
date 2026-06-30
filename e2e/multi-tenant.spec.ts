@@ -13,7 +13,7 @@ import {
   waitForQuoteStatus,
 } from "./helpers/db";
 
-const PRIMARY_ADMIN_EMAIL = "rinsad@gmail.com";
+const PRIMARY_ADMIN_EMAIL = "admin@demo-distributor.test";
 
 test.describe("multi-tenant isolation", () => {
   test("second tenant cannot read or mutate primary tenant records", async ({

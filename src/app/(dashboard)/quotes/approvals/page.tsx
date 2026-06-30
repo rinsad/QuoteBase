@@ -45,11 +45,11 @@ export default async function ApprovalQueuePage() {
                   Quotes
                 </p>
                 <h1 className="truncate text-lg font-semibold">
-                  Approval Queue
+                  Needs Approval
                 </h1>
               </div>
             </div>
-            <QuoteNav userRole={user.role} />
+            <QuoteNav />
           </div>
         </header>
 
@@ -60,10 +60,10 @@ export default async function ApprovalQueuePage() {
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">
-                Owner Review
+                Internal review
               </p>
               <h2 className="accent-title text-3xl font-semibold tracking-normal">
-                {quotes.length} quotes waiting
+                {quotes.length} quotes need approval
               </h2>
             </div>
           </div>
@@ -171,7 +171,7 @@ export default async function ApprovalQueuePage() {
               })
             ) : (
               <div className="soft-row px-4 py-10 text-center">
-                <p className="text-sm font-medium">No pending approvals.</p>
+                <p className="text-sm font-medium">No quotes need approval.</p>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Submitted quotes will appear here oldest first.
                 </p>

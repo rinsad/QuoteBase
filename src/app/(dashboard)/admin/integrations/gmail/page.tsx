@@ -1,16 +1,25 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { KeyRound, Mail, ShieldCheck, Unplug } from "lucide-react";
+import { Bot, KeyRound, Mail, MapPinned, ShieldCheck, Unplug } from "lucide-react";
 
 import {
   disconnectGmailIntegration,
   saveGmailOAuthSettings,
 } from "@/app/(dashboard)/admin/integrations/gmail/actions";
+import {
+  saveGoogleMapsIntegration,
+  saveOpenAIIntegration,
+} from "@/app/(dashboard)/admin/integrations/gmail/openai-actions";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
-import { getAdminGmailIntegration } from "@/lib/admin/integrations";
+import {
+  getAdminGmailIntegration,
+  getAdminGoogleMapsIntegration,
+  getAdminOpenAIIntegration,
+} from "@/lib/admin/integrations";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { gmailRedirectUri } from "@/lib/integrations/gmail";
+import { OPENAI_MODEL_OPTIONS } from "@/lib/integrations/openai";
 
 export default async function AdminGmailIntegrationPage({
   searchParams,
@@ -19,6 +28,8 @@ export default async function AdminGmailIntegrationPage({
     connected?: string;
     disconnected?: string;
     error?: string;
+    google_maps_saved?: string;
+    openai_saved?: string;
     saved?: string;
   }>;
 }) {
@@ -28,13 +39,11 @@ export default async function AdminGmailIntegrationPage({
     redirect("/login");
   }
 
-  if (user.role !== "admin") {
-    redirect("/dashboard");
-  }
-
-  const [params, integration] = await Promise.all([
+  const [params, integration, openAIIntegration, googleMapsIntegration] = await Promise.all([
     searchParams,
-    getAdminGmailIntegration(user.organization_id),
+    getAdminGmailIntegration(user.organization_id, user.id),
+    getAdminOpenAIIntegration(user.organization_id),
+    getAdminGoogleMapsIntegration(user.organization_id),
   ]);
   const googleConfigured = integration.oauth_configured;
   const redirectUri = gmailRedirectUri();
@@ -58,20 +67,32 @@ export default async function AdminGmailIntegrationPage({
                 <h1 className="truncate text-lg font-semibold">Gmail</h1>
               </div>
             </div>
-            <AdminNav />
+            <AdminNav role={user.role} />
           </div>
         </header>
 
         {params.connected ? (
-          <Notice tone="success" text="Gmail connected for this organization." />
+          <Notice tone="success" text="Your Gmail account is connected." />
         ) : null}
         {params.disconnected ? (
-          <Notice tone="warn" text="Gmail disconnected for this organization." />
+          <Notice tone="warn" text="Your Gmail account was disconnected." />
         ) : null}
         {params.saved ? (
           <Notice
             tone="success"
             text="Google OAuth app credentials saved for this organization."
+          />
+        ) : null}
+        {params.openai_saved ? (
+          <Notice
+            tone="success"
+            text="OpenAI assistant settings saved for this organization."
+          />
+        ) : null}
+        {params.google_maps_saved ? (
+          <Notice
+            tone="success"
+            text="Google Maps geocoding settings saved for this organization."
           />
         ) : null}
         {params.error ? (
@@ -86,7 +107,7 @@ export default async function AdminGmailIntegrationPage({
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Tenant Email Delivery
+                  Personal Email Delivery
                 </p>
                 <h2 className="accent-title text-3xl font-semibold tracking-normal">
                   Gmail quote sending
@@ -99,9 +120,9 @@ export default async function AdminGmailIntegrationPage({
             </div>
           </div>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Connect a Gmail or Google Workspace mailbox for this organization.
-            Approved quotes can be emailed with a QuoteBase PDF attached and a
-            customer review link in the message.
+            Connect your Gmail or Google Workspace mailbox. Quotes you send
+            will be emailed from your own account with a QuoteBase PDF attached
+            and a customer review link in the message.
           </p>
         </section>
 
@@ -113,10 +134,10 @@ export default async function AdminGmailIntegrationPage({
               </h3>
               <p className="mt-1 text-sm text-muted-foreground">
                 {integration.email
-                  ? `Sending from ${integration.email}`
+                  ? `You are sending from ${integration.email}`
                   : googleConfigured
-                    ? "Connect Gmail to enable customer quote emails."
-                    : "Tenant Google OAuth app credentials are not configured yet."}
+                    ? "Connect your Gmail account to send customer quote emails."
+                    : "Google OAuth app credentials are not configured yet. Ask an admin to set them up."}
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -144,69 +165,225 @@ export default async function AdminGmailIntegrationPage({
           </div>
         </section>
 
-        <form action={saveGmailOAuthSettings} className="mt-6 glass-panel p-5 sm:p-6">
-          <div className="flex items-center gap-3">
-            <div className="icon-well text-blue-700">
-              <KeyRound className="size-5" />
+        {user.role === "admin" ? (
+          <form
+            action={saveGmailOAuthSettings}
+            className="mt-6 glass-panel p-5 sm:p-6"
+          >
+            <div className="flex items-center gap-3">
+              <div className="icon-well text-blue-700">
+                <KeyRound className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Tenant Google Cloud App
+                </p>
+                <h3 className="text-xl font-semibold">
+                  OAuth client credentials
+                </h3>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Tenant Google Cloud App
-              </p>
-              <h3 className="text-xl font-semibold">
-                OAuth client credentials
-              </h3>
+
+            <div className="mt-5 grid gap-5 sm:grid-cols-2">
+              <label>
+                <span className="text-sm font-medium text-muted-foreground">
+                  Client ID
+                </span>
+                <input
+                  name="client_id"
+                  type="password"
+                  placeholder={
+                    integration.client_id_last4
+                      ? `Saved, ending ${integration.client_id_last4}`
+                      : "Google OAuth client ID"
+                  }
+                  className="soft-control mt-2 w-full"
+                  required
+                />
+              </label>
+              <label>
+                <span className="text-sm font-medium text-muted-foreground">
+                  Client secret
+                </span>
+                <input
+                  name="client_secret"
+                  type="password"
+                  placeholder={
+                    integration.oauth_configured
+                      ? "Saved; enter a new secret to rotate"
+                      : "Google OAuth client secret"
+                  }
+                  className="soft-control mt-2 w-full"
+                  required
+                />
+              </label>
             </div>
-          </div>
 
-          <div className="mt-5 grid gap-5 sm:grid-cols-2">
-            <label>
-              <span className="text-sm font-medium text-muted-foreground">
-                Client ID
-              </span>
+            <div className="mt-5 rounded-[18px] border border-white/70 bg-white/65 p-4">
+              <p className="text-sm font-semibold">Authorized redirect URI</p>
               <input
-                name="client_id"
-                type="password"
-                placeholder={
-                  integration.client_id_last4
-                    ? `Saved, ending ${integration.client_id_last4}`
-                    : "Google OAuth client ID"
-                }
-                className="soft-control mt-2 w-full"
-                required
+                readOnly
+                value={redirectUri}
+                className="soft-control mt-2 w-full bg-white/80 font-mono text-xs"
               />
-            </label>
-            <label>
-              <span className="text-sm font-medium text-muted-foreground">
-                Client secret
-              </span>
-              <input
-                name="client_secret"
-                type="password"
-                placeholder={
-                  integration.oauth_configured
-                    ? "Saved; enter a new secret to rotate"
-                    : "Google OAuth client secret"
-                }
-                className="soft-control mt-2 w-full"
-                required
-              />
-            </label>
-          </div>
+            </div>
 
-          <div className="mt-5 rounded-[18px] border border-white/70 bg-white/65 p-4">
-            <p className="text-sm font-semibold">Authorized redirect URI</p>
-            <input
-              readOnly
-              value={redirectUri}
-              className="soft-control mt-2 w-full bg-white/80 font-mono text-xs"
-            />
-          </div>
+            <Button type="submit" className="mt-5 h-11 w-full rounded-full">
+              Save Google OAuth settings
+            </Button>
+          </form>
+        ) : null}
 
-          <Button type="submit" className="mt-5 h-11 w-full rounded-full">
-            Save Google OAuth settings
-          </Button>
-        </form>
+        {user.role === "admin" ? (
+          <>
+            <form
+              action={saveOpenAIIntegration}
+              className="mt-6 glass-panel p-5 sm:p-6"
+            >
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="icon-well text-primary">
+                    <Bot className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Tenant AI Assistant
+                    </p>
+                    <h3 className="text-xl font-semibold">
+                      OpenAI configuration
+                    </h3>
+                  </div>
+                </div>
+                <div className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-sm font-medium text-primary ring-1 ring-border">
+                  <ShieldCheck className="size-4" />
+                  API key encrypted
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                <label className="flex items-center gap-3 rounded-md border border-border bg-background px-4 py-3">
+                  <input
+                    name="openai_is_enabled"
+                    type="checkbox"
+                    defaultChecked={openAIIntegration.is_enabled}
+                    className="size-4 accent-[#3d6652]"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold">
+                      Enable Ask QuoteBase
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Dashboard assistant uses this organization&apos;s key.
+                    </span>
+                  </span>
+                </label>
+
+                <label>
+                  <span className="text-sm font-medium text-muted-foreground">
+                    Model
+                  </span>
+                  <select
+                    name="openai_model"
+                    defaultValue={openAIIntegration.model}
+                    className="soft-control mt-2 w-full"
+                  >
+                    {OPENAI_MODEL_OPTIONS.map((model) => (
+                      <option key={model.value} value={model.value}>
+                        {model.label} - {model.description}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="sm:col-span-2">
+                  <span className="text-sm font-medium text-muted-foreground">
+                    OpenAI API key
+                  </span>
+                  <input
+                    name="openai_api_key"
+                    type="password"
+                    placeholder={
+                      openAIIntegration.api_key_last4
+                        ? `Saved ending ${openAIIntegration.api_key_last4}; leave blank to keep it`
+                        : "Paste OpenAI API key"
+                    }
+                    className="soft-control mt-2 w-full"
+                    autoComplete="off"
+                  />
+                </label>
+              </div>
+
+              <Button type="submit" className="mt-5 h-11 w-full rounded-full">
+                Save OpenAI settings
+              </Button>
+            </form>
+
+            <form
+              action={saveGoogleMapsIntegration}
+              className="mt-6 glass-panel p-5 sm:p-6"
+            >
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="icon-well text-primary">
+                    <MapPinned className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Tenant Geocoding
+                    </p>
+                    <h3 className="text-xl font-semibold">
+                      Google Maps configuration
+                    </h3>
+                  </div>
+                </div>
+                <div className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-sm font-medium text-primary ring-1 ring-border">
+                  <ShieldCheck className="size-4" />
+                  API key encrypted
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                <label className="flex items-center gap-3 rounded-md border border-border bg-background px-4 py-3">
+                  <input
+                    name="google_maps_is_enabled"
+                    type="checkbox"
+                    defaultChecked={googleMapsIntegration.is_enabled}
+                    className="size-4 accent-[#3d6652]"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold">
+                      Enable geocoding and distance matrix
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Quotes use this organization&apos;s Google key.
+                    </span>
+                  </span>
+                </label>
+
+                <label>
+                  <span className="text-sm font-medium text-muted-foreground">
+                    Google Maps API key
+                  </span>
+                  <input
+                    name="google_maps_api_key"
+                    type="password"
+                    placeholder={
+                      googleMapsIntegration.api_key_last4
+                        ? `Saved ending ${googleMapsIntegration.api_key_last4}; leave blank to keep it`
+                        : "Paste Google Maps API key"
+                    }
+                    className="soft-control mt-2 w-full"
+                    autoComplete="off"
+                  />
+                </label>
+              </div>
+
+              <Button type="submit" className="mt-5 h-11 w-full rounded-full">
+                Save Google Maps settings
+              </Button>
+            </form>
+          </>
+        ) : null}
       </div>
     </main>
   );
