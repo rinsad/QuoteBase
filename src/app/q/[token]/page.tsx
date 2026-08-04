@@ -30,6 +30,7 @@ export default async function PublicQuotePage({
   }
 
   const canRespond =
+    quote.status === "approved" ||
     quote.status === "sent" ||
     quote.status === "viewed" ||
     quote.status === "follow_up";
@@ -59,8 +60,13 @@ export default async function PublicQuotePage({
               <div className="grid gap-3 text-left sm:text-right">
                 <InfoLine
                   icon={CalendarDays}
-                  label="Created"
-                  value={formatDate(quote.created_at)}
+                  label="Quote date"
+                  value={formatDate(quote.quote_date)}
+                />
+                <InfoLine
+                  icon={CalendarDays}
+                  label="Expires"
+                  value={formatDate(quote.quote_expires_at)}
                 />
                 <InfoLine
                   icon={FileText}
@@ -228,7 +234,7 @@ export default async function PublicQuotePage({
           </section>
 
           <footer className="border-t border-slate-200 px-8 py-6 text-xs leading-5 text-slate-500">
-            This quote link expires on {formatDate(quote.expires_at)}.
+            This quote expires on {formatDate(quote.quote_expires_at)}.
           </footer>
         </article>
       </div>
@@ -315,11 +321,16 @@ function formatStatus(status: string) {
 }
 
 function formatDate(value: string) {
+  const dateValue = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T00:00:00.000Z`
+    : value;
+
   return new Intl.DateTimeFormat("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
-  }).format(new Date(value));
+    timeZone: /^\d{4}-\d{2}-\d{2}$/.test(value) ? "UTC" : undefined,
+  }).format(new Date(dateValue));
 }
 
 function formatAddress(address: Record<string, unknown>) {

@@ -2,11 +2,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export type AdminSupplier = {
   id: string;
+  supplier_id: string;
+  supplier_name: string;
   name: string;
-  parent_company: string | null;
   address: Record<string, unknown>;
   latitude: number | null;
   longitude: number | null;
+  hours: string | null;
+  primary_contact_name: string | null;
+  primary_contact_phone: string | null;
+  notes: string | null;
   is_active: boolean;
   materials: {
     id: string;
@@ -21,6 +26,7 @@ export type AdminSupplier = {
 
 export type AdminPlantsSummary = {
   suppliers: AdminSupplier[];
+  parentSuppliers: { id: string; name: string }[];
   counts: {
     suppliers: number;
     materials: number;
@@ -33,6 +39,7 @@ export type AdminPlantsSummary = {
 
 type SupplierRecord = Omit<AdminSupplier, "materials"> & {
   materials: AdminSupplier["materials"] | null;
+  suppliers: { name: string } | { name: string }[] | null;
 };
 
 export async function getAdminPlantsSummary(
@@ -43,6 +50,7 @@ export async function getAdminPlantsSummary(
   if (!admin) {
     return {
       suppliers: [],
+      parentSuppliers: [],
       counts: {
         suppliers: 0,
         materials: 0,
@@ -56,6 +64,7 @@ export async function getAdminPlantsSummary(
 
   const [
     suppliersResult,
+    parentSuppliersResult,
     suppliersCount,
     materialsCount,
     vehicleTypesCount,
@@ -64,15 +73,22 @@ export async function getAdminPlantsSummary(
     auditEntriesCount,
   ] = await Promise.all([
     admin
-      .from("suppliers")
+      .from("supplier_plants")
       .select(
-        "id, name, parent_company, address, latitude, longitude, is_active, materials(id, name, tier, unit, cost_per_unit, last_price_update, is_active)",
+        "id, supplier_id, name, address, latitude, longitude, hours, primary_contact_name, primary_contact_phone, notes, is_active, suppliers(name), materials(id, name, tier, unit, cost_per_unit, last_price_update, is_active)",
       )
       .eq("organization_id", organizationId)
       .order("name", { ascending: true })
       .returns<SupplierRecord[]>(),
     admin
       .from("suppliers")
+      .select("id, name")
+      .eq("organization_id", organizationId)
+      .eq("is_active", true)
+      .order("name", { ascending: true })
+      .returns<{ id: string; name: string }[]>(),
+    admin
+      .from("supplier_plants")
       .select("id", { count: "exact", head: true })
       .eq("organization_id", organizationId),
     admin
@@ -99,13 +115,21 @@ export async function getAdminPlantsSummary(
 
   return {
     suppliers:
-      suppliersResult.data?.map((supplier) => ({
-        ...supplier,
-        latitude: supplier.latitude === null ? null : Number(supplier.latitude),
-        longitude:
-          supplier.longitude === null ? null : Number(supplier.longitude),
-        materials: supplier.materials ?? [],
-      })) ?? [],
+      suppliersResult.data?.map((supplier) => {
+        const parent = Array.isArray(supplier.suppliers)
+          ? supplier.suppliers[0]
+          : supplier.suppliers;
+
+        return {
+          ...supplier,
+          supplier_name: parent?.name ?? "Unknown supplier",
+          latitude: supplier.latitude === null ? null : Number(supplier.latitude),
+          longitude:
+            supplier.longitude === null ? null : Number(supplier.longitude),
+          materials: supplier.materials ?? [],
+        };
+      }) ?? [],
+    parentSuppliers: parentSuppliersResult.data ?? [],
     counts: {
       suppliers: suppliersCount.count ?? 0,
       materials: materialsCount.count ?? 0,

@@ -2,7 +2,9 @@ import { createClient } from "@/lib/supabase/server";
 
 export type PriceBookSupplier = {
   id: string;
+  supplier_id: string;
   name: string;
+  supplier_name: string;
 };
 
 export type SupplierPriceImport = {
@@ -48,14 +50,14 @@ export type SupplierCatalogItemOption = {
 type SupplierRecord = PriceBookSupplier;
 
 type ImportRecord = Omit<SupplierPriceImport, "supplier_name"> & {
-  suppliers: { name: string } | { name: string }[] | null;
+  supplier_plants: { name: string } | { name: string }[] | null;
 };
 
 type SupplierMarkupRuleRecord = Omit<
   SupplierMarkupRuleView,
   "supplier_name" | "catalog_item_label"
 > & {
-  suppliers: { name: string } | { name: string }[] | null;
+  supplier_plants: { name: string } | { name: string }[] | null;
   supplier_catalog_items:
     | { sku: string | null; description: string }
     | { sku: string | null; description: string }[]
@@ -68,7 +70,7 @@ type SupplierCatalogItemRecord = {
   sku: string | null;
   description: string;
   category: string | null;
-  suppliers: { name: string } | { name: string }[] | null;
+  supplier_plants: { name: string } | { name: string }[] | null;
 };
 
 export async function getPriceBookSuppliers(
@@ -81,22 +83,43 @@ export async function getPriceBookSuppliers(
   }
 
   const { data } = await supabase
-    .from("suppliers")
-    .select("id, name")
+    .from("supplier_plants")
+    .select("id, supplier_id, name, suppliers(name)")
     .eq("organization_id", organizationId)
     .eq("is_active", true)
     .order("name", { ascending: true })
-    .returns<SupplierRecord[]>();
+    .returns<
+      Array<
+        Omit<SupplierRecord, "supplier_name"> & {
+          suppliers: { name: string } | { name: string }[] | null;
+        }
+      >
+    >();
 
-  return data ?? [];
+  return (
+    data?.map((plant) => {
+      const supplier = Array.isArray(plant.suppliers)
+        ? plant.suppliers[0]
+        : plant.suppliers;
+
+      return {
+        id: plant.id,
+        supplier_id: plant.supplier_id,
+        name: plant.name,
+        supplier_name: supplier?.name ?? "Unknown supplier",
+      };
+    }) ?? []
+  );
 }
 
 export async function getSupplierPriceImports({
   organizationId,
   importId,
+  supplierId,
 }: {
   organizationId: string;
   importId?: string;
+  supplierId?: string;
 }): Promise<{
   selectedImport: SupplierPriceImport | null;
   recentImports: SupplierPriceImport[];
@@ -107,12 +130,18 @@ export async function getSupplierPriceImports({
     return { selectedImport: null, recentImports: [] };
   }
 
-  const recentResult = await supabase
+  let recentQuery = supabase
     .from("supplier_price_imports")
     .select(
-      "id, supplier_id, source_filename, status, detected_columns, column_mapping, row_count, imported_count, rejected_count, preview_rows, error_summary, created_at, completed_at, suppliers(name)",
+      "id, supplier_id, source_filename, status, detected_columns, column_mapping, row_count, imported_count, rejected_count, preview_rows, error_summary, created_at, completed_at, supplier_plants(name)",
     )
-    .eq("organization_id", organizationId)
+    .eq("organization_id", organizationId);
+
+  if (supplierId) {
+    recentQuery = recentQuery.eq("supplier_id", supplierId);
+  }
+
+  const recentResult = await recentQuery
     .order("created_at", { ascending: false })
     .limit(10)
     .returns<ImportRecord[]>();
@@ -125,7 +154,7 @@ export async function getSupplierPriceImports({
     const { data } = await supabase
       .from("supplier_price_imports")
       .select(
-        "id, supplier_id, source_filename, status, detected_columns, column_mapping, row_count, imported_count, rejected_count, preview_rows, error_summary, created_at, completed_at, suppliers(name)",
+        "id, supplier_id, source_filename, status, detected_columns, column_mapping, row_count, imported_count, rejected_count, preview_rows, error_summary, created_at, completed_at, supplier_plants(name)",
       )
       .eq("organization_id", organizationId)
       .eq("id", importId)
@@ -149,7 +178,7 @@ export async function getSupplierMarkupRules(
   const { data } = await supabase
     .from("supplier_markup_rules")
     .select(
-      "id, supplier_id, scope, category, catalog_item_id, markup_type, markup_value, margin_floor_pct, priority, created_at, suppliers(name), supplier_catalog_items(sku, description)",
+      "id, supplier_id, scope, category, catalog_item_id, markup_type, markup_value, margin_floor_pct, priority, created_at, supplier_plants(name), supplier_catalog_items(sku, description)",
     )
     .eq("organization_id", organizationId)
     .eq("is_active", true)
@@ -166,7 +195,7 @@ export async function getSupplierMarkupRules(
 
       return {
         ...rule,
-        supplier_name: relationOne(rule.suppliers)?.name ?? "All suppliers",
+        supplier_name: relationOne(rule.supplier_plants)?.name ?? "All plants",
         catalog_item_label: itemLabel,
         markup_value: Number(rule.markup_value),
         margin_floor_pct:
@@ -188,7 +217,7 @@ export async function getSupplierCatalogItemOptions(
 
   const { data } = await supabase
     .from("supplier_catalog_items")
-    .select("id, supplier_id, sku, description, category, suppliers(name)")
+    .select("id, supplier_id, sku, description, category, supplier_plants(name)")
     .eq("organization_id", organizationId)
     .eq("is_active", true)
     .order("description", { ascending: true })
@@ -199,7 +228,7 @@ export async function getSupplierCatalogItemOptions(
     data?.map((item) => ({
       id: item.id,
       supplier_id: item.supplier_id,
-      supplier_name: relationOne(item.suppliers)?.name ?? "Unknown supplier",
+      supplier_name: relationOne(item.supplier_plants)?.name ?? "Unknown plant",
       label: [item.sku, item.description].filter(Boolean).join(" - "),
       category: item.category,
     })) ?? []
@@ -230,7 +259,7 @@ function normalizeImportRecord(record: ImportRecord): SupplierPriceImport {
             Boolean(value) && typeof value === "object" && !Array.isArray(value),
         )
       : [],
-    supplier_name: relationOne(record.suppliers)?.name ?? "Unknown supplier",
+    supplier_name: relationOne(record.supplier_plants)?.name ?? "Unknown plant",
   };
 }
 

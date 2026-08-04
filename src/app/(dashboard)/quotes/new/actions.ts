@@ -2,16 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 import { logAction } from "@/lib/audit/log-action";
-import { getCurrentUser } from "@/lib/auth/current-user";
+import { getCurrentUser, type AppUser } from "@/lib/auth/current-user";
 import { geocodeJobSiteAddress } from "@/lib/geo/geocode";
-import { getGoogleMapsIntegration } from "@/lib/integrations/google-maps";
+import { getMapboxIntegration } from "@/lib/integrations/mapbox";
 import {
   createQuoteDraftRecord,
   type CreateQuoteDraftInput,
   type CreateQuoteDraftLineInput,
+  type QuoteAccountType,
+  type QuoteProjectStatus,
 } from "@/lib/quotes/create-draft";
 import { createClient } from "@/lib/supabase/server";
 
@@ -54,6 +57,14 @@ const quoteJobSiteSchema = z.object({
   line1: z.string().trim().max(240).optional().default(""),
   city: z.string().trim().min(1, "City is required.").max(120),
   county: z.string().trim().min(1, "County is required.").max(120),
+  postal_code: z.string().trim().max(20).optional().default(""),
+  mapbox_id: z
+    .string()
+    .trim()
+    .min(1, "Select an address from the Mapbox search.")
+    .max(240),
+  latitude: z.string().trim().min(1, "Select an address from the Mapbox search."),
+  longitude: z.string().trim().min(1, "Select an address from the Mapbox search."),
   state: z
     .string()
     .trim()
@@ -143,8 +154,26 @@ export async function createQuoteJobSite(
     );
   }
 
-  const { customer_id: customerId, name, line1, city, county, state } =
-    parsed.data;
+  const {
+    customer_id: customerId,
+    name,
+    line1,
+    city,
+    county,
+    state,
+    postal_code: postalCode,
+    mapbox_id: mapboxId,
+    latitude,
+    longitude,
+  } = parsed.data;
+  const selectedCoordinates = parseCoordinatePair(latitude, longitude);
+
+  if (!selectedCoordinates.ok) {
+    return inlineJobSiteError("Fix the highlighted job site fields.", undefined, {
+      [selectedCoordinates.field]: selectedCoordinates.message,
+    });
+  }
+
   const { data: customer } = await supabase
     .from("customers")
     .select("id")
@@ -159,20 +188,16 @@ export async function createQuoteJobSite(
     });
   }
 
-  const googleMapsIntegration = await getGoogleMapsIntegration({
-    supabase,
-    organizationId: user.organization_id,
-  });
-  const geocoded = await geocodeJobSiteAddress({
-    line1,
-    city,
-    county,
-    state,
-    apiKey:
-      googleMapsIntegration?.isEnabled && googleMapsIntegration.apiKey
-        ? googleMapsIntegration.apiKey
-        : null,
-  });
+  const geocoded =
+    selectedCoordinates.coordinates ??
+    (await geocodeJobSiteAddressWithTenantKey({
+      supabase,
+      organizationId: user.organization_id,
+      line1,
+      city,
+      county,
+      state,
+    }));
   const { data: jobSite, error } = await supabase
     .from("job_sites")
     .upsert(
@@ -185,6 +210,8 @@ export async function createQuoteJobSite(
           city,
           county,
           state,
+          postal_code: postalCode || null,
+          mapbox_id: mapboxId || null,
         },
         city,
         county,
@@ -215,7 +242,7 @@ export async function createQuoteJobSite(
       state,
       latitude: jobSite.latitude,
       longitude: jobSite.longitude,
-      geocoded_from_address: Boolean(geocoded),
+      location_source: selectedCoordinates.coordinates ? "mapbox" : "geocoder",
     },
   });
 
@@ -229,9 +256,41 @@ export async function createQuoteJobSite(
   };
 }
 
+async function geocodeJobSiteAddressWithTenantKey({
+  supabase,
+  organizationId,
+  line1,
+  city,
+  county,
+  state,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  line1: string;
+  city: string;
+  county: string;
+  state: string;
+}) {
+  const mapboxIntegration = await getMapboxIntegration({
+    supabase,
+    organizationId,
+  });
+
+  return geocodeJobSiteAddress({
+    line1,
+    city,
+    county,
+    state,
+    apiKey:
+      mapboxIntegration?.isEnabled && mapboxIntegration.publicAccessToken
+        ? mapboxIntegration.publicAccessToken
+        : null,
+  });
+}
+
 function parseQuoteForm(
   formData: FormData,
-  userRole: "admin" | "account_manager" | "estimator",
+  userRole: AppUser["role"],
 ):
   | ({ ok: true } & CreateQuoteDraftInput)
   | { ok: false; message: string; fieldErrors: Record<string, string> } {
@@ -240,6 +299,12 @@ function parseQuoteForm(
   const jobSiteId = requiredUuid(formData, "job_site_id");
   const materialId = requiredUuid(formData, "material_id");
   const taxRateId = optionalUuid(formData, "tax_rate_id");
+  const quoteDate = requiredDate(formData, "quote_date");
+  const expiresAt = requiredDate(formData, "expires_at");
+  const jobStartDate = optionalDate(formData, "job_start_date");
+  const jobEndDate = optionalDate(formData, "job_end_date");
+  const accountType = requiredAccountType(formData, "account_type");
+  const projectStatus = requiredProjectStatus(formData, "project_status");
   const quantity = Number(getString(formData, "quantity"));
   const lineItems = parseLineItems(formData, fieldErrors);
   const materialUnitPriceOverride = optionalMoney(
@@ -288,6 +353,30 @@ function parseQuoteForm(
     fieldErrors.job_site_id = "Select an existing job site.";
   }
 
+  if (!quoteDate) {
+    fieldErrors.quote_date = "Quote date is required.";
+  }
+
+  if (!expiresAt) {
+    fieldErrors.expires_at = "Expiration date is required.";
+  }
+
+  if (quoteDate && expiresAt && expiresAt < quoteDate) {
+    fieldErrors.expires_at = "Expiration date cannot be before the quote date.";
+  }
+
+  if (jobStartDate && jobEndDate && jobEndDate < jobStartDate) {
+    fieldErrors.job_end_date = "Job end date cannot be before the job start date.";
+  }
+
+  if (!accountType) {
+    fieldErrors.account_type = "Select contractor or non-contractor.";
+  }
+
+  if (!projectStatus) {
+    fieldErrors.project_status = "Select a project status.";
+  }
+
   if (Object.keys(fieldErrors).length) {
     return {
       ok: false,
@@ -302,6 +391,13 @@ function parseQuoteForm(
     jobSiteId,
     materialId,
     taxRateId,
+    quoteDate,
+    expiresAt,
+    jobStartDate,
+    jobEndDate,
+    followupMaxAttempts: null,
+    accountType: accountType || "contractor",
+    projectStatus: projectStatus || "bid",
     quantity,
     lineItems,
     notes: getString(formData, "notes"),
@@ -439,6 +535,98 @@ function requiredUuid(formData: FormData, key: string): string {
   const value = getString(formData, key);
 
   return UUID_PATTERN.test(value) ? value : "";
+}
+
+function requiredDate(formData: FormData, key: string): string {
+  const value = getString(formData, key);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return "";
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+    ? value
+    : "";
+}
+
+function optionalDate(formData: FormData, key: string): string | null {
+  const value = getString(formData, key);
+
+  if (!value) {
+    return null;
+  }
+
+  return requiredDate(formData, key) || null;
+}
+
+function requiredAccountType(
+  formData: FormData,
+  key: string,
+): QuoteAccountType | "" {
+  const value = getString(formData, key);
+
+  return value === "contractor" || value === "non_contractor" ? value : "";
+}
+
+function requiredProjectStatus(
+  formData: FormData,
+  key: string,
+): QuoteProjectStatus | "" {
+  const value = getString(formData, key);
+
+  return /^[a-z0-9_]{1,60}$/.test(value) ? value : "";
+}
+
+function parseCoordinatePair(
+  latitudeValue: string,
+  longitudeValue: string,
+):
+  | {
+      ok: true;
+      coordinates: { latitude: number; longitude: number } | null;
+    }
+  | { ok: false; field: "latitude" | "longitude"; message: string } {
+  if (!latitudeValue && !longitudeValue) {
+    return { ok: true, coordinates: null };
+  }
+
+  if (!latitudeValue || !longitudeValue) {
+    return {
+      ok: false,
+      field: latitudeValue ? "longitude" : "latitude",
+      message: "Latitude and longitude must be saved together.",
+    };
+  }
+
+  const latitude = Number(latitudeValue);
+  const longitude = Number(longitudeValue);
+
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+    return {
+      ok: false,
+      field: "latitude",
+      message: "Latitude is out of range.",
+    };
+  }
+
+  if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    return {
+      ok: false,
+      field: "longitude",
+      message: "Longitude is out of range.",
+    };
+  }
+
+  return {
+    ok: true,
+    coordinates: {
+      latitude: Math.round((latitude + Number.EPSILON) * 10000000) / 10000000,
+      longitude:
+        Math.round((longitude + Number.EPSILON) * 10000000) / 10000000,
+    },
+  };
 }
 
 function optionalMoney(

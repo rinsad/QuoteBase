@@ -1,10 +1,12 @@
 import type { AppUser } from "@/lib/auth/current-user";
+import { getQuoteUnitConversions } from "@/lib/admin/units";
 import { logAction } from "@/lib/audit/log-action";
 import { isFeatureEnabled } from "@/lib/features/flags";
 import { geocodeJobSiteAddress } from "@/lib/geo/geocode";
-import { getGoogleMapsIntegration } from "@/lib/integrations/google-maps";
+import { getMapboxIntegration } from "@/lib/integrations/mapbox";
 import {
   normalizePricingConfig,
+  normalizeProjectStatusOptions,
   normalizeVehicleTypes,
 } from "@/lib/quotes/new-quote";
 import {
@@ -24,11 +26,21 @@ import type { createClient } from "@/lib/supabase/server";
 
 type SupabaseClient = NonNullable<Awaited<ReturnType<typeof createClient>>>;
 
+export type QuoteAccountType = "contractor" | "non_contractor";
+export type QuoteProjectStatus = string;
+
 export type CreateQuoteDraftInput = {
   customerId: string;
   jobSiteId: string;
   materialId: string;
   taxRateId: string;
+  quoteDate: string;
+  expiresAt: string;
+  jobStartDate: string | null;
+  jobEndDate: string | null;
+  followupMaxAttempts: number | null;
+  accountType: QuoteAccountType;
+  projectStatus: QuoteProjectStatus;
   quantity: number;
   lineItems: CreateQuoteDraftLineInput[];
   notes: string;
@@ -114,6 +126,8 @@ export async function createQuoteDraftRecord({
           materialUnitPriceOverride: input.materialUnitPriceOverride,
         },
       ];
+  const quoteDates = parseQuoteDates(input.quoteDate, input.expiresAt);
+  const jobTiming = parseJobTiming(input.jobStartDate, input.jobEndDate);
 
   const [
     materialsResult,
@@ -122,11 +136,12 @@ export async function createQuoteDraftRecord({
     existingCustomerResult,
     existingJobSiteResult,
     markupRulesResult,
+    unitConversions,
   ] = await Promise.all([
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .in(
@@ -134,12 +149,12 @@ export async function createQuoteDraftRecord({
         Array.from(new Set(requestedLines.map((line) => line.materialId))),
       )
       .eq("is_active", true)
-      .eq("suppliers.is_active", true)
+      .eq("supplier_plants.is_active", true)
       .returns<PlantSelectionMaterial[]>(),
     supabase
       .from("pricing_config")
       .select(
-        "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton",
+        "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton, default_followup_max_attempts, project_status_options",
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
@@ -178,10 +193,25 @@ export async function createQuoteDraftRecord({
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
       .returns<CatalogMarkupRule[]>(),
+    getQuoteUnitConversions({
+      supabase,
+      organizationId: user.organization_id,
+    }),
   ]);
 
   if (!materialsResult.data?.length || !pricingConfigResult.data) {
     throw new Error("Material, tax, or pricing configuration is missing.");
+  }
+  const followupMaxAttempts = normalizeFollowupMaxAttempts(
+    input.followupMaxAttempts,
+    pricingConfigResult.data.default_followup_max_attempts,
+  );
+  const projectStatusOptions = normalizeProjectStatusOptions(
+    pricingConfigResult.data.project_status_options,
+  );
+
+  if (!projectStatusOptions.some((option) => option.value === input.projectStatus)) {
+    throw new Error("Select an active project status option.");
   }
 
   if (!existingCustomerResult.data) {
@@ -217,13 +247,13 @@ export async function createQuoteDraftRecord({
   const catalogMarkupRules = normalizeCatalogMarkupRules(
     markupRulesResult.data ?? [],
   );
-  const googleMapsIntegration = await getGoogleMapsIntegration({
+  const mapboxIntegration = await getMapboxIntegration({
     supabase,
     organizationId: user.organization_id,
   });
-  const googleMapsApiKey =
-    googleMapsIntegration?.isEnabled && googleMapsIntegration.apiKey
-      ? googleMapsIntegration.apiKey
+  const mapboxAccessToken =
+    mapboxIntegration?.isEnabled && mapboxIntegration.publicAccessToken
+      ? mapboxIntegration.publicAccessToken
       : null;
   const materialById = new Map(
     materialsResult.data.map((material) => [material.id, material]),
@@ -232,7 +262,7 @@ export async function createQuoteDraftRecord({
     supabase,
     user,
     jobSite,
-    googleMapsApiKey,
+    mapboxAccessToken,
   });
   const pricedLines = await Promise.all(
     requestedLines.map(async (line) => {
@@ -251,6 +281,7 @@ export async function createQuoteDraftRecord({
         quantity: line.quantity,
         pricingConfig,
         vehicleTypes,
+        unitConversions,
         useRequestedPlant: input.useSelectedPlant,
         materialUnitPriceOverride: line.materialUnitPriceOverride,
         truckRateOverride: input.truckRateOverride,
@@ -260,7 +291,7 @@ export async function createQuoteDraftRecord({
         manualRouteDistanceMiles: input.manualRouteDistanceMiles,
         manualDeadheadDistanceMiles: input.manualDeadheadDistanceMiles,
         catalogMarkupRules,
-        googleMapsApiKey,
+        mapboxAccessToken,
       });
       const material = recommendation.material;
       const catalogMarkupRule = resolveCatalogMarkupRule(
@@ -275,6 +306,7 @@ export async function createQuoteDraftRecord({
         taxRate: Number(taxRate.rate),
         pricingConfig,
         vehicleTypes,
+        unitConversions,
         routeDurationSeconds:
           recommendation.routeDistance?.durationSeconds ?? null,
         deadheadDurationSeconds:
@@ -328,6 +360,13 @@ export async function createQuoteDraftRecord({
       job_site_id: jobSite.id,
       requested_by: user.id,
       tax_rate_id: taxRate.id,
+      quote_date: quoteDates.quoteDate,
+      expires_at: quoteDates.expiresAt,
+      job_start_date: jobTiming.jobStartDate,
+      job_end_date: jobTiming.jobEndDate,
+      followup_max_attempts: followupMaxAttempts,
+      account_type: input.accountType,
+      project_status: input.projectStatus,
       status: "draft",
       material_subtotal: roundMoney(totals.materialSubtotal),
       trucking_subtotal: roundMoney(totals.truckingSubtotal),
@@ -391,11 +430,23 @@ export async function createQuoteDraftRecord({
     after: {
       quote_number: quote.quote_number,
       status: "draft",
+      quote_date: quoteDates.quoteDate,
+      expires_at: quoteDates.expiresAt,
+      job_start_date: jobTiming.jobStartDate,
+      job_end_date: jobTiming.jobEndDate,
+      followup_max_attempts: followupMaxAttempts,
+      account_type: input.accountType,
+      project_status: input.projectStatus,
       total: roundMoney(totals.total),
     },
     metadata: {
       customer_id: customer.id,
       job_site_id: jobSite.id,
+      account_type: input.accountType,
+      project_status: input.projectStatus,
+      job_start_date: jobTiming.jobStartDate,
+      job_end_date: jobTiming.jobEndDate,
+      followup_max_attempts: followupMaxAttempts,
       line_count: pricedLines.length,
       line_items: pricedLines.map((line) => ({
         material_id: line.material.id,
@@ -443,16 +494,99 @@ export async function createQuoteDraftRecord({
   return quote;
 }
 
+function parseQuoteDates(
+  quoteDateValue: string,
+  expiresAtValue: string,
+): { quoteDate: string; expiresAt: string } {
+  const quoteDate = parseDateOnly(quoteDateValue);
+  const expiresAt = parseDateOnly(expiresAtValue);
+
+  if (!quoteDate) {
+    throw new Error("Quote date is required.");
+  }
+
+  if (!expiresAt) {
+    throw new Error("Expiration date is required.");
+  }
+
+  if (expiresAt < quoteDate) {
+    throw new Error("Expiration date cannot be before the quote date.");
+  }
+
+  return { quoteDate, expiresAt };
+}
+
+function parseJobTiming(
+  jobStartDateValue: string | null,
+  jobEndDateValue: string | null,
+): { jobStartDate: string | null; jobEndDate: string | null } {
+  const jobStartDate = jobStartDateValue
+    ? parseDateOnly(jobStartDateValue)
+    : null;
+  const jobEndDate = jobEndDateValue ? parseDateOnly(jobEndDateValue) : null;
+
+  if (jobStartDateValue && !jobStartDate) {
+    throw new Error("Job start date is invalid.");
+  }
+
+  if (jobEndDateValue && !jobEndDate) {
+    throw new Error("Job end date is invalid.");
+  }
+
+  if (jobStartDate && jobEndDate && jobEndDate < jobStartDate) {
+    throw new Error("Job end date cannot be before the job start date.");
+  }
+
+  return { jobStartDate, jobEndDate };
+}
+
+function normalizeFollowupMaxAttempts(
+  value: number | null,
+  configuredValue: number | string | undefined,
+): number {
+  const explicitValue = value ?? NaN;
+
+  if (
+    Number.isInteger(explicitValue) &&
+    explicitValue >= 1 &&
+    explicitValue <= 5
+  ) {
+    return explicitValue;
+  }
+
+  const configValue = Number(configuredValue ?? NaN);
+
+  return Number.isInteger(configValue) && configValue >= 1 && configValue <= 5
+    ? configValue
+    : 5;
+}
+
+function parseDateOnly(value: string): string | null {
+  const trimmed = value.trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return null;
+  }
+
+  const date = new Date(`${trimmed}T00:00:00.000Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString().slice(0, 10) === trimmed ? trimmed : null;
+}
+
 async function resolveJobSiteCoordinates({
   supabase,
   user,
   jobSite,
-  googleMapsApiKey,
+  mapboxAccessToken,
 }: {
   supabase: SupabaseClient;
   user: AppUser;
   jobSite: JobSiteRecord;
-  googleMapsApiKey: string | null;
+  mapboxAccessToken: string | null;
 }): Promise<{ latitude: number | null; longitude: number | null }> {
   const storedCoordinates = {
     latitude: jobSite.latitude === null ? null : Number(jobSite.latitude),
@@ -471,7 +605,7 @@ async function resolveJobSiteCoordinates({
     city: jobSite.city,
     county: jobSite.county,
     state: jobSite.state,
-    apiKey: googleMapsApiKey,
+    apiKey: mapboxAccessToken,
   });
 
   if (!geocoded) {

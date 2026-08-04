@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { logAction } from "@/lib/audit/log-action";
+import {
+  getActiveUnitLookup,
+  normalizeUnitAlias,
+  type ActiveUnitLookup,
+} from "@/lib/admin/units";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { updateMaterialPrices } from "@/lib/materials/price-updates";
 import { createClient } from "@/lib/supabase/server";
@@ -11,10 +16,9 @@ import { createClient } from "@/lib/supabase/server";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MATERIAL_TIERS = ["R1", "R2", "R3", "R4"] as const;
-const MATERIAL_UNITS = ["ton", "cy", "load", "bag", "sqft", "lbs", "each"] as const;
 
 type MaterialTier = (typeof MATERIAL_TIERS)[number];
-type MaterialUnit = (typeof MATERIAL_UNITS)[number];
+type MaterialUnit = string;
 
 type SupplierCatalogImportRow = {
   supplierName: string;
@@ -185,7 +189,8 @@ export async function uploadSupplierCatalogCsv(formData: FormData) {
     throw new Error("Supplier catalog CSV file is required.");
   }
 
-  const rows = parseSupplierCatalogCsv(await file.text());
+  const unitLookup = await getActiveUnitLookup(user.organization_id);
+  const rows = parseSupplierCatalogCsv(await file.text(), unitLookup);
   const supplierNames = [...new Set(rows.map((row) => row.supplierName))];
   const { data: existingSuppliers, error: existingSuppliersError } =
     await supabase
@@ -437,7 +442,10 @@ function requiredDate(formData: FormData, key: string): string {
   return value;
 }
 
-function parseSupplierCatalogCsv(csv: string): SupplierCatalogImportRow[] {
+function parseSupplierCatalogCsv(
+  csv: string,
+  unitLookup: ActiveUnitLookup,
+): SupplierCatalogImportRow[] {
   const lines = csv
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -471,7 +479,11 @@ function parseSupplierCatalogCsv(csv: string): SupplierCatalogImportRow[] {
       rowNumber,
     });
     const tier = requiredTier(csvValue(headers, cells, "tier"), rowNumber);
-    const unit = requiredUnit(csvValue(headers, cells, "unit") || "ton", rowNumber);
+    const unit = requiredUnit(
+      csvValue(headers, cells, "unit") || unitLookup.codes[0] || "ton",
+      rowNumber,
+      unitLookup,
+    );
     const costPerUnit = requiredCsvMoney({
       headers,
       cells,
@@ -665,16 +677,20 @@ function requiredTier(value: string, rowNumber: number): MaterialTier {
   return normalizedValue as MaterialTier;
 }
 
-function requiredUnit(value: string, rowNumber: number): MaterialUnit {
-  const normalizedValue = value.trim().toLowerCase();
+function requiredUnit(
+  value: string,
+  rowNumber: number,
+  unitLookup: ActiveUnitLookup,
+): MaterialUnit {
+  const unit = unitLookup.aliases[normalizeUnitAlias(value)];
 
-  if (!MATERIAL_UNITS.includes(normalizedValue as MaterialUnit)) {
+  if (!unit) {
     throw new Error(
-      `Row ${rowNumber}: unit must be one of ${MATERIAL_UNITS.join(", ")}.`,
+      `Row ${rowNumber}: unit must be an active tenant unit (${unitLookup.codes.join(", ")}).`,
     );
   }
 
-  return normalizedValue as MaterialUnit;
+  return unit;
 }
 
 function dedupeCatalogRows(

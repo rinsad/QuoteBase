@@ -9,8 +9,9 @@ import {
   unauthorized,
 } from "@/lib/api/responses";
 import { isUuid } from "@/lib/api/validation";
-import { getCurrentUser } from "@/lib/auth/current-user";
+import { getCurrentUser, type AppUser } from "@/lib/auth/current-user";
 import { isFeatureEnabled } from "@/lib/features/flags";
+import { scheduleNextFollowUpForQuote } from "@/lib/quotes/follow-up-schedule";
 import type { QuoteStatus } from "@/lib/quotes/quotes";
 import { transitionQuoteStatus } from "@/lib/quotes/workflow";
 import { createClient } from "@/lib/supabase/server";
@@ -29,7 +30,7 @@ type WorkflowRule = {
   from: QuoteStatus;
   to: QuoteStatus;
   action: string;
-  allowedRoles: Array<"admin" | "account_manager" | "estimator">;
+  allowedRoles: Array<AppUser["role"]>;
   notePrefix?: string;
   defaultNote?: string;
 };
@@ -163,11 +164,11 @@ export async function PATCH(
     });
 
     if (rule.to === "sent") {
-      await supabase
-        .from("quotes")
-        .update({ followup_date: offsetDate(2) })
-        .eq("organization_id", user.organization_id)
-        .eq("id", quote.id);
+      await scheduleNextFollowUpForQuote({
+        supabase,
+        organizationId: user.organization_id,
+        quoteId: quote.id,
+      });
     }
 
     if (rule.to === "follow_up") {

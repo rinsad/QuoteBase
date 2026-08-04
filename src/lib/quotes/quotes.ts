@@ -1,5 +1,6 @@
 import type { AppUser } from "@/lib/auth/current-user";
 import { getQuoteDocuments, type QuoteDocument } from "@/lib/quotes/documents";
+import type { QuoteAccountType, QuoteProjectStatus } from "@/lib/quotes/create-draft";
 import { createClient } from "@/lib/supabase/server";
 
 export type QuoteStatus =
@@ -25,7 +26,16 @@ export type QuoteListItem = {
   revision_number: number;
   total: number;
   created_at: string;
+  quote_date: string;
+  expires_at: string;
+  job_start_date: string | null;
+  job_end_date: string | null;
+  followup_attempt_count: number;
+  followup_max_attempts: number;
+  account_type: QuoteAccountType;
+  project_status: QuoteProjectStatus;
   followup_date: string | null;
+  customer_payment_terms: string | null;
   customer_name: string;
   job_site_name: string;
   job_site_city: string;
@@ -52,9 +62,13 @@ export type QuoteListSummary = {
     lostValue: number;
     winRate: number;
     followUpsDue: number;
+    jobsStartingSoon: number;
+    jobsStartingSoonDays: number;
+    bigQuoteThreshold: number;
   };
   hotQuotes: DashboardQuoteInsight[];
   bigQuotes: DashboardQuoteInsight[];
+  jobsStartingSoon: DashboardQuoteInsight[];
 };
 
 export type DashboardQuoteInsight = QuoteListItem & {
@@ -76,6 +90,14 @@ export type QuoteDetail = {
   total: number;
   notes: string | null;
   created_at: string;
+  quote_date: string;
+  expires_at: string;
+  job_start_date: string | null;
+  job_end_date: string | null;
+  followup_attempt_count: number;
+  followup_max_attempts: number;
+  account_type: QuoteAccountType;
+  project_status: QuoteProjectStatus;
   customer: {
     name: string;
     contact_name: string | null;
@@ -101,6 +123,7 @@ export type QuoteDetail = {
   items: QuoteDetailItem[];
   auditEntries: QuoteAuditEntry[];
   publicEvents: QuotePublicEvent[];
+  feedbackEntries: QuoteFeedbackEntry[];
   documents: QuoteDocument[];
   revision_parent: QuoteRevisionLink | null;
   revision_children: QuoteRevisionLink[];
@@ -150,6 +173,14 @@ export type QuotePublicEvent = {
   metadata: Record<string, unknown>;
 };
 
+export type QuoteFeedbackEntry = {
+  id: string;
+  feedback_type: string;
+  note: string;
+  created_at: string;
+  user_name: string | null;
+};
+
 type QuoteListRecord = {
   id: string;
   quote_number: string;
@@ -158,8 +189,19 @@ type QuoteListRecord = {
   revision_number: number;
   total: number;
   created_at: string;
+  quote_date: string;
+  expires_at: string;
+  job_start_date: string | null;
+  job_end_date: string | null;
+  followup_attempt_count: number;
+  followup_max_attempts: number;
+  account_type: QuoteAccountType;
+  project_status: QuoteProjectStatus;
   followup_date: string | null;
-  customers: { name: string } | { name: string }[] | null;
+  customers:
+    | { name: string; payment_terms: string | null }
+    | { name: string; payment_terms: string | null }[]
+    | null;
   job_sites:
     | { name: string; city: string; state: string }
     | { name: string; city: string; state: string }[]
@@ -180,6 +222,14 @@ type QuoteDetailRecord = {
   total: number;
   notes: string | null;
   created_at: string;
+  quote_date: string;
+  expires_at: string;
+  job_start_date: string | null;
+  job_end_date: string | null;
+  followup_attempt_count: number;
+  followup_max_attempts: number;
+  account_type: QuoteAccountType;
+  project_status: QuoteProjectStatus;
   customers:
     | {
         name: string;
@@ -235,7 +285,7 @@ type QuoteItemRecord = {
   trucking_subtotal: number;
   fees_subtotal: number;
   line_total: number;
-  suppliers: { name: string } | { name: string }[] | null;
+  supplier_plants: { name: string } | { name: string }[] | null;
   materials:
     | { name: string; tier: string }
     | { name: string; tier: string }[]
@@ -254,6 +304,14 @@ type QuotePublicEventRecord = QuotePublicEvent;
 
 type QuoteRevisionLinkRecord = QuoteRevisionLink;
 
+type QuoteFeedbackRecord = {
+  id: string;
+  feedback_type: string;
+  note: string;
+  created_at: string;
+  users: { full_name: string } | { full_name: string }[] | null;
+};
+
 type DashboardEventRecord = {
   quote_id: string;
   event_type: string;
@@ -261,8 +319,18 @@ type DashboardEventRecord = {
 };
 
 const OPEN_STATUSES: QuoteStatus[] = ["sent", "viewed", "follow_up"];
+const JOB_STARTING_SOON_STATUSES: QuoteStatus[] = [
+  "draft",
+  "pending_approval",
+  "changes_requested",
+  "approved",
+  "sent",
+  "viewed",
+  "follow_up",
+];
 const WON_STATUSES: QuoteStatus[] = ["won", "accepted"];
 const LOST_STATUSES: QuoteStatus[] = ["lost", "declined"];
+const DEFAULT_BIG_QUOTE_THRESHOLD = 10000;
 
 export async function getQuoteList(
   user: AppUser,
@@ -283,12 +351,13 @@ export async function getQuoteList(
     followUpCount,
     wonCount,
     lostCount,
+    pricingConfigResult,
   ] =
     await Promise.all([
       supabase
         .from("quotes")
         .select(
-          "id, quote_number, status, parent_quote_id, revision_number, total, created_at, followup_date, customers(name), job_sites(name, city, state), users(full_name)",
+          "id, quote_number, status, parent_quote_id, revision_number, total, created_at, quote_date, expires_at, job_start_date, job_end_date, followup_attempt_count, followup_max_attempts, account_type, project_status, followup_date, customers(name, payment_terms), job_sites(name, city, state), users(full_name)",
         )
         .eq("organization_id", user.organization_id)
         .eq("is_active", true)
@@ -342,6 +411,14 @@ export async function getQuoteList(
         .eq("organization_id", user.organization_id)
         .eq("is_active", true)
         .in("status", ["lost", "declined"]),
+      supabase
+        .from("pricing_config")
+        .select("big_quote_threshold, jobs_starting_soon_days")
+        .eq("organization_id", user.organization_id)
+        .maybeSingle<{
+          big_quote_threshold: number | string | null;
+          jobs_starting_soon_days: number | string | null;
+        }>(),
     ]);
 
   const listQuotes =
@@ -355,7 +432,17 @@ export async function getQuoteList(
   const won = wonCount.count ?? 0;
   const lost = lostCount.count ?? 0;
   const decided = won + lost;
-  const moneyKpis = buildMoneyKpis(metricQuotes, won, lost);
+  const bigQuoteThreshold = normalizeBigQuoteThreshold(
+    pricingConfigResult.data?.big_quote_threshold,
+  );
+  const moneyKpis = buildMoneyKpis(
+    metricQuotes,
+    won,
+    lost,
+    bigQuoteThreshold,
+    normalizeJobsStartingSoonDays(pricingConfigResult.data?.jobs_starting_soon_days),
+  );
+  const jobsStartingSoonDays = moneyKpis.jobsStartingSoonDays;
 
   return {
     quotes: listQuotes,
@@ -376,8 +463,18 @@ export async function getQuoteList(
       .sort((left, right) => right.heatScore - left.heatScore || right.total - left.total)
       .slice(0, 5),
     bigQuotes: insights
-      .filter((quote) => OPEN_STATUSES.includes(quote.status))
+      .filter(
+        (quote) =>
+          OPEN_STATUSES.includes(quote.status) &&
+          quote.total >= bigQuoteThreshold,
+      )
       .sort((left, right) => right.total - left.total)
+      .slice(0, 5),
+    jobsStartingSoon: insights
+      .filter((quote) => isJobStartingSoon(quote, jobsStartingSoonDays))
+      .sort((left, right) =>
+        (left.job_start_date ?? "").localeCompare(right.job_start_date ?? ""),
+      )
       .slice(0, 5),
   };
 }
@@ -396,7 +493,7 @@ async function loadDashboardMetricQuotes(user: AppUser): Promise<QuoteListItem[]
     const { data, error } = await supabase
       .from("quotes")
       .select(
-        "id, quote_number, status, parent_quote_id, revision_number, total, created_at, followup_date, customers(name), job_sites(name, city, state), users(full_name)",
+        "id, quote_number, status, parent_quote_id, revision_number, total, created_at, quote_date, expires_at, job_start_date, job_end_date, followup_attempt_count, followup_max_attempts, account_type, project_status, followup_date, customers(name, payment_terms), job_sites(name, city, state), users(full_name)",
       )
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
@@ -444,6 +541,8 @@ function buildMoneyKpis(
   quotes: QuoteListItem[],
   wonCount: number,
   lostCount: number,
+  bigQuoteThreshold: number,
+  jobsStartingSoonDays: number,
 ): QuoteListSummary["moneyKpis"] {
   const decided = wonCount + lostCount;
 
@@ -462,6 +561,11 @@ function buildMoneyKpis(
       winRate: decided ? (wonCount / decided) * 100 : 0,
       followUpsDue:
         isFollowUpDue(quote) ? kpis.followUpsDue + 1 : kpis.followUpsDue,
+      jobsStartingSoon: isJobStartingSoon(quote, jobsStartingSoonDays)
+        ? kpis.jobsStartingSoon + 1
+        : kpis.jobsStartingSoon,
+      jobsStartingSoonDays,
+      bigQuoteThreshold,
     }),
     {
       quotedValue: 0,
@@ -470,6 +574,9 @@ function buildMoneyKpis(
       lostValue: 0,
       winRate: decided ? (wonCount / decided) * 100 : 0,
       followUpsDue: 0,
+      jobsStartingSoon: 0,
+      jobsStartingSoonDays,
+      bigQuoteThreshold,
     },
   );
 }
@@ -539,7 +646,16 @@ function mapQuoteListRecord(quote: QuoteListRecord): QuoteListItem {
     revision_number: Number(quote.revision_number),
     total: Number(quote.total),
     created_at: quote.created_at,
+    quote_date: quote.quote_date,
+    expires_at: quote.expires_at,
+    job_start_date: quote.job_start_date,
+    job_end_date: quote.job_end_date,
+    followup_attempt_count: Number(quote.followup_attempt_count),
+    followup_max_attempts: Number(quote.followup_max_attempts),
+    account_type: quote.account_type,
+    project_status: quote.project_status,
     followup_date: quote.followup_date,
+    customer_payment_terms: customer?.payment_terms ?? null,
     customer_name: customer?.name ?? "Unknown customer",
     job_site_name: site?.name ?? "Unknown site",
     job_site_city: [site?.city, site?.state].filter(Boolean).join(", "),
@@ -557,11 +673,17 @@ export async function getQuoteDetail(
     return null;
   }
 
-  const [quoteResult, auditResult, publicEventsResult, documents] = await Promise.all([
+  const [
+    quoteResult,
+    auditResult,
+    publicEventsResult,
+    feedbackResult,
+    documents,
+  ] = await Promise.all([
     supabase
       .from("quotes")
       .select(
-        "id, quote_number, status, parent_quote_id, revision_number, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), sales_tax_rates(city, state, rate), quote_items(id, quantity, unit, unit_cost, markup_per_unit, markup_pct, material_unit_price, material_subtotal, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, suppliers(name), materials(name, tier), vehicle_types(name))",
+        "id, quote_number, status, parent_quote_id, revision_number, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, job_start_date, job_end_date, followup_attempt_count, followup_max_attempts, account_type, project_status, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), sales_tax_rates(city, state, rate), quote_items(id, quantity, unit, unit_cost, markup_per_unit, markup_pct, material_unit_price, material_subtotal, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, supplier_plants(name), materials(name, tier), vehicle_types(name))",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", quoteId)
@@ -584,6 +706,14 @@ export async function getQuoteDetail(
       .order("created_at", { ascending: false })
       .limit(10)
       .returns<QuotePublicEventRecord[]>(),
+    supabase
+      .from("quote_feedback")
+      .select("id, feedback_type, note, created_at, users(full_name)")
+      .eq("organization_id", user.organization_id)
+      .eq("quote_id", quoteId)
+      .order("created_at", { ascending: false })
+      .limit(10)
+      .returns<QuoteFeedbackRecord[]>(),
     getQuoteDocuments({
       supabase,
       organizationId: user.organization_id,
@@ -639,6 +769,14 @@ export async function getQuoteDetail(
     total: Number(quote.total),
     notes: quote.notes,
     created_at: quote.created_at,
+    quote_date: quote.quote_date,
+    expires_at: quote.expires_at,
+    job_start_date: quote.job_start_date,
+    job_end_date: quote.job_end_date,
+    followup_attempt_count: Number(quote.followup_attempt_count),
+    followup_max_attempts: Number(quote.followup_max_attempts),
+    account_type: quote.account_type,
+    project_status: quote.project_status,
     customer,
     job_site: site,
     requested_by: requestedBy,
@@ -651,7 +789,7 @@ export async function getQuoteDetail(
       : null,
     items:
       quote.quote_items?.map((item) => {
-        const supplier = relationOne(item.suppliers);
+        const supplier = relationOne(item.supplier_plants);
         const material = relationOne(item.materials);
         const vehicleType = relationOne(item.vehicle_types);
 
@@ -696,6 +834,14 @@ export async function getQuoteDetail(
             ? event.metadata
             : {},
       })) ?? [],
+    feedbackEntries:
+      feedbackResult.data?.map((entry) => ({
+        id: entry.id,
+        feedback_type: entry.feedback_type,
+        note: entry.note,
+        created_at: entry.created_at,
+        user_name: relationOne(entry.users)?.full_name ?? null,
+      })) ?? [],
     documents,
     revision_parent: parentResult.data
       ? {
@@ -722,9 +868,49 @@ export async function getQuoteDetail(
 function isFollowUpDue(quote: QuoteListItem): boolean {
   return (
     OPEN_STATUSES.includes(quote.status) &&
+    quote.followup_attempt_count < quote.followup_max_attempts &&
     Boolean(quote.followup_date) &&
     quote.followup_date! <= new Date().toISOString().slice(0, 10)
   );
+}
+
+function isJobStartingSoon(
+  quote: QuoteListItem,
+  jobsStartingSoonDays: number,
+): boolean {
+  if (
+    !quote.job_start_date ||
+    !JOB_STARTING_SOON_STATUSES.includes(quote.status)
+  ) {
+    return false;
+  }
+
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  const windowEnd = new Date(today);
+
+  windowEnd.setUTCDate(windowEnd.getUTCDate() + jobsStartingSoonDays);
+
+  return (
+    quote.job_start_date >= todayIso &&
+    quote.job_start_date <= windowEnd.toISOString().slice(0, 10)
+  );
+}
+
+function normalizeBigQuoteThreshold(value: number | string | null | undefined): number {
+  const threshold = Number(value ?? DEFAULT_BIG_QUOTE_THRESHOLD);
+
+  return Number.isFinite(threshold) && threshold > 0
+    ? threshold
+    : DEFAULT_BIG_QUOTE_THRESHOLD;
+}
+
+function normalizeJobsStartingSoonDays(
+  value: number | string | null | undefined,
+): number {
+  const days = Number(value ?? 14);
+
+  return Number.isInteger(days) && days >= 1 && days <= 120 ? days : 14;
 }
 
 function relationOne<T>(value: T | T[] | null): T | null {
@@ -752,8 +938,12 @@ function emptyList(): QuoteListSummary {
       lostValue: 0,
       winRate: 0,
       followUpsDue: 0,
+      jobsStartingSoon: 0,
+      jobsStartingSoonDays: 14,
+      bigQuoteThreshold: DEFAULT_BIG_QUOTE_THRESHOLD,
     },
     hotQuotes: [],
     bigQuotes: [],
+    jobsStartingSoon: [],
   };
 }

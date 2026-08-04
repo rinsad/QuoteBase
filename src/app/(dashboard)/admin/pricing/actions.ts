@@ -54,9 +54,22 @@ export async function updatePricingConfig(formData: FormData) {
   };
   const extendedPayload = {
     big_quote_threshold: requiredPositiveNumber(formData, "big_quote_threshold"),
+    default_followup_max_attempts: requiredIntegerInRange(
+      formData,
+      "default_followup_max_attempts",
+      1,
+      5,
+    ),
+    jobs_starting_soon_days: requiredIntegerInRange(
+      formData,
+      "jobs_starting_soon_days",
+      1,
+      120,
+    ),
     follow_up_auto_send_enabled:
       formData.get("follow_up_auto_send_enabled") === "on",
     follow_up_sms_enabled: formData.get("follow_up_sms_enabled") === "on",
+    project_status_options: parseProjectStatusOptions(formData),
   };
   const payload = { ...basePayload, ...extendedPayload };
 
@@ -156,6 +169,26 @@ function requiredPositiveNumber(formData: FormData, key: string): number {
   return value;
 }
 
+function requiredIntegerInRange(
+  formData: FormData,
+  key: string,
+  min: number,
+  max: number,
+): number {
+  const value = formData.get(key);
+  const numberValue = typeof value === "string" ? Number(value) : NaN;
+
+  if (
+    !Number.isInteger(numberValue) ||
+    numberValue < min ||
+    numberValue > max
+  ) {
+    throw new Error(`${key} must be a whole number from ${min} to ${max}.`);
+  }
+
+  return numberValue;
+}
+
 function requiredOption(formData: FormData, key: string): string {
   const value = formData.get(key);
 
@@ -175,7 +208,41 @@ function validateRange(min: number, max: number, label: string) {
 function isMissingFollowUpColumnError(message: string): boolean {
   return (
     message.includes("big_quote_threshold") ||
+    message.includes("default_followup_max_attempts") ||
+    message.includes("jobs_starting_soon_days") ||
     message.includes("follow_up_auto_send_enabled") ||
-    message.includes("follow_up_sms_enabled")
+    message.includes("follow_up_sms_enabled") ||
+    message.includes("project_status_options")
   );
+}
+
+function parseProjectStatusOptions(formData: FormData) {
+  const rawValue = formData.get("project_status_options");
+  const labels =
+    typeof rawValue === "string"
+      ? rawValue
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : [];
+  const uniqueLabels = Array.from(
+    new Map(labels.map((label) => [slugify(label), label])).entries(),
+  )
+    .filter(([value]) => value)
+    .slice(0, 12);
+
+  if (!uniqueLabels.length) {
+    throw new Error("Add at least one project status option.");
+  }
+
+  return uniqueLabels.map(([value, label]) => ({ value, label }));
+}
+
+function slugify(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 60);
 }

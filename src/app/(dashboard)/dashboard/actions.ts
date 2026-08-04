@@ -154,7 +154,7 @@ export async function askQuoteBaseAssistant(
     return {
       ok: false,
       message:
-        "Ask QuoteBase is not connected yet. Tenant admins can add an OpenAI API key under Admin > Integrations > Gmail + OpenAI.",
+        "Ask QuoteBase is not connected yet. Tenant admins can add an OpenAI API key under Admin > Integrations > OpenAI.",
     };
   }
 
@@ -168,6 +168,7 @@ export async function askQuoteBaseAssistant(
         moneyKpis: quoteList.moneyKpis,
         hotQuotes: quoteList.hotQuotes,
         bigQuotes: quoteList.bigQuotes,
+        jobsStartingSoon: quoteList.jobsStartingSoon,
         followUpDrafts,
       }),
     });
@@ -414,6 +415,7 @@ function buildAssistantPrompt({
   moneyKpis,
   hotQuotes,
   bigQuotes,
+  jobsStartingSoon,
   followUpDrafts,
 }: {
   messages: AssistantMessage[];
@@ -421,6 +423,7 @@ function buildAssistantPrompt({
   moneyKpis: Awaited<ReturnType<typeof getQuoteList>>["moneyKpis"];
   hotQuotes: Awaited<ReturnType<typeof getQuoteList>>["hotQuotes"];
   bigQuotes: Awaited<ReturnType<typeof getQuoteList>>["bigQuotes"];
+  jobsStartingSoon: Awaited<ReturnType<typeof getQuoteList>>["jobsStartingSoon"];
   followUpDrafts: Awaited<ReturnType<typeof listFollowUpDrafts>>;
 }): string {
   const context = {
@@ -428,6 +431,7 @@ function buildAssistantPrompt({
     quotes: quotes.slice(0, 30).map(compactQuote),
     hotQuotes: hotQuotes.slice(0, 5).map(compactQuote),
     bigQuotes: bigQuotes.slice(0, 5).map(compactQuote),
+    jobsStartingSoon: jobsStartingSoon.slice(0, 5).map(compactQuote),
     followUpScheduler: buildFollowUpSchedulerContext(quotes),
     followUpDrafts: followUpDrafts.slice(0, 10).map((draft) => ({
       id: draft.id,
@@ -447,7 +451,7 @@ function buildAssistantPrompt({
     "For writes, do not claim you changed anything. Return one proposedAction that the UI can confirm.",
     "Supported proposedAction types: move_quote_status, run_follow_up_agent, approve_follow_up_draft, cancel_follow_up_draft.",
     "A run_follow_up_agent proposedAction must be {\"type\":\"run_follow_up_agent\",\"label\":\"Run the follow-up agent\",\"payload\":{}}.",
-    "Follow-up scheduler rule: it only scans quotes whose status is sent, viewed, or follow_up, whose followupDate is not null, and whose followupDate is on or before currentDate.",
+    "Follow-up scheduler rule: it only scans quotes whose status is sent, viewed, or follow_up, whose followupDate is not null, whose followupDate is on or before currentDate, and whose followupAttemptCount is below followupMaxAttempts.",
     "When explaining follow-ups, use each quote's actual followupDate/followUpDue/followUpEligibilityReason from Context JSON. Never say no follow-up dates are set if any relevant quote has a non-null followupDate.",
     "If a quote has status draft, approved, pending_approval, changes_requested, rejected, won, lost, accepted, declined, or expired, say it is not eligible for the follow-up agent yet instead of saying the date is missing.",
     "Setting arbitrary follow-up dates is not a supported assistant write action yet. If asked to set dates, explain that the current assistant can run the scheduler but cannot set followupDate.",
@@ -591,7 +595,11 @@ function compactQuote(quote: QuoteListItem): Record<string, unknown> {
     quoteNumber: quote.quote_number,
     status: quote.status,
     total: quote.total,
+    jobStartDate: quote.job_start_date,
+    jobEndDate: quote.job_end_date,
     followupDate: quote.followup_date,
+    followupAttemptCount: quote.followup_attempt_count,
+    followupMaxAttempts: quote.followup_max_attempts,
     followUpEligible: followUpEligibility.eligible,
     followUpDue: followUpEligibility.due,
     followUpEligibilityReason: followUpEligibility.reason,
@@ -606,6 +614,8 @@ function buildFollowUpSchedulerContext(quotes: QuoteListItem[]): Record<string, 
     quoteNumber: quote.quote_number,
     status: quote.status,
     followupDate: quote.followup_date,
+    followupAttemptCount: quote.followup_attempt_count,
+    followupMaxAttempts: quote.followup_max_attempts,
     ...describeFollowUpEligibility(quote),
   }));
 
@@ -647,6 +657,14 @@ function describeFollowUpEligibility(quote: QuoteListItem): {
       eligible: false,
       due: false,
       reason: `Status ${quote.status} is not scanned by the follow-up scheduler.`,
+    };
+  }
+
+  if (quote.followup_attempt_count >= quote.followup_max_attempts) {
+    return {
+      eligible: false,
+      due: false,
+      reason: "Follow-up attempt limit reached.",
     };
   }
 

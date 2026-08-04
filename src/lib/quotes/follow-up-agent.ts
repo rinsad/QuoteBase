@@ -3,6 +3,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getBaseUrl } from "@/lib/env";
 import { sendGmailQuoteEmail } from "@/lib/integrations/gmail";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  effectiveMaxFollowUpAttempts,
+  isFollowUpJobStartingSoon,
+  nextFollowUpDateForQuote,
+  nextFollowUpDelayDays,
+} from "@/lib/quotes/follow-up-schedule";
 
 type FollowUpTone = "friendly" | "urgent" | "final" | "owner_escalation";
 type FollowUpStatus =
@@ -56,8 +62,14 @@ type FollowUpCandidate = {
   quote_number: string;
   status: string;
   total: number;
+  account_type: string | null;
+  project_status: string | null;
+  job_start_date: string | null;
+  job_end_date: string | null;
   followup_date: string | null;
   last_followup_at: string | null;
+  followup_attempt_count: number;
+  followup_max_attempts: number;
   customers:
     | { name: string; email: string | null; phone: string | null }
     | { name: string; email: string | null; phone: string | null }[]
@@ -78,11 +90,14 @@ type FollowUpSettings = {
   bigQuoteThreshold: number;
   autoSendEnabled: boolean;
   smsEnabled: boolean;
+  defaultFollowupMaxAttempts: number;
+  jobsStartingSoonDays: number;
 };
 
 const OPEN_QUOTE_STATUSES = ["sent", "viewed", "follow_up"];
 const RESPONSE_EVENT_TYPES = ["accepted", "declined", "payment_completed"];
 const DEFAULT_BIG_QUOTE_THRESHOLD = 10000;
+const DEFAULT_JOBS_STARTING_SOON_DAYS = 14;
 
 export async function runFollowUpScheduler({
   organizationId,
@@ -100,7 +115,7 @@ export async function runFollowUpScheduler({
   let query = supabase
     .from("quotes")
     .select(
-      "id, organization_id, quote_number, status, total, followup_date, last_followup_at, customers(name, email, phone), users(id, full_name, email)",
+      "id, organization_id, quote_number, status, total, account_type, project_status, job_start_date, job_end_date, followup_date, last_followup_at, followup_attempt_count, followup_max_attempts, customers(name, email, phone), users(id, full_name, email)",
     )
     .eq("is_active", true)
     .in("status", OPEN_QUOTE_STATUSES)
@@ -130,20 +145,6 @@ export async function runFollowUpScheduler({
   let skipped = 0;
 
   for (const quote of quotes) {
-    if (respondedQuoteIds.has(quote.id)) {
-      skipped += 1;
-      continue;
-    }
-
-    const stageDay = followUpStageDay(quote.followup_date, now);
-
-    if (!stageDay) {
-      skipped += 1;
-      continue;
-    }
-
-    const owner = relationOne(quote.users);
-    const customer = relationOne(quote.customers);
     const settings =
       settingsByOrg.get(quote.organization_id) ??
       (await loadFollowUpSettings({
@@ -152,6 +153,53 @@ export async function runFollowUpScheduler({
       }));
 
     settingsByOrg.set(quote.organization_id, settings);
+    const maxAttempts = effectiveMaxFollowUpAttempts({
+      quote,
+      settings: {
+        defaultFollowupMaxAttempts: settings.defaultFollowupMaxAttempts,
+      },
+    });
+
+    if (quote.followup_attempt_count >= maxAttempts) {
+      await markQuoteLostDueToFollowupExhaustion({
+        supabase,
+        organizationId: quote.organization_id,
+        quoteId: quote.id,
+        previousStatus: quote.status,
+        attemptCount: quote.followup_attempt_count,
+        maxAttempts,
+      });
+      skipped += 1;
+      continue;
+    }
+
+    if (respondedQuoteIds.has(quote.id)) {
+      await stopFollowUpForRespondedQuote({
+        supabase,
+        organizationId: quote.organization_id,
+        quoteId: quote.id,
+        reason: "Customer responded through public quote event.",
+      });
+      skipped += 1;
+      continue;
+    }
+
+    const owner = relationOne(quote.users);
+    const customer = relationOne(quote.customers);
+
+    const stageDay = nextFollowUpDelayDays({
+      quote,
+      settings: {
+        defaultFollowupMaxAttempts: settings.defaultFollowupMaxAttempts,
+        jobsStartingSoonDays: settings.jobsStartingSoonDays,
+      },
+      now,
+    });
+
+    if (!stageDay) {
+      skipped += 1;
+      continue;
+    }
 
     if (!owner) {
       skipped += 1;
@@ -178,6 +226,34 @@ export async function runFollowUpScheduler({
     }
 
     drafted += 1;
+
+    if (
+      isFollowUpJobStartingSoon({
+        quote,
+        settings: {
+          jobsStartingSoonDays: settings.jobsStartingSoonDays,
+        },
+        now,
+      })
+    ) {
+      const { data: ownerDraft } = await supabase
+        .from("quote_follow_up_drafts")
+        .insert(
+          buildOwnerCallDraft({
+            quote,
+            owner,
+            customer,
+            stageDay,
+            settings,
+          }),
+        )
+        .select("id")
+        .maybeSingle<{ id: string }>();
+
+      if (ownerDraft) {
+        drafted += 1;
+      }
+    }
 
     if (
       draft.auto_send === true &&
@@ -246,7 +322,7 @@ export async function approveAndSendFollowUpDraft({
   const { data: draft } = await supabase
     .from("quote_follow_up_drafts")
     .select(
-      "id, organization_id, quote_id, owner_id, recipient_email, channel, subject, body, status, quotes(status)",
+      "id, organization_id, quote_id, owner_id, recipient_email, channel, subject, body, status, quotes(status, account_type, project_status, job_start_date, job_end_date, followup_attempt_count, followup_max_attempts)",
     )
     .eq("organization_id", organizationId)
     .eq("id", draftId)
@@ -260,7 +336,26 @@ export async function approveAndSendFollowUpDraft({
       subject: string;
       body: string;
       status: FollowUpStatus;
-      quotes: { status: string } | { status: string }[] | null;
+      quotes:
+        | {
+            status: string;
+            account_type: string | null;
+            project_status: string | null;
+            job_start_date: string | null;
+            job_end_date: string | null;
+            followup_attempt_count: number;
+            followup_max_attempts: number;
+          }
+        | {
+            status: string;
+            account_type: string | null;
+            project_status: string | null;
+            job_start_date: string | null;
+            job_end_date: string | null;
+            followup_attempt_count: number;
+            followup_max_attempts: number;
+          }[]
+        | null;
     }>();
 
   if (!draft || draft.status !== "pending_approval") {
@@ -278,6 +373,28 @@ export async function approveAndSendFollowUpDraft({
     });
 
     return { ok: false, message: "Quote is no longer open." };
+  }
+
+  const settings = await loadFollowUpSettings({
+    supabase,
+    organizationId,
+  });
+  const maxAttempts = effectiveMaxFollowUpAttempts({
+    quote,
+    settings: {
+      defaultFollowupMaxAttempts: settings.defaultFollowupMaxAttempts,
+    },
+  });
+
+  if (Number(quote.followup_attempt_count) >= maxAttempts) {
+    await cancelFollowUpDraft({
+      supabase,
+      organizationId,
+      draftId,
+      reason: "Follow-up attempt limit reached.",
+    });
+
+    return { ok: false, message: "Follow-up attempt limit reached." };
   }
 
   if (draft.channel === "sms") {
@@ -346,11 +463,40 @@ export async function approveAndSendFollowUpDraft({
     .eq("organization_id", organizationId)
     .eq("id", draftId);
 
+  const nextAttemptCount = Number(quote.followup_attempt_count) + 1;
+  const nextFollowupDate =
+    nextAttemptCount >= maxAttempts
+      ? null
+      : nextFollowUpDateForQuote({
+          quote: {
+            ...quote,
+            followup_attempt_count: nextAttemptCount,
+          },
+          settings: {
+            defaultFollowupMaxAttempts: settings.defaultFollowupMaxAttempts,
+            jobsStartingSoonDays: settings.jobsStartingSoonDays,
+          },
+        });
+
+  if (nextAttemptCount >= maxAttempts) {
+    await markQuoteLostDueToFollowupExhaustion({
+      supabase,
+      organizationId,
+      quoteId: draft.quote_id,
+      previousStatus: quote.status,
+      attemptCount: nextAttemptCount,
+      maxAttempts,
+    });
+
+    return { ok: true };
+  }
+
   await supabase
     .from("quotes")
     .update({
       last_followup_at: new Date().toISOString(),
-      followup_date: nextFollowUpDate(),
+      followup_date: nextFollowupDate,
+      followup_attempt_count: nextAttemptCount,
     })
     .eq("organization_id", organizationId)
     .eq("id", draft.quote_id)
@@ -391,7 +537,7 @@ function buildFollowUpDraft({
   quote: FollowUpCandidate;
   owner: { id: string; full_name: string; email: string };
   customer: { name: string; email: string | null; phone: string | null } | null;
-  stageDay: 2 | 5 | 10;
+  stageDay: number;
   settings: FollowUpSettings;
 }): Record<string, unknown> {
   const isBigQuote = Number(quote.total) >= settings.bigQuoteThreshold;
@@ -426,9 +572,58 @@ function buildFollowUpDraft({
       quote_total: Number(quote.total),
       quote_status: quote.status,
       followup_date: quote.followup_date,
+      account_type: quote.account_type,
+      project_status: quote.project_status,
+      job_start_date: quote.job_start_date,
+      job_end_date: quote.job_end_date,
       big_quote_threshold: settings.bigQuoteThreshold,
       auto_send_enabled: settings.autoSendEnabled,
       sms_enabled: settings.smsEnabled,
+      jobs_starting_soon_days: settings.jobsStartingSoonDays,
+    },
+  };
+}
+
+function buildOwnerCallDraft({
+  quote,
+  owner,
+  customer,
+  stageDay,
+  settings,
+}: {
+  quote: FollowUpCandidate;
+  owner: { id: string; full_name: string; email: string };
+  customer: { name: string; email: string | null; phone: string | null } | null;
+  stageDay: number;
+  settings: FollowUpSettings;
+}): Record<string, unknown> {
+  const message = ownerCallMessage({ quote, owner, customer, stageDay });
+
+  return {
+    organization_id: quote.organization_id,
+    quote_id: quote.id,
+    owner_id: owner.id,
+    recipient_email: owner.email,
+    recipient_phone: null,
+    channel: "email",
+    tone: "owner_escalation",
+    stage_day: stageDay,
+    subject: message.subject,
+    body: message.body,
+    status: "pending_approval",
+    auto_send: false,
+    big_quote_escalation: false,
+    due_at: new Date().toISOString(),
+    metadata: {
+      owner_call_required: true,
+      quote_total: Number(quote.total),
+      quote_status: quote.status,
+      followup_date: quote.followup_date,
+      account_type: quote.account_type,
+      project_status: quote.project_status,
+      job_start_date: quote.job_start_date,
+      job_end_date: quote.job_end_date,
+      jobs_starting_soon_days: settings.jobsStartingSoonDays,
     },
   };
 }
@@ -440,7 +635,7 @@ function customerFollowUpMessage({
 }: {
   quote: FollowUpCandidate;
   customer: { name: string; email: string | null; phone: string | null } | null;
-  stageDay: 2 | 5 | 10;
+  stageDay: number;
 }): { subject: string; body: string } {
   const customerName = customer?.name ?? "there";
   const quoteUrl = `${getBaseUrl()}/quotes/${quote.id}`;
@@ -507,7 +702,7 @@ function ownerEscalationMessage({
   quote: FollowUpCandidate;
   owner: { full_name: string };
   customer: { name: string; email: string | null; phone: string | null } | null;
-  stageDay: 2 | 5 | 10;
+  stageDay: number;
 }): { subject: string; body: string } {
   return {
     subject: `Big quote follow-up: ${quote.quote_number}`,
@@ -518,6 +713,40 @@ function ownerEscalationMessage({
       "Auto-send is off for this quote. Please review the customer context and follow up directly.",
       "",
       `Customer: ${customer?.name ?? "Unknown customer"}`,
+      `Total: ${formatCurrency(Number(quote.total))}`,
+      `Quote: ${getBaseUrl()}/quotes/${quote.id}`,
+      "",
+      "QuoteBase",
+    ].join("\n"),
+  };
+}
+
+function ownerCallMessage({
+  quote,
+  owner,
+  customer,
+  stageDay,
+}: {
+  quote: FollowUpCandidate;
+  owner: { full_name: string };
+  customer: { name: string; email: string | null; phone: string | null } | null;
+  stageDay: number;
+}): { subject: string; body: string } {
+  return {
+    subject: `Call now: job starting soon for ${quote.quote_number}`,
+    body: [
+      `Hi ${owner.full_name},`,
+      "",
+      `Quote ${quote.quote_number} is due for a day ${stageDay} follow-up and the job start date is coming up soon.`,
+      "Please call the customer directly in addition to any email or text follow-up.",
+      "",
+      `Customer: ${customer?.name ?? "Unknown customer"}`,
+      customer?.phone ? `Phone: ${customer.phone}` : "Phone: Not saved",
+      customer?.email ? `Email: ${customer.email}` : "Email: Not saved",
+      quote.job_start_date
+        ? `Estimated start: ${quote.job_start_date}`
+        : "Estimated start: Not set",
+      quote.job_end_date ? `Estimated end: ${quote.job_end_date}` : "Estimated end: Not set",
       `Total: ${formatCurrency(Number(quote.total))}`,
       `Quote: ${getBaseUrl()}/quotes/${quote.id}`,
       "",
@@ -569,6 +798,99 @@ async function cancelFollowUpDraft({
     .in("status", ["pending_approval", "approved"]);
 }
 
+async function stopFollowUpForRespondedQuote({
+  supabase,
+  organizationId,
+  quoteId,
+  reason,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  quoteId: string;
+  reason: string;
+}): Promise<void> {
+  await supabase
+    .from("quotes")
+    .update({ followup_date: null })
+    .eq("organization_id", organizationId)
+    .eq("id", quoteId)
+    .in("status", OPEN_QUOTE_STATUSES)
+    .eq("is_active", true);
+
+  await supabase
+    .from("quote_follow_up_drafts")
+    .update({ status: "cancelled", failure_reason: reason })
+    .eq("organization_id", organizationId)
+    .eq("quote_id", quoteId)
+    .in("status", ["pending_approval", "approved"]);
+}
+
+async function markQuoteLostDueToFollowupExhaustion({
+  supabase,
+  organizationId,
+  quoteId,
+  previousStatus,
+  attemptCount,
+  maxAttempts,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  quoteId: string;
+  previousStatus: string;
+  attemptCount: number;
+  maxAttempts: number;
+}): Promise<void> {
+  const finalAttemptCount = Math.min(attemptCount, maxAttempts);
+  const { data: quote } = await supabase
+    .from("quotes")
+    .update({
+      status: "lost",
+      followup_date: null,
+      followup_attempt_count: finalAttemptCount,
+    })
+    .eq("organization_id", organizationId)
+    .eq("id", quoteId)
+    .in("status", OPEN_QUOTE_STATUSES)
+    .eq("is_active", true)
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (!quote) {
+    return;
+  }
+
+  await supabase
+    .from("quote_follow_up_drafts")
+    .update({
+      status: "cancelled",
+      failure_reason:
+        "Quote was automatically marked lost after follow-up attempts were exhausted.",
+    })
+    .eq("organization_id", organizationId)
+    .eq("quote_id", quoteId)
+    .in("status", ["pending_approval", "approved"]);
+
+  await supabase.from("audit_log").insert({
+    organization_id: organizationId,
+    user_id: null,
+    action: "quote.auto_lost_after_followups",
+    target_table: "quotes",
+    target_id: quoteId,
+    before_value: {
+      status: previousStatus,
+      followup_attempt_count: attemptCount,
+    },
+    after_value: {
+      status: "lost",
+      followup_attempt_count: finalAttemptCount,
+      followup_max_attempts: maxAttempts,
+    },
+    metadata: {
+      reason: "Follow-up attempt limit reached.",
+    },
+  });
+}
+
 async function failFollowUpDraft({
   supabase,
   organizationId,
@@ -587,33 +909,7 @@ async function failFollowUpDraft({
     .eq("id", draftId);
 }
 
-function followUpStageDay(
-  followupDate: string | null,
-  now: Date,
-): 2 | 5 | 10 | null {
-  if (!followupDate) {
-    return null;
-  }
-
-  const dueTime = new Date(`${followupDate}T00:00:00.000Z`).getTime();
-  const diffDays = Math.floor((now.getTime() - dueTime) / 86_400_000);
-
-  if (diffDays >= 10) {
-    return 10;
-  }
-
-  if (diffDays >= 5) {
-    return 5;
-  }
-
-  if (diffDays >= 2) {
-    return 2;
-  }
-
-  return null;
-}
-
-function toneForStage(stageDay: 2 | 5 | 10): FollowUpTone {
+function toneForStage(stageDay: number): FollowUpTone {
   if (stageDay >= 10) {
     return "final";
   }
@@ -634,29 +930,38 @@ async function loadFollowUpSettings({
 }): Promise<FollowUpSettings> {
   const { data } = await supabase
     .from("pricing_config")
-    .select("big_quote_threshold, follow_up_auto_send_enabled, follow_up_sms_enabled")
+    .select(
+      "big_quote_threshold, default_followup_max_attempts, follow_up_auto_send_enabled, follow_up_sms_enabled, jobs_starting_soon_days",
+    )
     .eq("organization_id", organizationId)
     .maybeSingle<{
       big_quote_threshold: number | string | null;
+      default_followup_max_attempts: number | string | null;
       follow_up_auto_send_enabled: boolean | null;
       follow_up_sms_enabled: boolean | null;
+      jobs_starting_soon_days: number | string | null;
     }>();
   const value = Number(data?.big_quote_threshold ?? DEFAULT_BIG_QUOTE_THRESHOLD);
   const bigQuoteThreshold =
     Number.isFinite(value) && value > 0 ? value : DEFAULT_BIG_QUOTE_THRESHOLD;
+  const startingSoonDays = Number(
+    data?.jobs_starting_soon_days ?? DEFAULT_JOBS_STARTING_SOON_DAYS,
+  );
+  const maxAttempts = Number(data?.default_followup_max_attempts ?? 5);
 
   return {
     bigQuoteThreshold,
     autoSendEnabled: Boolean(data?.follow_up_auto_send_enabled),
     smsEnabled: Boolean(data?.follow_up_sms_enabled),
+    defaultFollowupMaxAttempts:
+      Number.isFinite(maxAttempts) && maxAttempts >= 3 && maxAttempts <= 5
+        ? Math.trunc(maxAttempts)
+        : 5,
+    jobsStartingSoonDays:
+      Number.isFinite(startingSoonDays) && startingSoonDays > 0
+        ? Math.trunc(startingSoonDays)
+        : DEFAULT_JOBS_STARTING_SOON_DAYS,
   };
-}
-
-function nextFollowUpDate(): string {
-  const next = new Date();
-  next.setUTCDate(next.getUTCDate() + 3);
-
-  return isoDate(next);
 }
 
 function isoDate(value: Date): string {

@@ -7,6 +7,7 @@ import {
   Building2,
   CheckCircle2,
   ContactRound,
+  MapPin,
   Plus,
   Search,
   UsersRound,
@@ -83,6 +84,10 @@ export default async function CustomersPage({
           <a href="#add-customer" className="mac-button-primary h-11">
             <Plus className="size-4" />
             Add customer
+          </a>
+          <a href="#add-job-site" className="mac-link h-11 px-4">
+            <MapPin className="size-4" />
+            Add job site
           </a>
         </div>
       </div>

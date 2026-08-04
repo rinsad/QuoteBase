@@ -1,5 +1,6 @@
 import type { AppUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
+import type { QuoteAccountType, QuoteProjectStatus } from "@/lib/quotes/create-draft";
 import type { QuoteStatus } from "@/lib/quotes/quotes";
 
 type SupabaseClient = NonNullable<
@@ -19,6 +20,13 @@ type RevisionQuoteRecord = {
   tax_total: number;
   total: number;
   notes: string | null;
+  quote_date: string;
+  expires_at: string;
+  job_start_date: string | null;
+  job_end_date: string | null;
+  followup_max_attempts: number;
+  account_type: QuoteAccountType;
+  project_status: QuoteProjectStatus;
   parent_quote_id: string | null;
   revision_number: number;
 };
@@ -79,7 +87,7 @@ export async function createQuoteRevision({
   const { data: quote } = await supabase
     .from("quotes")
     .select(
-      "id, quote_number, customer_id, job_site_id, tax_rate_id, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, parent_quote_id, revision_number",
+      "id, quote_number, customer_id, job_site_id, tax_rate_id, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, quote_date, expires_at, job_start_date, job_end_date, followup_max_attempts, account_type, project_status, parent_quote_id, revision_number",
     )
     .eq("organization_id", user.organization_id)
     .eq("id", quoteId)
@@ -128,6 +136,13 @@ export async function createQuoteRevision({
       job_site_id: quote.job_site_id,
       requested_by: user.id,
       tax_rate_id: quote.tax_rate_id,
+      quote_date: quote.quote_date,
+      expires_at: quote.expires_at,
+      job_start_date: quote.job_start_date,
+      job_end_date: quote.job_end_date,
+      followup_max_attempts: quote.followup_max_attempts,
+      account_type: quote.account_type,
+      project_status: quote.project_status,
       status: "draft",
       material_subtotal: Number(quote.material_subtotal),
       trucking_subtotal: Number(quote.trucking_subtotal),

@@ -1,18 +1,23 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
-  Building2,
-  ClipboardList,
-  Database,
-  MapPin,
-  PackageOpen,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Plus,
+  Save,
   ShieldCheck,
-  Truck,
   X,
 } from "lucide-react";
 
-import { togglePlantActive } from "@/app/(dashboard)/admin/plants/actions";
+import {
+  savePlant,
+  togglePlantActive,
+  updatePlantOperations,
+} from "@/app/(dashboard)/admin/plants/actions";
 import { AdminNav, WorkspaceNav } from "@/components/app-nav";
+import { MapboxAddressSearch } from "@/components/mapbox-address-search";
+import { Button } from "@/components/ui/button";
 import {
   getAdminPlantsSummary,
   type AdminSupplier,
@@ -23,7 +28,15 @@ import { logAction } from "@/lib/audit/log-action";
 export default async function AdminPlantsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ supplier?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    dir?: string;
+    plant?: string;
+    supplier?: string;
+    new?: string;
+    saved?: string;
+    sort?: string;
+  }>;
 }) {
   const user = await getCurrentUser();
 
@@ -38,7 +51,7 @@ export default async function AdminPlantsPage({
   await logAction({
     user,
     action: "admin.plants.viewed",
-    targetTable: "suppliers",
+    targetTable: "supplier_plants",
     metadata: {
       route: "/admin/plants",
     },
@@ -49,7 +62,11 @@ export default async function AdminPlantsPage({
     getAdminPlantsSummary(user.organization_id),
   ]);
   const selectedSupplier =
-    summary.suppliers.find((supplier) => supplier.id === params.supplier) ?? null;
+    summary.suppliers.find((supplier) => supplier.id === params.plant) ?? null;
+  const showNewPlant = params.new === "1";
+  const sortKey = parsePlantSortKey(params.sort);
+  const sortDirection = params.dir === "desc" ? "desc" : "asc";
+  const sortedSuppliers = sortPlants(summary.suppliers, sortKey, sortDirection);
 
   return (
     <main className="app-background">
@@ -80,78 +97,106 @@ export default async function AdminPlantsPage({
           </div>
         </header>
 
-        <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
-          <CountTile
-            icon={Building2}
-            label="Suppliers"
-            value={summary.counts.suppliers}
-          />
-          <CountTile
-            icon={PackageOpen}
-            label="Materials"
-            value={summary.counts.materials}
-          />
-          <CountTile
-            icon={Truck}
-            label="Vehicle Types"
-            value={summary.counts.vehicleTypes}
-          />
-          <CountTile icon={MapPin} label="Yards" value={summary.counts.yards} />
-          <CountTile
-            icon={Database}
-            label="Tax Rates"
-            value={summary.counts.taxRates}
-          />
-          <CountTile
-            icon={ClipboardList}
-            label="Audit Entries"
-            value={summary.counts.auditEntries}
-          />
-        </section>
+        {params.saved ? (
+          <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
+            {params.saved === "operations"
+              ? "Plant operational details saved."
+              : "Plant added."}
+          </div>
+        ) : null}
+
+        {params.error ? (
+          <div className="mt-6 rounded-[20px] border border-amber-200 bg-amber-50/90 px-5 py-4 text-sm font-medium text-amber-900 shadow-sm">
+            {plantFormErrorMessage(params.error)}
+          </div>
+        ) : null}
 
         <section className="mt-6 glass-panel overflow-hidden">
           <div className="slide-panel-header">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-medium text-muted-foreground">
-                Read-only view
+                Plant locations
               </p>
               <h2 className="accent-title text-2xl font-semibold tracking-normal">
-                Materials grouped by supplier
+                {summary.suppliers.length} plants
               </h2>
             </div>
-            <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
-              <ShieldCheck className="size-4" />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
+                <ShieldCheck className="size-4" />
                 Admin and account manager
+              </div>
+              <Link href="/admin/plants?new=1" className="mac-button-primary h-10 px-4">
+                <Plus className="size-4" />
+                New plant
+              </Link>
             </div>
             </div>
           </div>
 
-          <div className="master-table-head lg:grid-cols-[minmax(220px,1fr)_minmax(240px,1fr)_160px_120px_100px] lg:gap-4">
-            <span>Plant</span>
-            <span>Location</span>
+          <div className="master-table-head lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.8fr)_minmax(220px,1fr)_160px_120px_100px] lg:gap-4">
+            <SortableHeader
+              label="Plant"
+              sortKey="plant"
+              activeSortKey={sortKey}
+              direction={sortDirection}
+              selectedPlantId={params.plant}
+            />
+            <SortableHeader
+              label="Supplier"
+              sortKey="supplier"
+              activeSortKey={sortKey}
+              direction={sortDirection}
+              selectedPlantId={params.plant}
+            />
+            <SortableHeader
+              label="Location"
+              sortKey="location"
+              activeSortKey={sortKey}
+              direction={sortDirection}
+              selectedPlantId={params.plant}
+            />
             <span>Coordinates</span>
-            <span>Materials</span>
-            <span>Status</span>
+            <SortableHeader
+              label="Materials"
+              sortKey="materials"
+              activeSortKey={sortKey}
+              direction={sortDirection}
+              selectedPlantId={params.plant}
+            />
+            <SortableHeader
+              label="Status"
+              sortKey="status"
+              activeSortKey={sortKey}
+              direction={sortDirection}
+              selectedPlantId={params.plant}
+            />
           </div>
 
           <div className="divide-y divide-border">
-            {summary.suppliers.map((supplier) => (
+            {sortedSuppliers.map((supplier) => (
               <Link
                 key={supplier.id}
-                href={`/admin/plants?supplier=${supplier.id}`}
-                className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[minmax(220px,1fr)_minmax(240px,1fr)_160px_120px_100px] lg:items-center lg:gap-4 ${
+                href={`/admin/plants?plant=${supplier.id}`}
+                className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.8fr)_minmax(220px,1fr)_160px_120px_100px] lg:items-center lg:gap-4 ${
                   selectedSupplier?.id === supplier.id ? "bg-secondary" : ""
                 }`}
               >
                 <div className="min-w-0">
                   <h3 className="truncate text-sm font-semibold">{supplier.name}</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {supplier.parent_company ?? "Independent supplier"}
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {supplier.hours ?? "Hours not set"}
                   </p>
                 </div>
+                <p className="truncate text-sm font-medium text-muted-foreground">
+                  {supplier.supplier_name}
+                </p>
                 <p className="truncate text-sm text-muted-foreground">
                   {formatAddress(supplier.address)}
+                  {supplier.primary_contact_name
+                    ? ` - ${supplier.primary_contact_name}`
+                    : ""}
                 </p>
                 <p className="font-mono text-xs text-muted-foreground">
                   {supplier.latitude ?? "lat pending"},{" "}
@@ -175,9 +220,257 @@ export default async function AdminPlantsPage({
           </div>
         </section>
         <PlantSlideOver supplier={selectedSupplier} />
+        <NewPlantSlideOver
+          open={showNewPlant}
+          suppliers={summary.parentSuppliers}
+          selectedSupplierId={params.supplier ?? ""}
+        />
       </div>
     </main>
   );
+}
+
+type PlantSortKey = "plant" | "supplier" | "location" | "materials" | "status";
+
+type SortDirection = "asc" | "desc";
+
+function parsePlantSortKey(value: string | undefined): PlantSortKey {
+  const allowed: PlantSortKey[] = [
+    "plant",
+    "supplier",
+    "location",
+    "materials",
+    "status",
+  ];
+
+  return allowed.includes(value as PlantSortKey)
+    ? (value as PlantSortKey)
+    : "plant";
+}
+
+function sortPlants(
+  plants: AdminSupplier[],
+  sortKey: PlantSortKey,
+  direction: SortDirection,
+): AdminSupplier[] {
+  const sorted = [...plants].sort((left, right) => {
+    const multiplier = direction === "asc" ? 1 : -1;
+
+    if (sortKey === "materials") {
+      return (left.materials.length - right.materials.length) * multiplier;
+    }
+
+    if (sortKey === "status") {
+      return (Number(right.is_active) - Number(left.is_active)) * multiplier;
+    }
+
+    const leftValue = getPlantSortValue(left, sortKey);
+    const rightValue = getPlantSortValue(right, sortKey);
+
+    return leftValue.localeCompare(rightValue, "en", {
+      numeric: true,
+      sensitivity: "base",
+    }) * multiplier;
+  });
+
+  return sorted;
+}
+
+function getPlantSortValue(plant: AdminSupplier, sortKey: PlantSortKey): string {
+  if (sortKey === "supplier") {
+    return plant.supplier_name;
+  }
+
+  if (sortKey === "location") {
+    return formatAddress(plant.address);
+  }
+
+  return plant.name;
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  activeSortKey,
+  direction,
+  selectedPlantId,
+}: {
+  label: string;
+  sortKey: PlantSortKey;
+  activeSortKey: PlantSortKey;
+  direction: SortDirection;
+  selectedPlantId?: string;
+}) {
+  const isActive = activeSortKey === sortKey;
+  const nextDirection = isActive && direction === "asc" ? "desc" : "asc";
+  const params = new URLSearchParams({
+    sort: sortKey,
+    dir: nextDirection,
+  });
+
+  if (selectedPlantId) {
+    params.set("plant", selectedPlantId);
+  }
+
+  const SortIcon = isActive
+    ? direction === "asc"
+      ? ArrowUp
+      : ArrowDown
+    : ArrowUpDown;
+
+  return (
+    <Link
+      href={`/admin/plants?${params.toString()}`}
+      className={`flex min-w-0 items-center gap-1.5 rounded-md py-1 transition hover:text-foreground ${
+        isActive ? "text-foreground" : ""
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      <SortIcon className="size-3.5 shrink-0" />
+    </Link>
+  );
+}
+
+function NewPlantSlideOver({
+  open,
+  suppliers,
+  selectedSupplierId,
+}: {
+  open: boolean;
+  suppliers: { id: string; name: string }[];
+  selectedSupplierId: string;
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <aside className="customer-slide-over" aria-label="New plant">
+      <Link
+        href="/admin/plants"
+        className="customer-slide-backdrop"
+        aria-label="Close new plant form"
+      />
+      <div className="customer-slide-panel">
+        <div className="slide-panel-header">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-muted-foreground">
+                New plant
+              </p>
+              <h2 className="mt-1 truncate text-2xl font-semibold">
+                Add plant location
+              </h2>
+              <p className="mt-1 truncate text-sm text-muted-foreground">
+                Search Mapbox to fill address and route coordinates.
+              </p>
+            </div>
+            <Link
+              href="/admin/plants"
+              className="mac-link size-9 shrink-0 px-0"
+              aria-label="Close new plant form"
+            >
+              <X className="size-4" />
+            </Link>
+          </div>
+        </div>
+
+        <form action={savePlant} className="grid gap-4 p-4" noValidate>
+          <label className="block">
+            <span className="text-sm font-medium text-muted-foreground">
+              Supplier/company
+            </span>
+            <select
+              name="parent_supplier_id"
+              defaultValue={selectedSupplierId}
+              className="soft-control mt-2 w-full"
+              required
+            >
+              <option value="">Select supplier...</option>
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>
+                  {supplier.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <MapboxAddressSearch
+            label="Plant address search"
+            placeholder="Search plant address with Mapbox..."
+            fieldIds={{
+              street: "plant-street",
+              city: "plant-city",
+              state: "plant-state",
+              postalCode: "plant-postal-code",
+              latitude: "plant-latitude",
+              longitude: "plant-longitude",
+              mapboxId: "plant-mapbox-id",
+            }}
+          />
+          <input id="plant-mapbox-id" type="hidden" name="mapbox_id" />
+          <TextField name="name" label="Plant name" />
+          <TextField
+            name="street"
+            id="plant-street"
+            label="Street"
+            required={false}
+          />
+          <TextField name="city" id="plant-city" label="City" />
+          <TextField
+            name="state"
+            id="plant-state"
+            label="State"
+            defaultValue="CA"
+            maxLength={2}
+          />
+          <TextField
+            name="postal_code"
+            id="plant-postal-code"
+            label="ZIP"
+            required={false}
+          />
+          <NumberField name="latitude" id="plant-latitude" label="Latitude" />
+          <NumberField name="longitude" id="plant-longitude" label="Longitude" />
+          <TextField name="hours" label="Hours" required={false} />
+          <TextField
+            name="primary_contact_name"
+            label="Contact name"
+            required={false}
+          />
+          <TextField
+            name="primary_contact_phone"
+            label="Contact phone"
+            required={false}
+          />
+          <label className="block">
+            <span className="text-sm font-medium text-muted-foreground">
+              Notes
+            </span>
+            <textarea
+              name="notes"
+              rows={4}
+              className="soft-control mt-2 w-full resize-none"
+            />
+          </label>
+          <Button type="submit" className="h-11 rounded-md">
+            <Save className="size-4" />
+            Save plant
+          </Button>
+        </form>
+      </div>
+    </aside>
+  );
+}
+
+function plantFormErrorMessage(code: string): string {
+  const messages: Record<string, string> = {
+    city: "Choose a plant address or enter the city before saving.",
+    "plant-name": "Enter the plant name before saving.",
+    "select-supplier": "Choose the supplier/company for this plant before saving.",
+    state: "Enter a valid two-letter state before saving.",
+  };
+
+  return messages[code] ?? "Could not save the plant. Check the required fields and try again.";
 }
 
 function PlantSlideOver({ supplier }: { supplier: AdminSupplier | null }) {
@@ -203,7 +496,7 @@ function PlantSlideOver({ supplier }: { supplier: AdminSupplier | null }) {
                 {supplier.name}
               </h2>
               <p className="mt-1 truncate text-sm text-muted-foreground">
-                {supplier.parent_company ?? "Independent supplier"}
+                {supplier.supplier_name}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -240,6 +533,68 @@ function PlantSlideOver({ supplier }: { supplier: AdminSupplier | null }) {
               {supplier.longitude ?? "lng pending"}
             </p>
           </section>
+
+          <section className="soft-row p-4">
+            <h3 className="text-xs font-semibold uppercase text-muted-foreground">
+              Operational details
+            </h3>
+            <div className="mt-3 grid gap-3 text-sm">
+              <DetailRow label="Hours" value={supplier.hours} />
+              <DetailRow
+                label="Contact"
+                value={supplier.primary_contact_name}
+              />
+              <DetailRow
+                label="Phone"
+                value={supplier.primary_contact_phone}
+              />
+            </div>
+            {supplier.notes ? (
+              <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                {supplier.notes}
+              </p>
+            ) : null}
+          </section>
+
+          <form action={updatePlantOperations} className="soft-row grid gap-4 p-4">
+            <input type="hidden" name="plant_id" value={supplier.id} />
+            <h3 className="text-xs font-semibold uppercase text-muted-foreground">
+              Edit operational details
+            </h3>
+            <TextField
+              name="hours"
+              label="Operating hours"
+              defaultValue={supplier.hours ?? ""}
+              required={false}
+            />
+            <TextField
+              name="primary_contact_name"
+              label="Contact name"
+              defaultValue={supplier.primary_contact_name ?? ""}
+              required={false}
+            />
+            <TextField
+              name="primary_contact_phone"
+              label="Contact phone"
+              defaultValue={supplier.primary_contact_phone ?? ""}
+              required={false}
+            />
+            <label className="block">
+              <span className="text-sm font-medium text-muted-foreground">
+                Notes
+              </span>
+              <textarea
+                name="notes"
+                rows={4}
+                defaultValue={supplier.notes ?? ""}
+                className="soft-control mt-2 w-full resize-none"
+              />
+            </label>
+            <Button type="submit" className="h-10 rounded-md">
+              <Save className="size-4" />
+              Save operational details
+            </Button>
+          </form>
 
           <form action={togglePlantActive} className="soft-row flex items-center justify-between gap-3 p-4">
             <div>
@@ -305,22 +660,71 @@ function PlantSlideOver({ supplier }: { supplier: AdminSupplier | null }) {
   );
 }
 
-function CountTile({
-  icon: Icon,
+function TextField({
+  name,
+  id,
+  label,
+  defaultValue = "",
+  maxLength,
+  required = true,
+}: {
+  name: string;
+  id?: string;
+  label: string;
+  defaultValue?: string;
+  maxLength?: number;
+  required?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm font-medium text-muted-foreground">{label}</span>
+      <input
+        id={id}
+        name={name}
+        type="text"
+        defaultValue={defaultValue}
+        maxLength={maxLength}
+        className="soft-control mt-2 w-full"
+        required={required}
+      />
+    </label>
+  );
+}
+
+function NumberField({
+  name,
+  id,
+  label,
+}: {
+  name: string;
+  id?: string;
+  label: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm font-medium text-muted-foreground">{label}</span>
+      <input
+        id={id}
+        name={name}
+        type="number"
+        step="0.0000001"
+        className="soft-control mt-2 w-full"
+      />
+    </label>
+  );
+}
+
+function DetailRow({
   label,
   value,
 }: {
-  icon: typeof Building2;
   label: string;
-  value: number;
+  value: string | null;
 }) {
   return (
-    <div className="glass-tile min-h-32 p-5">
-      <Icon className="size-5 text-foreground" />
-      <p className="mt-5 text-xs font-medium uppercase text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-2 text-3xl font-semibold">{value}</p>
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right font-medium">{value ?? "Not set"}</span>
     </div>
   );
 }

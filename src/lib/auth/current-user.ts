@@ -5,7 +5,7 @@ export type AppUser = {
   organization_id: string;
   email: string;
   full_name: string;
-  role: "admin" | "account_manager" | "estimator";
+  role: "platform_admin" | "admin" | "account_manager" | "estimator";
   organization: {
     id: string;
     name: string;

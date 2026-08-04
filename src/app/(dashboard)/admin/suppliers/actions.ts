@@ -31,18 +31,13 @@ export async function saveSupplier(formData: FormData) {
   const payload = {
     organization_id: user.organization_id,
     name: requiredText(formData, "name"),
-    parent_company: optionalText(formData, "parent_company"),
-    address: {
-      street: optionalText(formData, "street"),
-      city: requiredText(formData, "city"),
-      state: requiredState(formData, "state"),
-      postal_code: optionalText(formData, "postal_code"),
-    },
-    latitude: optionalCoordinate(formData, "latitude", -90, 90),
-    longitude: optionalCoordinate(formData, "longitude", -180, 180),
-    hours: optionalText(formData, "hours"),
-    primary_contact_name: optionalText(formData, "primary_contact_name"),
-    primary_contact_phone: optionalText(formData, "primary_contact_phone"),
+    parent_company: null,
+    address: {},
+    latitude: null,
+    longitude: null,
+    hours: null,
+    primary_contact_name: null,
+    primary_contact_phone: null,
     notes: optionalText(formData, "notes"),
     is_active: formData.get("is_active") === "on",
   };
@@ -66,7 +61,7 @@ export async function saveSupplier(formData: FormData) {
 
   const { data: supplier, error } = await query
     .select(
-      "id, name, parent_company, address, latitude, longitude, hours, primary_contact_name, primary_contact_phone, notes, is_active",
+      "id, name, notes, is_active",
     )
     .single<Record<string, unknown>>();
 
@@ -121,35 +116,4 @@ function optionalText(formData: FormData, key: string): string | null {
   }
 
   return value.trim();
-}
-
-function requiredState(formData: FormData, key: string): string {
-  const value = requiredText(formData, key).toUpperCase();
-
-  if (!/^[A-Z]{2}$/.test(value)) {
-    throw new Error("State must be a two-letter code.");
-  }
-
-  return value;
-}
-
-function optionalCoordinate(
-  formData: FormData,
-  key: string,
-  min: number,
-  max: number,
-): number | null {
-  const value = formData.get(key);
-
-  if (typeof value !== "string" || !value.trim()) {
-    return null;
-  }
-
-  const numberValue = Number(value);
-
-  if (!Number.isFinite(numberValue) || numberValue < min || numberValue > max) {
-    throw new Error(`${key} is out of range.`);
-  }
-
-  return Math.round((numberValue + Number.EPSILON) * 10000000) / 10000000;
 }

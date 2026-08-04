@@ -1,4 +1,5 @@
 import type { AppUser } from "@/lib/auth/current-user";
+import { isRetiredFeature } from "@/lib/features/flags";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -120,48 +121,38 @@ export async function getSystemCheckSummary(
     .eq("organization_id", user.organization_id)
     .order("feature_name", { ascending: true })
     .returns<FeatureFlagSummary[]>();
+  const currentVisibleFlags =
+    visibleFlags?.filter((flag) => !isRetiredFeature(flag.feature_name)) ?? [];
 
   checks.push({
     label: "Feature flag visibility",
-    status: visibleFlags?.length ? "pass" : "warn",
-    detail: visibleFlags?.length
-      ? `${visibleFlags.length} feature flags are visible to the current org.`
+    status: currentVisibleFlags.length ? "pass" : "warn",
+    detail: currentVisibleFlags.length
+      ? `${currentVisibleFlags.length} feature flags are visible to the current org.`
       : "No feature flags were visible to this user session.",
   });
 
-  const googleMapsEnabled =
-    visibleFlags?.some(
-      (flag) =>
-        flag.feature_name === "google_maps_distance_api" && flag.is_enabled,
-    ) ?? false;
-  const { data: googleMapsIntegration } = await supabase
+  const { data: mapboxIntegration } = await supabase
     .from("organization_integrations")
     .select("is_enabled, credentials_last4")
     .eq("organization_id", user.organization_id)
-    .eq("provider", "google_maps")
+    .eq("provider", "mapbox")
     .maybeSingle<{
       is_enabled: boolean;
       credentials_last4: Record<string, unknown> | null;
     }>();
-  const googleMapsConfigured = Boolean(
-    googleMapsIntegration?.is_enabled &&
-      typeof googleMapsIntegration.credentials_last4?.api_key === "string",
+  const mapboxConfigured = Boolean(
+    mapboxIntegration?.is_enabled &&
+      typeof mapboxIntegration.credentials_last4?.public_access_token === "string",
   );
 
   checks.push({
-    label: "Google Maps distance API",
-    status:
-      googleMapsEnabled && !googleMapsConfigured
-        ? "warn"
-        : googleMapsEnabled
-          ? "pass"
-          : "warn",
+    label: "Mapbox location services",
+    status: mapboxConfigured ? "pass" : "warn",
     detail:
-      googleMapsEnabled && googleMapsConfigured
-        ? "Distance Matrix is enabled and this organization has a Google Maps API key."
-        : googleMapsEnabled
-          ? "Distance Matrix is enabled, but this organization has not saved a Google Maps API key under Admin > Integrations > Gmail + OpenAI."
-          : "Distance Matrix is disabled for this organization; distance estimates will use the local fallback.",
+      mapboxConfigured
+        ? "Mapbox is configured for address search, fallback geocoding, and route distance."
+        : "Mapbox is not configured; address search and route distances will use manual or local fallback where available.",
   });
 
   const slackEnabled =
@@ -259,23 +250,17 @@ export async function getSystemCheckSummary(
         organizations: 0,
         invitedUsers: 0,
         appUsers: 0,
-        featureFlags: visibleFlags?.length ?? 0,
+        featureFlags: currentVisibleFlags.length,
       },
       checks,
-      featureFlags: visibleFlags ?? [],
+      featureFlags: currentVisibleFlags,
     };
   }
 
-  const [
-    organizations,
-    invitedUsers,
-    appUsers,
-    featureFlags,
-  ] = await Promise.all([
+  const [organizations, invitedUsers, appUsers] = await Promise.all([
     admin.from("organizations").select("id", { count: "exact", head: true }),
     admin.from("user_invites").select("id", { count: "exact", head: true }),
     admin.from("users").select("id", { count: "exact", head: true }),
-    admin.from("feature_flags").select("id", { count: "exact", head: true }),
   ]);
 
   checks.push({
@@ -289,9 +274,9 @@ export async function getSystemCheckSummary(
       organizations: organizations.count ?? 0,
       invitedUsers: invitedUsers.count ?? 0,
       appUsers: appUsers.count ?? 0,
-      featureFlags: featureFlags.count ?? 0,
+      featureFlags: currentVisibleFlags.length,
     },
     checks,
-    featureFlags: visibleFlags ?? [],
+    featureFlags: currentVisibleFlags,
   };
 }

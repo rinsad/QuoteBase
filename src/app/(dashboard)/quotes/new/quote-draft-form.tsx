@@ -4,13 +4,9 @@ import { useActionState, useMemo, useState, useTransition } from "react";
 import {
   Award,
   BrainCircuit,
-  Calculator,
   FilePlus2,
-  GitPullRequestArrow,
   MapPin,
   PackageOpen,
-  Route,
-  ShieldCheck,
   TrendingUp,
   UserRound,
 } from "lucide-react";
@@ -21,6 +17,10 @@ import {
   type CreateQuoteState,
   type QuoteJobSiteInlineOption,
 } from "@/app/(dashboard)/quotes/new/actions";
+import {
+  MapboxAddressSearch,
+  type MapboxAddressSelection,
+} from "@/components/mapbox-address-search";
 import { Button } from "@/components/ui/button";
 import {
   calculateQuoteDraft,
@@ -41,6 +41,10 @@ const initialJobSiteState = {
   city: "",
   county: "",
   state: "CA",
+  postalCode: "",
+  latitude: "",
+  longitude: "",
+  mapboxId: "",
 };
 
 type QuoteLineDraft = {
@@ -52,26 +56,35 @@ type QuoteLineDraft = {
   calculation: QuoteDraftCalculation;
 };
 
+type MaterialOption = NewQuoteContext["materials"][number];
+
+type MaterialChoice = {
+  key: string;
+  material: MaterialOption;
+  plantCount: number;
+  supplierCount: number;
+  categories: string[];
+};
+
 function formatMaterialOption(
-  material: NewQuoteContext["materials"][number],
+  material: MaterialOption,
 ): string {
   return [
     material.catalog_sku ? `${material.catalog_sku} - ${material.name}` : material.name,
     `(${material.tier})`,
-    supplierCompanyName(material),
-    plantName(material),
+    material.unit,
   ]
     .filter(Boolean)
     .join(" - ");
 }
 
 function supplierCompanyName(
-  material: NewQuoteContext["materials"][number],
+  material: MaterialOption,
 ): string {
   return material.supplier_parent_company ?? material.supplier_name;
 }
 
-function plantName(material: NewQuoteContext["materials"][number]): string {
+function plantName(material: MaterialOption): string {
   return material.supplier_name;
 }
 
@@ -80,36 +93,97 @@ function normalizeMaterialLabel(value: string): string {
 }
 
 function materialOptionLabels(
-  material: NewQuoteContext["materials"][number],
+  material: MaterialOption,
 ): string[] {
   return [
     formatMaterialOption(material),
-    `${material.name} - (${material.tier}) - ${supplierCompanyName(material)} - ${plantName(material)}`,
-    `${material.name} (${material.tier}) - ${supplierCompanyName(material)} - ${plantName(material)}`,
+    `${material.name} - (${material.tier}) - ${material.unit}`,
+    `${material.name} (${material.tier}) ${material.unit}`,
   ];
+}
+
+function buildMaterialChoices(materials: MaterialOption[]): MaterialChoice[] {
+  const choices = new Map<
+    string,
+    {
+      material: MaterialOption;
+      plants: Set<string>;
+      suppliers: Set<string>;
+      categories: Set<string>;
+    }
+  >();
+
+  for (const material of materials) {
+    const key = materialChoiceKey(material);
+    const current =
+      choices.get(key) ??
+      {
+        material,
+        plants: new Set<string>(),
+        suppliers: new Set<string>(),
+        categories: new Set<string>(),
+      };
+
+    current.plants.add(plantName(material));
+    current.suppliers.add(supplierCompanyName(material));
+
+    if (material.catalog_category) {
+      current.categories.add(material.catalog_category);
+    }
+
+    if (material.cost_per_unit < current.material.cost_per_unit) {
+      current.material = material;
+    }
+
+    choices.set(key, current);
+  }
+
+  return Array.from(choices.entries())
+    .map(([key, choice]) => ({
+      key,
+      material: choice.material,
+      plantCount: choice.plants.size,
+      supplierCount: choice.suppliers.size,
+      categories: Array.from(choice.categories).sort((a, b) =>
+        a.localeCompare(b, "en-US", { sensitivity: "base" }),
+      ),
+    }))
+    .sort((left, right) =>
+      formatMaterialOption(left.material).localeCompare(
+        formatMaterialOption(right.material),
+        "en-US",
+        { numeric: true, sensitivity: "base" },
+      ),
+    );
+}
+
+function materialChoiceKey(material: MaterialOption): string {
+  return [
+    normalizeMaterialLabel(material.name),
+    normalizeMaterialLabel(material.unit),
+    material.tier,
+  ].join("|");
 }
 
 export function QuoteDraftForm({
   context,
-  userRole,
 }: {
   context: NewQuoteContext;
-  userRole: "admin" | "account_manager" | "estimator";
 }) {
   const [state, formAction, isPending] = useActionState(
     createQuoteDraft,
     initialState,
   );
+  const defaultQuoteDate = localDateInputValue(new Date());
+  const defaultExpiresAt = localDateInputValue(addDays(new Date(), 30));
+  const [quoteDate, setQuoteDate] = useState(defaultQuoteDate);
+  const [expiresAt, setExpiresAt] = useState(defaultExpiresAt);
+  const [isExpirationManual, setIsExpirationManual] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [jobSites, setJobSites] = useState(context.jobSites);
   const [materialId, setMaterialId] = useState("");
   const [taxRateId, setTaxRateId] = useState("");
   const [quantity, setQuantity] = useState("");
-  const [materialUnitPriceOverride, setMaterialUnitPriceOverride] =
-    useState("");
-  const [materialMinimumOverride, setMaterialMinimumOverride] = useState("");
-  const [truckingMinimumOverride, setTruckingMinimumOverride] = useState("");
-  const [truckRateOverride, setTruckRateOverride] = useState("");
   const [jobSiteId, setJobSiteId] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("");
   const [activeStep, setActiveStep] = useState(0);
@@ -128,16 +202,20 @@ export function QuoteDraftForm({
   const siteCity = selectedJobSite?.city ?? "";
   const siteCounty = selectedJobSite?.county ?? "";
   const siteState = selectedJobSite?.state ?? "";
+  const materialChoices = useMemo(
+    () => buildMaterialChoices(context.materials),
+    [context.materials],
+  );
   const normalizedMaterialSearch = normalizeMaterialLabel(materialSearch);
   const typedMaterialMatch = normalizedMaterialSearch
-    ? context.materials.find(
-        (material) =>
-          materialOptionLabels(material).some(
+    ? materialChoices.find(
+        (choice) =>
+          materialOptionLabels(choice.material).some(
             (label) => normalizeMaterialLabel(label) === normalizedMaterialSearch,
           ),
       )
     : undefined;
-  const effectiveMaterialId = materialId || typedMaterialMatch?.id || "";
+  const effectiveMaterialId = materialId || typedMaterialMatch?.material.id || "";
   const selectedMaterial = context.materials.find(
     (material) => material.id === effectiveMaterialId,
   );
@@ -152,95 +230,37 @@ export function QuoteDraftForm({
   const selectedCustomer = context.customers.find(
     (customer) => customer.id === customerId,
   );
-  const closestPlantOptions = useMemo(() => {
-    if (!selectedMaterial || !selectedJobSite) {
-      return [];
-    }
-
-    return context.materials
-      .filter(
-        (material) =>
-          material.name === selectedMaterial.name &&
-          material.unit === selectedMaterial.unit &&
-          material.tier === selectedMaterial.tier,
-      )
-      .map((material) => ({
-        material,
-        routeMiles: estimatedRouteMiles(material, selectedJobSite),
-      }))
-      .sort((left, right) => {
-        if (left.routeMiles === null && right.routeMiles === null) {
-          return left.material.cost_per_unit - right.material.cost_per_unit;
-        }
-
-        if (left.routeMiles === null) {
-          return 1;
-        }
-
-        if (right.routeMiles === null) {
-          return -1;
-        }
-
-        return (
-          left.routeMiles - right.routeMiles ||
-          left.material.cost_per_unit - right.material.cost_per_unit
-        );
-      });
-  }, [context.materials, selectedMaterial, selectedJobSite]);
+  const calculationTaxRate = selectedTaxRate?.rate ?? 0;
   const filteredMaterials = useMemo(() => {
     const term = materialSearch.trim().toLowerCase();
 
     if (!term) {
-      return context.materials;
+      return materialChoices;
     }
 
-    return context.materials.filter((material) =>
+    return materialChoices.filter((choice) =>
       [
-        material.catalog_sku,
-        material.name,
-        material.catalog_category,
-        material.supplier_parent_company,
-        material.supplier_name,
+        choice.material.catalog_sku,
+        choice.material.name,
+        choice.material.catalog_category,
+        choice.material.tier,
+        choice.material.unit,
+        ...choice.categories,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(term),
     );
-  }, [context.materials, materialSearch]);
+  }, [materialChoices, materialSearch]);
   const materialSuggestions = filteredMaterials.slice(0, 8);
   const filteredJobSites = customerId
     ? jobSites.filter((site) => site.customer_id === customerId)
     : jobSites;
   const quantityValue = Number(quantity);
-  const materialUnitPriceOverrideValue = Number(materialUnitPriceOverride);
-  const activeMaterialUnitPriceOverride =
-    Number.isFinite(materialUnitPriceOverrideValue) &&
-    materialUnitPriceOverrideValue > 0
-      ? materialUnitPriceOverrideValue
-      : null;
-  const materialMinimumOverrideValue = Number(materialMinimumOverride);
-  const activeMaterialMinimumOverride =
-    materialMinimumOverride !== "" &&
-    Number.isFinite(materialMinimumOverrideValue) &&
-    materialMinimumOverrideValue >= 0
-      ? materialMinimumOverrideValue
-      : null;
-  const truckingMinimumOverrideValue = Number(truckingMinimumOverride);
-  const activeTruckingMinimumOverride =
-    truckingMinimumOverride !== "" &&
-    Number.isFinite(truckingMinimumOverrideValue) &&
-    truckingMinimumOverrideValue >= 0
-      ? truckingMinimumOverrideValue
-      : null;
-  const activeTruckRateOverride =
-    userRole === "admin" && isTruckRateKey(truckRateOverride)
-      ? truckRateOverride
-      : null;
   const recommendation = useMemo(() => {
     if (
       !selectedMaterial ||
-      !selectedTaxRate ||
       !context.pricingConfig ||
       !Number.isFinite(quantityValue) ||
       quantityValue <= 0
@@ -263,17 +283,14 @@ export function QuoteDraftForm({
           quantity: quantityValue,
           tier: material.tier,
           unit: material.unit,
-          taxRate: selectedTaxRate.rate,
+          taxRate: calculationTaxRate,
           pricingConfig,
           vehicleTypes: context.vehicleTypes,
+          unitConversions: context.unitConversions,
           routeDurationSeconds: estimateRouteDurationSeconds({
             material,
             jobSite: selectedJobSite ?? null,
           }),
-          materialUnitPriceOverride: activeMaterialUnitPriceOverride,
-          truckRateOverride: activeTruckRateOverride,
-          materialMinimumOverride: activeMaterialMinimumOverride,
-          truckingMinimumOverride: activeTruckingMinimumOverride,
           paymentTerms,
           catalogMarkupRule: material.catalog_markup_rule,
         }),
@@ -299,39 +316,70 @@ export function QuoteDraftForm({
       recommended: recommendedOption,
       options: rankedOptions,
       alternatives: rankedOptions.slice(1, 3),
-      isSelectedRecommended:
-        selectedOption.material.id === recommendedOption.material.id,
     };
   }, [
     context.materials,
     context.pricingConfig,
+    context.unitConversions,
     context.vehicleTypes,
-    activeMaterialUnitPriceOverride,
-    activeMaterialMinimumOverride,
-    activeTruckingMinimumOverride,
-    activeTruckRateOverride,
+    calculationTaxRate,
     quantityValue,
     paymentTerms,
     selectedMaterial,
-    selectedTaxRate,
     selectedJobSite,
   ]);
-  const liveCalculation = recommendation?.selected.calculation ?? null;
+  const selectedLineOption = recommendation?.recommended ?? null;
+  const liveCalculation = selectedLineOption?.calculation ?? null;
   const currentLineDraft =
     selectedMaterial &&
+    selectedLineOption &&
     liveCalculation &&
     Number.isFinite(quantityValue) &&
     quantityValue > 0
       ? {
           id: "current",
-          materialId: selectedMaterial.id,
+          materialId: selectedLineOption.material.id,
           quantity: quantityValue,
-          materialUnitPriceOverride: activeMaterialUnitPriceOverride,
-          material: selectedMaterial,
+          materialUnitPriceOverride: null,
+          material: selectedLineOption.material,
           calculation: liveCalculation,
         }
       : null;
-  const submitLines = [...quoteLines, ...(currentLineDraft ? [currentLineDraft] : [])];
+  const submitLines = useMemo(
+    () =>
+      quoteLines.map((line) =>
+        context.pricingConfig
+          ? {
+              ...line,
+              calculation: calculateQuoteDraft({
+                costPerUnit: line.material.cost_per_unit,
+                quantity: line.quantity,
+                tier: line.material.tier,
+                unit: line.material.unit,
+                taxRate: calculationTaxRate,
+                pricingConfig: context.pricingConfig,
+                vehicleTypes: context.vehicleTypes,
+                unitConversions: context.unitConversions,
+                routeDurationSeconds: estimateRouteDurationSeconds({
+                  material: line.material,
+                  jobSite: selectedJobSite ?? null,
+                }),
+                paymentTerms,
+                catalogMarkupRule: line.material.catalog_markup_rule,
+              }),
+            }
+          : line,
+      ),
+    [
+      calculationTaxRate,
+      context.pricingConfig,
+      context.unitConversions,
+      context.vehicleTypes,
+      paymentTerms,
+      quoteLines,
+      selectedJobSite,
+    ],
+  );
   const hasQuoteLineReady = submitLines.length > 0;
   const submitLineItemsJson = JSON.stringify(
     submitLines.map((line) => ({
@@ -363,30 +411,32 @@ export function QuoteDraftForm({
     {
       key: "site",
       kicker: "Step 2",
-      title: "Confirm the job site",
+      title: "Choose the job site",
       summary: selectedJobSite
         ? `${selectedJobSite.name} - ${selectedJobSite.city}, ${selectedJobSite.state}`
         : "Not selected",
       complete: Boolean(jobSiteId),
     },
     {
-      key: "material",
+      key: "materials",
       kicker: "Step 3",
-      title: "Pick material and quantity",
+      title: "Add materials",
       summary:
         hasQuoteLineReady
           ? `${submitLines.length} line${submitLines.length === 1 ? "" : "s"}`
-          : "Not selected",
+          : selectedMaterial
+            ? `Add ${selectedMaterial.name}`
+            : "Not selected",
       complete: hasQuoteLineReady,
     },
     {
       key: "pricing",
       kicker: "Step 4",
-      title: "Tune pricing options",
+      title: "Confirm tax and pricing",
       summary: hasQuoteLineReady
         ? formatCurrency(draftTotals.total)
         : "Waiting for inputs",
-      complete: hasQuoteLineReady,
+      complete: Boolean(hasQuoteLineReady && selectedTaxRate),
     },
     {
       key: "review",
@@ -395,25 +445,33 @@ export function QuoteDraftForm({
       summary: hasQuoteLineReady
         ? `${formatCurrency(draftTotals.total)} draft`
         : "Complete prior steps",
-      complete: hasQuoteLineReady,
+      complete: Boolean(hasQuoteLineReady && selectedTaxRate),
     },
   ];
   const currentStep = steps[activeStep] ?? steps[0];
   const progressPct = ((activeStep + 1) / steps.length) * 100;
-  const canAdvance = currentStep.complete || activeStep >= 3;
+  const canAdvance = currentStep.complete;
   const quoteLineBlocker = !selectedMaterial
-    ? "Choose a material from the suggestions to continue."
+    ? hasQuoteLineReady
+      ? "Search another material above to add another line, or continue to tax and pricing."
+      : "Choose a material from the suggestions to continue."
     : !Number.isFinite(quantityValue) || quantityValue <= 0
       ? "Enter a quantity greater than zero to continue."
-      : !selectedTaxRate
-        ? "Choose a tax area or job site with a matching tax area to continue."
-        : !context.pricingConfig
+      : !context.pricingConfig
           ? "Pricing configuration is missing. Open Admin > Pricing to save the default pricing setup."
           : !recommendation
             ? "This material is selected, but QuoteBase could not calculate supplier pricing for its tier, unit, and cost."
             : null;
-  const materialStepBlocker =
-    activeStep === 2 && !hasQuoteLineReady ? quoteLineBlocker : null;
+  const stepBlocker =
+    activeStep === 1 && !jobSiteId
+      ? "Choose or create a job site to continue."
+      : activeStep === 2 && !hasQuoteLineReady
+        ? currentLineDraft
+          ? "Add one of the pricing options to the quote before continuing."
+          : (quoteLineBlocker ?? "Add at least one material to continue.")
+        : activeStep === 3 && !selectedTaxRate
+          ? "Choose a tax area to continue."
+      : null;
 
   function goToStep(nextStep: number) {
     setActiveStep(Math.min(Math.max(nextStep, 0), steps.length - 1));
@@ -454,17 +512,6 @@ export function QuoteDraftForm({
     setTaxRateId("");
   }
 
-  function handleNewJobSiteField(
-    field: keyof typeof initialJobSiteState,
-    value: string,
-  ) {
-    setNewJobSite((current) => ({
-      ...current,
-      [field]: field === "state" ? value.toUpperCase().slice(0, 2) : value,
-    }));
-    setJobSiteFeedback(null);
-  }
-
   function saveNewJobSite() {
     if (!customerId) {
       setJobSiteFeedback({
@@ -482,6 +529,10 @@ export function QuoteDraftForm({
     formData.set("city", newJobSite.city);
     formData.set("county", newJobSite.county);
     formData.set("state", newJobSite.state);
+    formData.set("postal_code", newJobSite.postalCode);
+    formData.set("latitude", newJobSite.latitude);
+    formData.set("longitude", newJobSite.longitude);
+    formData.set("mapbox_id", newJobSite.mapboxId);
 
     startSavingJobSite(async () => {
       const result = await createQuoteJobSite(formData);
@@ -509,33 +560,55 @@ export function QuoteDraftForm({
     setTaxRateId("");
   }
 
-  function addCurrentLine() {
-    if (!currentLineDraft) {
-      return;
-    }
+  function handleJobSiteAddressSelect(selection: MapboxAddressSelection) {
+    setNewJobSite((current) => ({
+      ...current,
+      name: current.name || selection.street || selection.label,
+      line1: selection.street,
+      city: selection.city,
+      county: selection.county,
+      state: selection.state || current.state,
+      postalCode: selection.postalCode,
+      latitude: String(selection.latitude),
+      longitude: String(selection.longitude),
+      mapboxId: selection.mapboxId,
+    }));
+    setJobSiteFeedback(null);
+  }
 
+  function addLineForOption(
+    option: Recommendation["options"][number],
+  ) {
     setQuoteLines((lines) => [
       ...lines,
       {
-        ...currentLineDraft,
         id:
           typeof crypto !== "undefined" && "randomUUID" in crypto
             ? crypto.randomUUID()
             : `${Date.now()}-${lines.length}`,
+        materialId: option.material.id,
+        quantity: quantityValue,
+        materialUnitPriceOverride: null,
+        material: option.material,
+        calculation: option.calculation,
       },
     ]);
     setMaterialId("");
     setMaterialSearch("");
     setQuantity("");
-    setMaterialUnitPriceOverride("");
+    setIsMaterialPickerOpen(false);
+  }
+
+  function resetCurrentMaterial() {
+    setMaterialId("");
+    setMaterialSearch("");
+    setQuantity("");
+    setIsMaterialPickerOpen(false);
   }
 
   function removeLine(lineId: string) {
     if (lineId === "current") {
-      setMaterialId("");
-      setMaterialSearch("");
-      setQuantity("");
-      setMaterialUnitPriceOverride("");
+      resetCurrentMaterial();
       return;
     }
 
@@ -545,26 +618,13 @@ export function QuoteDraftForm({
   function handleMaterialSearchChange(value: string) {
     setMaterialSearch(value);
     setMaterialId("");
-    setIsMaterialPickerOpen(true);
+    setIsMaterialPickerOpen(value.trim().length > 0);
   }
 
   function selectMaterial(material: NewQuoteContext["materials"][number]) {
     setMaterialId(material.id);
     setMaterialSearch(formatMaterialOption(material));
     setIsMaterialPickerOpen(false);
-  }
-
-  function selectMaterialById(nextMaterialId: string) {
-    const material = context.materials.find(
-      (option) => option.id === nextMaterialId,
-    );
-
-    if (material) {
-      selectMaterial(material);
-      return;
-    }
-
-    setMaterialId(nextMaterialId);
   }
 
   return (
@@ -574,6 +634,7 @@ export function QuoteDraftForm({
       noValidate
     >
       <input type="hidden" name="line_items" value={submitLineItemsJson} />
+      <input type="hidden" name="use_selected_plant" value="on" />
       <div className="lg:col-span-2">
         <div className="glass-panel overflow-hidden">
           <div className="h-1.5 bg-secondary">
@@ -647,50 +708,120 @@ export function QuoteDraftForm({
                 ))}
               </select>
             </Field>
-          </div>
-          {selectedCustomer ? (
-            <div className="mt-5 rounded-[18px] border border-white/70 bg-white/65 p-4">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <MiniMetric
-                  label="Default address"
-                  value={addressLine(selectedCustomer.address) || "Not saved"}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Quote date"
+                required
+                error={state.fieldErrors.quote_date}
+              >
+                <input
+                  name="quote_date"
+                  type="date"
+                  className="soft-control w-full"
+                  value={quoteDate}
+                  onChange={(event) => {
+                    const nextQuoteDate = event.target.value;
+
+                    setQuoteDate(nextQuoteDate);
+
+                    if (!isExpirationManual && nextQuoteDate) {
+                      setExpiresAt(localDateInputValue(addDaysFromInput(nextQuoteDate, 30)));
+                    }
+                  }}
+                  aria-invalid={Boolean(state.fieldErrors.quote_date)}
+                  required
                 />
-                <MiniMetric
-                  label="Payment terms"
-                  value={selectedCustomer.payment_terms ?? "COD"}
+              </Field>
+              <Field
+                label="Expires at"
+                required
+                error={state.fieldErrors.expires_at}
+              >
+                <input
+                  name="expires_at"
+                  type="date"
+                  className="soft-control w-full"
+                  value={expiresAt}
+                  onChange={(event) => {
+                    setExpiresAt(event.target.value);
+                    setIsExpirationManual(true);
+                  }}
+                  aria-invalid={Boolean(state.fieldErrors.expires_at)}
+                  required
                 />
-                <MiniMetric
-                  label="History"
-                  value={`${selectedCustomer.quote_history.length} recent quote${
-                    selectedCustomer.quote_history.length === 1 ? "" : "s"
-                  }`}
-                />
-              </div>
-              {selectedCustomer.quote_history.length ? (
-                <div className="mt-3 space-y-2">
-                  {selectedCustomer.quote_history.map((quote) => (
-                    <div
-                      key={quote.id}
-                      className="flex items-center justify-between gap-3 rounded-xl bg-white/70 px-3 py-2 text-xs"
-                    >
-                      <span className="font-medium">{quote.quote_number}</span>
-                      <span className="text-muted-foreground">
-                        {formatStatus(quote.status)} -{" "}
-                        {formatCurrency(quote.total)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+              </Field>
             </div>
-          ) : null}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Account type"
+                required
+                error={state.fieldErrors.account_type}
+              >
+                <select
+                  name="account_type"
+                  className="soft-control w-full"
+                  defaultValue="contractor"
+                  aria-invalid={Boolean(state.fieldErrors.account_type)}
+                  required
+                >
+                  <option value="contractor">Contractor</option>
+                  <option value="non_contractor">Non-contractor</option>
+                </select>
+              </Field>
+              <Field
+                label="Project status"
+                required
+                error={state.fieldErrors.project_status}
+              >
+                <select
+                  name="project_status"
+                  className="soft-control w-full"
+                  defaultValue={context.projectStatusOptions[0]?.value ?? "bid"}
+                  aria-invalid={Boolean(state.fieldErrors.project_status)}
+                  required
+                >
+                  {context.projectStatusOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Job start"
+                optional
+                error={state.fieldErrors.job_start_date}
+              >
+                <input
+                  name="job_start_date"
+                  type="date"
+                  className="soft-control w-full"
+                  aria-invalid={Boolean(state.fieldErrors.job_start_date)}
+                />
+              </Field>
+              <Field
+                label="Job end"
+                optional
+                error={state.fieldErrors.job_end_date}
+              >
+                <input
+                  name="job_end_date"
+                  type="date"
+                  className="soft-control w-full"
+                  aria-invalid={Boolean(state.fieldErrors.job_end_date)}
+                />
+              </Field>
+            </div>
+          </div>
         </section>
 
         <section className={stepPanelClass(activeStep === 1)}>
           <SectionHeader
             icon={MapPin}
             kicker="Job Site"
-            title="Where is the material going?"
+            title="Select or create the delivery job site"
           />
           <div className="mt-5 grid gap-4">
             <div className="inline-grid w-full grid-cols-2 rounded-full bg-secondary/70 p-1 sm:w-fit">
@@ -705,7 +836,7 @@ export function QuoteDraftForm({
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {mode === "saved" ? "Saved site" : "New site"}
+                  {mode === "saved" ? "Existing job site" : "Create new job site"}
                 </button>
               ))}
             </div>
@@ -733,11 +864,23 @@ export function QuoteDraftForm({
                 <span className="mt-2 block text-xs leading-5 text-muted-foreground">
                   {customerId
                     ? "Showing saved job sites for the selected customer."
-                    : "Select a customer first to narrow saved job sites."}
+                    : "Select a customer first to choose or create a job site."}
                 </span>
               </Field>
             ) : (
               <div className="rounded-[18px] border border-white/70 bg-white/65 p-4">
+                <p className="mb-4 text-sm leading-6 text-muted-foreground">
+                  Create a job site for this quote. After it is saved, it will be
+                  selected automatically and used for trucking distance.
+                </p>
+                <div className="mb-4">
+                  <MapboxAddressSearch
+                    label="Delivery address search"
+                    placeholder="Search job site or delivery address with Mapbox..."
+                    disabled={!customerId || isSavingJobSite}
+                    onSelect={handleJobSiteAddressSelect}
+                  />
+                </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field
                     label="Site name"
@@ -745,11 +888,9 @@ export function QuoteDraftForm({
                     error={jobSiteFeedback?.fieldErrors.name}
                   >
                     <input
-                      className="soft-control w-full"
+                      className="soft-control w-full cursor-default bg-muted/40"
                       value={newJobSite.name}
-                      onChange={(event) =>
-                        handleNewJobSiteField("name", event.target.value)
-                      }
+                      readOnly
                       disabled={!customerId || isSavingJobSite}
                     />
                   </Field>
@@ -758,11 +899,9 @@ export function QuoteDraftForm({
                     error={jobSiteFeedback?.fieldErrors.line1}
                   >
                     <input
-                      className="soft-control w-full"
+                      className="soft-control w-full cursor-default bg-muted/40"
                       value={newJobSite.line1}
-                      onChange={(event) =>
-                        handleNewJobSiteField("line1", event.target.value)
-                      }
+                      readOnly
                       disabled={!customerId || isSavingJobSite}
                     />
                   </Field>
@@ -772,11 +911,9 @@ export function QuoteDraftForm({
                     error={jobSiteFeedback?.fieldErrors.city}
                   >
                     <input
-                      className="soft-control w-full"
+                      className="soft-control w-full cursor-default bg-muted/40"
                       value={newJobSite.city}
-                      onChange={(event) =>
-                        handleNewJobSiteField("city", event.target.value)
-                      }
+                      readOnly
                       disabled={!customerId || isSavingJobSite}
                     />
                   </Field>
@@ -786,11 +923,9 @@ export function QuoteDraftForm({
                     error={jobSiteFeedback?.fieldErrors.county}
                   >
                     <input
-                      className="soft-control w-full"
+                      className="soft-control w-full cursor-default bg-muted/40"
                       value={newJobSite.county}
-                      onChange={(event) =>
-                        handleNewJobSiteField("county", event.target.value)
-                      }
+                      readOnly
                       disabled={!customerId || isSavingJobSite}
                     />
                   </Field>
@@ -800,13 +935,47 @@ export function QuoteDraftForm({
                     error={jobSiteFeedback?.fieldErrors.state}
                   >
                     <input
-                      className="soft-control w-full"
+                      className="soft-control w-full cursor-default bg-muted/40"
                       value={newJobSite.state}
-                      onChange={(event) =>
-                        handleNewJobSiteField("state", event.target.value)
-                      }
+                      readOnly
                       disabled={!customerId || isSavingJobSite}
                       maxLength={2}
+                    />
+                  </Field>
+                  <Field label="ZIP" optional>
+                    <input
+                      className="soft-control w-full cursor-default bg-muted/40"
+                      value={newJobSite.postalCode}
+                      readOnly
+                      disabled={!customerId || isSavingJobSite}
+                    />
+                  </Field>
+                  <Field
+                    label="Latitude"
+                    optional
+                    error={jobSiteFeedback?.fieldErrors.latitude}
+                  >
+                    <input
+                      className="soft-control w-full cursor-default bg-muted/40"
+                      type="number"
+                      step="0.0000001"
+                      value={newJobSite.latitude}
+                      readOnly
+                      disabled={!customerId || isSavingJobSite}
+                    />
+                  </Field>
+                  <Field
+                    label="Longitude"
+                    optional
+                    error={jobSiteFeedback?.fieldErrors.longitude}
+                  >
+                    <input
+                      className="soft-control w-full cursor-default bg-muted/40"
+                      type="number"
+                      step="0.0000001"
+                      value={newJobSite.longitude}
+                      readOnly
+                      disabled={!customerId || isSavingJobSite}
                     />
                   </Field>
                 </div>
@@ -814,10 +983,12 @@ export function QuoteDraftForm({
                   <Button
                     type="button"
                     className="rounded-full"
-                    disabled={!customerId || isSavingJobSite}
+                    disabled={
+                      !customerId || !newJobSite.mapboxId || isSavingJobSite
+                    }
                     onClick={saveNewJobSite}
                   >
-                    {isSavingJobSite ? "Saving..." : "Add job site"}
+                    {isSavingJobSite ? "Saving..." : "Save and use job site"}
                   </Button>
                   {jobSiteFeedback ? (
                     <p
@@ -866,11 +1037,21 @@ export function QuoteDraftForm({
         <section className={stepPanelClass(activeStep === 2)}>
           <SectionHeader
             icon={PackageOpen}
-            kicker="Supplier Sourcing"
-            title="Source the material"
+            kicker="Materials"
+            title="Add materials and choose supplier options"
           />
-          <div className="mt-5 space-y-4">
-            <Field label="Material" required error={state.fieldErrors.material_id}>
+          <div className="mt-5 grid gap-4">
+            {!selectedJobSite ? (
+              <div className="soft-row p-4 text-sm leading-6 text-muted-foreground">
+                Choose or create the delivery job site first so QuoteBase can
+                calculate trucking before ranking supplier plants.
+              </div>
+            ) : null}
+            <Field
+              label={hasQuoteLineReady ? "Next material" : "Material"}
+              required={!hasQuoteLineReady}
+              error={state.fieldErrors.material_id}
+            >
               <div
                 className="relative"
                 onBlur={(event) => {
@@ -884,17 +1065,19 @@ export function QuoteDraftForm({
                   }
                 }}
               >
-                <input
-                  type="hidden"
-                  name="material_id"
-                  value={effectiveMaterialId}
-                />
+                <input type="hidden" name="material_id" value="" />
                 <input
                   type="search"
                   className="soft-control w-full"
-                  placeholder="Search by SKU, material, category, or supplier"
+                  placeholder={
+                    hasQuoteLineReady
+                      ? "Search another material to add"
+                      : "Search by SKU, material, or category"
+                  }
                   value={materialSearch}
-                  onFocus={() => setIsMaterialPickerOpen(true)}
+                  onFocus={() =>
+                    setIsMaterialPickerOpen(materialSearch.trim().length > 0)
+                  }
                   onChange={(event) =>
                     handleMaterialSearchChange(event.target.value)
                   }
@@ -911,25 +1094,28 @@ export function QuoteDraftForm({
                     className="absolute left-0 right-0 z-20 mt-2 max-h-80 overflow-auto rounded-[18px] border border-border bg-card p-2 shadow-xl"
                   >
                     {materialSuggestions.length ? (
-                      materialSuggestions.map((material) => (
+                      materialSuggestions.map((choice) => (
                         <button
-                          key={material.id}
+                          key={choice.key}
                           type="button"
                           role="option"
-                          aria-selected={material.id === materialId}
+                          aria-selected={choice.material.id === materialId}
                           className="w-full rounded-[14px] px-3 py-3 text-left transition hover:bg-secondary focus:bg-secondary focus:outline-none"
                           onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => selectMaterial(material)}
+                          onClick={() => selectMaterial(choice.material)}
                         >
                           <span className="block text-sm font-semibold text-foreground">
-                            {formatMaterialOption(material)}
+                            {formatMaterialOption(choice.material)}
                           </span>
                           <span className="mt-1 block text-xs text-muted-foreground">
                             {[
-                              material.catalog_category,
-                              material.supplier_catalog_item_id
-                                ? "Price book"
-                                : "Manual material",
+                              choice.categories[0],
+                              `${choice.supplierCount} supplier${
+                                choice.supplierCount === 1 ? "" : "s"
+                              }`,
+                              `${choice.plantCount} plant${
+                                choice.plantCount === 1 ? "" : "s"
+                              } available`,
                             ]
                               .filter(Boolean)
                               .join(" - ")}
@@ -945,33 +1131,28 @@ export function QuoteDraftForm({
                 ) : null}
               </div>
             </Field>
-            {selectedMaterial?.supplier_catalog_item_id ? (
+            {selectedMaterial ? (
               <div className="rounded-[18px] border border-emerald-100 bg-emerald-50/70 p-4 text-sm text-emerald-900">
-                <p className="font-semibold">Price book item selected</p>
+                <p className="font-semibold">Material selected</p>
                 <p className="mt-1 leading-6">
                   {[
                     selectedMaterial.catalog_sku
                       ? `SKU ${selectedMaterial.catalog_sku}`
                       : null,
+                    selectedMaterial.name,
+                    selectedMaterial.tier,
+                    selectedMaterial.unit,
                     selectedMaterial.catalog_category,
-                    supplierCompanyName(selectedMaterial),
-                    plantName(selectedMaterial),
                   ]
                     .filter(Boolean)
                     .join(" - ")}
                 </p>
               </div>
             ) : null}
-            {selectedMaterial && selectedJobSite ? (
-              <ClosestPlantTable
-                options={closestPlantOptions}
-                selectedMaterialId={selectedMaterial.id}
-                selectedJobSite={selectedJobSite}
-                onSelectMaterial={selectMaterialById}
-              />
-            ) : selectedMaterial ? (
+            {selectedMaterial && !selectedJobSite ? (
               <div className="soft-row p-4 text-sm leading-6 text-muted-foreground">
-                Select or add a job site to calculate closest plants.
+                Select or add a job site so QuoteBase can calculate trucking and
+                rank supplier plants.
               </div>
             ) : null}
             <Field label="Quantity" required error={state.fieldErrors.quantity}>
@@ -991,31 +1172,21 @@ export function QuoteDraftForm({
             {recommendation && selectedMaterial ? (
               <SupplierSourcingTable
                 recommendation={recommendation}
-                selectedMaterialId={selectedMaterial.id}
                 selectedJobSite={selectedJobSite ?? null}
-                onSelectMaterial={selectMaterialById}
+                onAddOption={addLineForOption}
               />
             ) : (
-              <div className="soft-row p-4 text-sm leading-6 text-muted-foreground">
+              <div
+                className={`soft-row p-4 text-sm leading-6 ${
+                  hasQuoteLineReady
+                    ? "text-primary"
+                    : "text-muted-foreground"
+                }`}
+              >
                 {quoteLineBlocker ??
                   "QuoteBase is preparing supplier catalog options for this line."}
               </div>
             )}
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-full"
-                disabled={!currentLineDraft}
-                onClick={addCurrentLine}
-              >
-                <FilePlus2 className="size-4" />
-                Add line
-              </Button>
-              <span className="text-xs leading-5 text-muted-foreground">
-                Save will include added lines plus the current valid line.
-              </span>
-            </div>
             {submitLines.length ? (
               <QuoteLinesTable lines={submitLines} onRemoveLine={removeLine} />
             ) : null}
@@ -1024,165 +1195,17 @@ export function QuoteDraftForm({
                 {state.fieldErrors.line_items}
               </p>
             ) : null}
-            <details className="rounded-[18px] border border-border bg-card/70 p-4">
-              <summary className="cursor-pointer text-sm font-semibold">
-                Advanced pricing
-              </summary>
-              <div className="mt-4 space-y-4">
-                <Field
-                  label="Manual sell price override"
-                  optional
-                  error={state.fieldErrors.material_unit_price_override}
-                >
-                  <input
-                    name="material_unit_price_override"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    className="soft-control w-full"
-                    placeholder="Optional price per unit"
-                    value={materialUnitPriceOverride}
-                    onChange={(event) =>
-                      setMaterialUnitPriceOverride(event.target.value)
-                    }
-                    aria-invalid={Boolean(
-                      state.fieldErrors.material_unit_price_override,
-                    )}
-                  />
-                </Field>
-                {context.competitiveIntelligenceEnabled ? (
-                  <Field
-                    label="Competitor price"
-                    optional
-                    error={state.fieldErrors.competitor_price}
-                  >
-                    <input
-                      name="competitor_price"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      className="soft-control w-full"
-                      placeholder="Competitor quoted price"
-                      aria-invalid={Boolean(state.fieldErrors.competitor_price)}
-                    />
-                  </Field>
-                ) : null}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field
-                    label="Material minimum override"
-                    optional
-                    error={state.fieldErrors.material_minimum_override}
-                  >
-                    <input
-                      name="material_minimum_override"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="soft-control w-full"
-                      placeholder="Default minimum"
-                      value={materialMinimumOverride}
-                      onChange={(event) =>
-                        setMaterialMinimumOverride(event.target.value)
-                      }
-                      aria-invalid={Boolean(
-                        state.fieldErrors.material_minimum_override,
-                      )}
-                    />
-                  </Field>
-                  <Field
-                    label="Trucking minimum override"
-                    optional
-                    error={state.fieldErrors.trucking_minimum_override}
-                  >
-                    <input
-                      name="trucking_minimum_override"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="soft-control w-full"
-                      placeholder="Per truck/load"
-                      value={truckingMinimumOverride}
-                      onChange={(event) =>
-                        setTruckingMinimumOverride(event.target.value)
-                      }
-                      aria-invalid={Boolean(
-                        state.fieldErrors.trucking_minimum_override,
-                      )}
-                    />
-                  </Field>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field
-                    label="Manual route miles"
-                    optional
-                    error={state.fieldErrors.manual_route_distance_miles}
-                  >
-                    <input
-                      name="manual_route_distance_miles"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="soft-control w-full"
-                      placeholder="Plant to delivery"
-                      aria-invalid={Boolean(
-                        state.fieldErrors.manual_route_distance_miles,
-                      )}
-                    />
-                  </Field>
-                  <Field
-                    label="Manual deadhead miles"
-                    optional
-                    error={state.fieldErrors.manual_deadhead_distance_miles}
-                  >
-                    <input
-                      name="manual_deadhead_distance_miles"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="soft-control w-full"
-                      placeholder="Yard to plant"
-                      aria-invalid={Boolean(
-                        state.fieldErrors.manual_deadhead_distance_miles,
-                      )}
-                    />
-                  </Field>
-                </div>
-                {userRole === "admin" ? (
-                  <Field label="Trucking rate override" optional>
-                    <select
-                      name="truck_rate_override"
-                      className="soft-control w-full"
-                      value={truckRateOverride}
-                      onChange={(event) =>
-                        setTruckRateOverride(event.target.value)
-                      }
-                    >
-                      <option value="">Use configured default</option>
-                      <option value="floor">Floor - admin override</option>
-                      <option value="standard">Standard</option>
-                      <option value="target">Target</option>
-                      <option value="premium">Premium</option>
-                      <option value="stretch">Stretch</option>
-                    </select>
-                  </Field>
-                ) : null}
-                {recommendation && !recommendation.isSelectedRecommended ? (
-                  <label className="flex items-start gap-3 rounded-[18px] bg-amber-50/80 p-4 text-sm text-amber-900 ring-1 ring-amber-100">
-                    <input
-                      name="use_selected_plant"
-                      type="checkbox"
-                      className="mt-1 size-4"
-                    />
-                    <span>
-                      Override plant selection and keep{" "}
-                      {plantName(recommendation.selected.material)}. The
-                      audit log will record the override.
-                    </span>
-                  </label>
-                ) : null}
-              </div>
-            </details>
-            <Field label="Tax area" optional>
+          </div>
+        </section>
+
+        <section className={stepPanelClass(activeStep === 3)}>
+          <SectionHeader
+            icon={BrainCircuit}
+            kicker="Quote Intelligence"
+            title="Confirm tax and pricing"
+          />
+          <div className="mt-5">
+            <Field label="Tax area" required>
               <select
                 name="tax_rate_id"
                 className="soft-control w-full"
@@ -1203,22 +1226,7 @@ export function QuoteDraftForm({
                 ))}
               </select>
             </Field>
-            <Field label="Notes" optional>
-              <textarea
-                name="notes"
-                className="soft-control min-h-28 w-full resize-none py-3"
-                placeholder="Internal notes for this draft"
-              />
-            </Field>
           </div>
-        </section>
-
-        <section className={stepPanelClass(activeStep >= 3)}>
-          <SectionHeader
-            icon={BrainCircuit}
-            kicker="Quote Intelligence"
-            title="Distributor pricing logic"
-          />
           {submitLines.length && selectedTaxRate ? (
             <div className="mt-5 space-y-4">
               <div className="rounded-[18px] border border-blue-100 bg-blue-50/70 p-4">
@@ -1298,24 +1306,6 @@ export function QuoteDraftForm({
                 value={formatCurrency(draftTotals.total)}
                 strong
               />
-
-              <div className="grid gap-3">
-                <LogicCallout
-                  icon={ShieldCheck}
-                  title="Approval packet"
-                  text="The rep saves this as a draft with the applied rules, margin, supplier recommendation, trucking plan, and total ready for review."
-                />
-                <LogicCallout
-                  icon={Route}
-                  title="Routing logic"
-                  text={loadRuleTextForLines(submitLines)}
-                />
-                <LogicCallout
-                  icon={GitPullRequestArrow}
-                  title="Next integration step"
-                  text="This draft can be routed to Slack approval first, then sent through the built-in QuoteBase workflow."
-                />
-              </div>
             </div>
           ) : (
             <p className="mt-5 text-sm leading-6 text-muted-foreground">
@@ -1323,19 +1313,49 @@ export function QuoteDraftForm({
               trucking, fees, margin, and approval logic before saving.
             </p>
           )}
-          <Button
-            type="submit"
-            disabled={isPending || !context.quoteCreationEnabled}
-            className="mt-6 h-11 w-full rounded-full"
-          >
-            <FilePlus2 className="size-4" />
-            {isPending ? "Saving..." : "Save draft quote"}
-          </Button>
-          {state.message ? (
-            <p className="mt-4 rounded-[16px] bg-rose-50 px-4 py-3 text-sm text-rose-700 ring-1 ring-rose-100">
-              {state.message}
-            </p>
-          ) : null}
+        </section>
+
+        <section className={stepPanelClass(activeStep === 4)}>
+          <SectionHeader
+            icon={FilePlus2}
+            kicker="Save"
+            title="Review and save the draft quote"
+          />
+          <div className="mt-5 space-y-4">
+            {submitLines.length ? (
+              <QuoteLinesTable lines={submitLines} onRemoveLine={removeLine} />
+            ) : null}
+            <SummaryRow
+              label="Draft quote total"
+              value={formatCurrency(draftTotals.total)}
+              strong
+            />
+            <Field label="Notes" optional>
+              <textarea
+                name="notes"
+                className="soft-control min-h-28 w-full resize-none py-3"
+                placeholder="Internal notes for this draft"
+              />
+            </Field>
+            <Button
+              type="submit"
+              disabled={
+                isPending ||
+                !context.quoteCreationEnabled ||
+                !hasQuoteLineReady ||
+                !selectedTaxRate
+              }
+              className="h-11 w-full rounded-full"
+            >
+              <FilePlus2 className="size-4" />
+              {isPending ? "Saving..." : "Save draft quote"}
+            </Button>
+            {state.message ? (
+              <p className="rounded-[16px] bg-rose-50 px-4 py-3 text-sm text-rose-700 ring-1 ring-rose-100">
+                {state.message}
+              </p>
+            ) : null}
+          </div>
         </section>
         <div className="flex items-center justify-between gap-3">
           <Button
@@ -1348,9 +1368,9 @@ export function QuoteDraftForm({
             Back
           </Button>
           <div className="flex flex-col items-end gap-2">
-            {materialStepBlocker ? (
+            {stepBlocker ? (
               <p className="max-w-sm text-right text-xs font-medium text-muted-foreground">
-                {materialStepBlocker}
+                {stepBlocker}
               </p>
             ) : null}
             {activeStep < steps.length - 1 ? (
@@ -1411,26 +1431,6 @@ export function QuoteDraftForm({
   );
 }
 
-function LogicCallout({
-  icon: Icon,
-  title,
-  text,
-}: {
-  icon: typeof Calculator;
-  title: string;
-  text: string;
-}) {
-  return (
-    <div className="soft-row flex gap-3 p-4">
-      <Icon className="mt-0.5 size-4 shrink-0 text-blue-700" />
-      <div>
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="mt-1 text-sm leading-6 text-muted-foreground">{text}</p>
-      </div>
-    </div>
-  );
-}
-
 function stepPanelClass(isActive: boolean): string {
   return `glass-panel p-5 sm:p-6 ${isActive ? "block" : "hidden"}`;
 }
@@ -1452,126 +1452,7 @@ type Recommendation = {
     material: NewQuoteContext["materials"][number];
     calculation: QuoteDraftCalculation;
   }>;
-  isSelectedRecommended: boolean;
 };
-
-function ClosestPlantTable({
-  options,
-  selectedMaterialId,
-  selectedJobSite,
-  onSelectMaterial,
-}: {
-  options: Array<{
-    material: NewQuoteContext["materials"][number];
-    routeMiles: number | null;
-  }>;
-  selectedMaterialId: string;
-  selectedJobSite: NewQuoteContext["jobSites"][number];
-  onSelectMaterial: (materialId: string) => void;
-}) {
-  const hasKnownDistance = options.some((option) => option.routeMiles !== null);
-
-  return (
-    <div className="rounded-[18px] border border-white/70 bg-white/65 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold">Closest plants</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Calculated from {selectedJobSite.name} using saved plant and job site
-            coordinates.
-          </p>
-        </div>
-        <span className="soft-chip bg-[#ecf2ed] text-[#3d6652] ring-[#d7ded5]">
-          {options.length} plant{options.length === 1 ? "" : "s"}
-        </span>
-      </div>
-
-      {options.length ? (
-        <div className="mt-4 overflow-hidden rounded-[16px] ring-1 ring-border">
-          <div className="grid grid-cols-[minmax(140px,1fr)_minmax(150px,1fr)_auto_auto_auto] gap-3 bg-muted/70 px-3 py-2 text-xs font-semibold text-muted-foreground">
-            <span>Supplier</span>
-            <span>Plant</span>
-            <span className="text-right">Distance</span>
-            <span className="text-right">Buy</span>
-            <span className="text-right">Action</span>
-          </div>
-          {options.slice(0, 5).map((option, index) => {
-            const isSelected = option.material.id === selectedMaterialId;
-
-            return (
-              <button
-              key={option.material.id}
-              type="button"
-              onClick={() => onSelectMaterial(option.material.id)}
-                className={`grid w-full grid-cols-[minmax(140px,1fr)_minmax(150px,1fr)_auto_auto_auto] items-center gap-3 border-t border-border px-3 py-3 text-left text-sm transition hover:bg-secondary/70 ${
-                  isSelected ? "bg-secondary" : "bg-card/70"
-                }`}
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-semibold">
-                    {supplierCompanyName(option.material)}
-                  </span>
-                  <span className="mt-1 block truncate text-xs text-muted-foreground">
-                    {option.material.catalog_category ?? "Catalog material"}
-                  </span>
-                </span>
-                <span className="min-w-0">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate font-semibold">
-                      {plantName(option.material)}
-                    </span>
-                    {index === 0 && option.routeMiles !== null ? (
-                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 ring-1 ring-blue-100">
-                        Closest
-                      </span>
-                    ) : null}
-                    {isSelected ? (
-                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                        Selected
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="mt-1 block truncate text-xs text-muted-foreground">
-                    {option.material.catalog_sku
-                      ? `SKU ${option.material.catalog_sku}`
-                      : "Price book plant"}
-                  </span>
-                </span>
-                <span className="font-mono text-xs">
-                  {option.routeMiles === null
-                    ? "--"
-                    : `${option.routeMiles.toFixed(1)} mi`}
-                </span>
-                <span className="font-mono text-xs font-semibold">
-                  {formatCurrency(option.material.cost_per_unit)}
-                </span>
-                <span
-                  className={`justify-self-end rounded-full px-3 py-1 text-xs font-semibold ${
-                    isSelected
-                      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
-                      : "bg-primary text-primary-foreground"
-                  }`}
-                >
-                  {isSelected ? "Selected" : "Choose"}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="mt-4 rounded-[16px] bg-card/70 px-4 py-3 text-sm text-muted-foreground ring-1 ring-border">
-          No plants carry this exact material, tier, and unit yet.
-        </p>
-      )}
-
-      {!hasKnownDistance && options.length ? (
-        <p className="mt-3 text-xs leading-5 text-muted-foreground">
-          Add coordinates to the job site and supplier plants to rank by miles.
-        </p>
-      ) : null}
-    </div>
-  );
-}
 
 function QuoteLinesTable({
   lines,
@@ -1645,42 +1526,33 @@ function QuoteLinesTable({
 
 function SupplierSourcingTable({
   recommendation,
-  selectedMaterialId,
   selectedJobSite,
-  onSelectMaterial,
+  onAddOption,
 }: {
   recommendation: Recommendation;
-  selectedMaterialId: string;
   selectedJobSite: NewQuoteContext["jobSites"][number] | null;
-  onSelectMaterial: (materialId: string) => void;
+  onAddOption: (option: Recommendation["options"][number]) => void;
 }) {
+  const topOptions = recommendation.options.slice(0, 3);
+
   return (
     <div className="rounded-[18px] border border-white/70 bg-white/65 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold">Supplier options</p>
+          <p className="text-sm font-semibold">Best pricing options</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Ranked by the same catalog cost, markup, load plan, trucking, fee,
-            and tax rules used when the draft is saved.
+            Top 3 supplier, plant, and material matches ranked by delivered
+            quote total using plant and job-site coordinates for trucking.
           </p>
         </div>
         <span className="soft-chip bg-[#ecf2ed] text-[#3d6652] ring-[#d7ded5]">
-          {recommendation.options.length} option
-          {recommendation.options.length === 1 ? "" : "s"}
+          {topOptions.length} best option
+          {topOptions.length === 1 ? "" : "s"}
         </span>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-[16px] ring-1 ring-border">
-        <div className="grid grid-cols-[minmax(130px,1fr)_minmax(150px,1fr)_auto_auto_auto_auto] gap-3 bg-muted/70 px-3 py-2 text-xs font-semibold text-muted-foreground">
-          <span>Supplier</span>
-          <span>Plant</span>
-          <span className="text-right">Distance</span>
-          <span className="text-right">Buy</span>
-          <span className="text-right">Total</span>
-          <span className="text-right">Action</span>
-        </div>
-        {recommendation.options.slice(0, 5).map((option, index) => {
-          const isSelected = option.material.id === selectedMaterialId;
+      <div className="mt-4 space-y-3">
+        {topOptions.map((option, index) => {
           const isRecommended =
             option.material.id === recommendation.recommended.material.id;
           const routeMiles = estimatedRouteMiles(
@@ -1689,69 +1561,109 @@ function SupplierSourcingTable({
           );
 
           return (
-            <button
+            <div
               key={option.material.id}
-              type="button"
-              onClick={() => onSelectMaterial(option.material.id)}
-              className={`grid w-full grid-cols-[minmax(130px,1fr)_minmax(150px,1fr)_auto_auto_auto_auto] items-center gap-3 border-t border-border px-3 py-3 text-left text-sm transition hover:bg-secondary/70 ${
-                isSelected ? "bg-secondary" : "bg-card/70"
+              className={`rounded-[16px] border border-border p-4 ${
+                isRecommended ? "bg-secondary" : "bg-card/80"
               }`}
             >
-              <span className="min-w-0">
-                <span className="block truncate font-semibold">
-                  {supplierCompanyName(option.material)}
-                </span>
-                <span className="mt-1 block truncate text-xs text-muted-foreground">
-                  {option.material.catalog_category ?? "Catalog material"}
-                </span>
-              </span>
-              <span className="min-w-0">
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className="truncate font-semibold">
-                    {plantName(option.material)}
-                  </span>
-                  {isRecommended ? (
-                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                      Recommended
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(440px,0.95fr)_auto] lg:items-center">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-muted-foreground ring-1 ring-border">
+                      {isRecommended ? "Use" : `#${index + 1}`}
                     </span>
-                  ) : null}
-                  {isSelected && !isRecommended ? (
-                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-100">
-                      Selected
-                    </span>
-                  ) : null}
-                </span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {option.calculation.loadCount.toFixed(0)} load
-                  {option.calculation.loadCount === 1 ? "" : "s"}
-                  {option.calculation.vehicleName
-                    ? ` via ${option.calculation.vehicleName}`
-                    : ""}
-                  {index > 0 ? `- option ${index + 1}` : ""}
-                </span>
-              </span>
-              <span className="font-mono text-xs">
-                {routeMiles === null ? "--" : `${routeMiles.toFixed(1)} mi`}
-              </span>
-              <span className="font-mono text-xs">
-                {formatCurrency(option.material.cost_per_unit)}
-              </span>
-              <span className="font-mono text-xs font-semibold">
-                {formatCurrency(option.calculation.total)}
-              </span>
-              <span
-                className={`justify-self-end rounded-full px-3 py-1 text-xs font-semibold ${
-                  isSelected
-                    ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
-                    : "bg-primary text-primary-foreground"
-                }`}
-              >
-                {isSelected ? "Selected" : "Choose"}
-              </span>
-            </button>
+                    <h3 className="truncate text-sm font-semibold">
+                      {supplierCompanyName(option.material)} /{" "}
+                      {plantName(option.material)}
+                    </h3>
+                    {isRecommended ? (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                        Recommended
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 truncate text-sm font-medium">
+                    {option.material.name}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {option.material.catalog_category ?? "Catalog material"} -{" "}
+                    {option.material.tier} - {option.material.unit}
+                    {option.material.catalog_sku
+                      ? ` - SKU ${option.material.catalog_sku}`
+                      : ""}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {option.calculation.loadCount.toFixed(0)} load
+                    {option.calculation.loadCount === 1 ? "" : "s"}
+                    {option.calculation.vehicleName
+                      ? ` via ${option.calculation.vehicleName}`
+                      : ""}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
+                  <OptionMetric label="Distance" value={formatDistance(routeMiles)} />
+                  <OptionMetric
+                    label="Trucking"
+                    value={formatCurrency(option.calculation.truckingSubtotal)}
+                  />
+                  <OptionMetric
+                    label="Buy"
+                    value={formatCurrency(option.material.cost_per_unit)}
+                  />
+                  <OptionMetric
+                    label="Material"
+                    value={formatCurrency(option.calculation.materialSubtotal)}
+                  />
+                  <OptionMetric
+                    label="Total"
+                    value={formatCurrency(option.calculation.total)}
+                    strong
+                  />
+                  <OptionMetric
+                    label="Rank"
+                    value={isRecommended ? "Use" : `#${index + 1}`}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  className="h-10 rounded-full"
+                  onClick={() => onAddOption(option)}
+                >
+                  <FilePlus2 className="size-4" />
+                  Add
+                </Button>
+              </div>
+            </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function OptionMetric({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
+  return (
+    <div className="rounded-xl bg-white/70 px-3 py-2 ring-1 ring-border">
+      <p className="text-[11px] font-semibold uppercase text-muted-foreground">
+        {label}
+      </p>
+      <p
+        className={`mt-1 truncate font-mono text-xs ${
+          strong ? "font-semibold text-foreground" : "text-foreground"
+        }`}
+      >
+        {value}
+      </p>
     </div>
   );
 }
@@ -1796,6 +1708,10 @@ function estimatedRouteMiles(
   return straightLineMiles * 1.25;
 }
 
+function formatDistance(value: number | null): string {
+  return value === null ? "--" : `${value.toFixed(1)} mi`;
+}
+
 function haversineMiles(
   fromLatitude: number,
   fromLongitude: number,
@@ -1831,10 +1747,6 @@ function RecommendationCard({
   recommendation: Recommendation;
   unit: string;
 }) {
-  const savings =
-    recommendation.selected.calculation.total -
-    recommendation.recommended.calculation.total;
-
   return (
     <div className="rounded-[18px] border border-border bg-secondary p-4 text-secondary-foreground">
       <div className="flex items-start gap-3">
@@ -1845,46 +1757,30 @@ function RecommendationCard({
           <p className="text-sm font-semibold">Recommended supplier</p>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
             {supplierCompanyName(recommendation.recommended.material)} /{" "}
-            {plantName(recommendation.recommended.material)} is the current best
-            catalog match for this material, tier, unit, and quantity.
+            {plantName(recommendation.recommended.material)} is the supplier
+            and plant QuoteBase will use for this line based on catalog cost,
+            load plan, trucking, fees, and tax.
           </p>
           <div className="mt-3 grid gap-2">
             <MiniMetric
-              label="Selected supplier"
-              value={supplierCompanyName(recommendation.selected.material)}
+              label="Chosen supplier"
+              value={supplierCompanyName(recommendation.recommended.material)}
             />
             <MiniMetric
-              label="Selected plant"
-              value={plantName(recommendation.selected.material)}
+              label="Chosen plant"
+              value={plantName(recommendation.recommended.material)}
             />
             <MiniMetric
-              label="Selected total"
-              value={formatCurrency(recommendation.selected.calculation.total)}
-            />
-            <MiniMetric
-              label="Recommended total"
+              label="Chosen total"
               value={formatCurrency(recommendation.recommended.calculation.total)}
             />
             <MiniMetric
-              label="Recommended sell price"
+              label="Sell price"
               value={`${formatCurrency(
                 recommendation.recommended.calculation.materialUnitPrice,
               )} / ${unit}`}
             />
-            {!recommendation.isSelectedRecommended ? (
-              <MiniMetric
-                label="Override visibility"
-                value={formatCurrency(Math.max(0, savings))}
-              />
-            ) : null}
           </div>
-          {!recommendation.isSelectedRecommended ? (
-            <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 ring-1 ring-amber-100">
-              The selected supplier is not the recommended option. Leave the
-              override unchecked to use the recommendation, or check the
-              override to keep the selected plant.
-            </p>
-          ) : null}
           {recommendation.alternatives.length ? (
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
               Next option:{" "}
@@ -2134,29 +2030,6 @@ function formatCatalogRuleLabel(rule: CatalogMarkupRule): string {
   return `${value} ${scope}`;
 }
 
-function loadRuleText(calculation: QuoteDraftCalculation) {
-  if (calculation.loadCount <= 1) {
-    return "Single-load quotes prioritize the cleanest supplier fit and fast approval review.";
-  }
-
-  if (calculation.loadCount <= 3) {
-    return "Multi-load quotes compare total delivered cost before approval routing.";
-  }
-
-  return "Large-load quotes emphasize material economics, trucking plan, and approval visibility.";
-}
-
-function loadRuleTextForLines(lines: QuoteLineDraft[]) {
-  const loadCount = lines.reduce(
-    (sum, line) => sum + line.calculation.loadCount,
-    0,
-  );
-
-  return loadRuleText({
-    loadCount,
-  } as QuoteDraftCalculation);
-}
-
 function calculateLineTotals(lines: QuoteLineDraft[]) {
   return lines.reduce(
     (sum, line) => ({
@@ -2190,15 +2063,27 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-function formatStatus(status: string) {
-  return status
-    .split("_")
-    .map((part) => part[0]?.toUpperCase() + part.slice(1))
-    .join(" ");
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+
+  next.setDate(next.getDate() + days);
+  return next;
 }
 
-function isTruckRateKey(
-  value: string,
-): value is "floor" | "standard" | "target" | "premium" | "stretch" {
-  return ["floor", "standard", "target", "premium", "stretch"].includes(value);
+function addDaysFromInput(value: string, days: number): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  const date =
+    Number.isInteger(year) && Number.isInteger(month) && Number.isInteger(day)
+      ? new Date(year, month - 1, day)
+      : new Date();
+
+  return addDays(date, days);
+}
+
+function localDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }

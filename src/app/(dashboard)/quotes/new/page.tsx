@@ -46,7 +46,7 @@ export default async function NewQuotePage() {
         ) : null}
 
         <section className="mt-6">
-          <QuoteDraftForm context={context} userRole={user.role} />
+          <QuoteDraftForm context={context} />
         </section>
       </div>
     </main>

@@ -1,4 +1,5 @@
 import type { AppUser } from "@/lib/auth/current-user";
+import { getQuoteUnitConversions } from "@/lib/admin/units";
 import {
   calculateQuoteDraft,
   normalizeCatalogMarkupRules,
@@ -6,6 +7,8 @@ import {
   type CatalogMarkupRule,
   type MaterialTier,
   type PricingConfig,
+  type QuoteProjectStatusOption,
+  type QuoteUnitConversion,
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
 import { createClient } from "@/lib/supabase/server";
@@ -78,7 +81,9 @@ export type NewQuoteContext = {
   materials: QuoteMaterialOption[];
   taxRates: QuoteTaxRateOption[];
   vehicleTypes: QuoteVehicleOption[];
+  unitConversions: QuoteUnitConversion[];
   pricingConfig: PricingConfig | null;
+  projectStatusOptions: QuoteProjectStatusOption[];
   sampleCalculation: ReturnType<typeof calculateQuoteDraft> | null;
 };
 
@@ -90,18 +95,18 @@ type MaterialRecord = Omit<
   | "supplier_latitude"
   | "supplier_longitude"
 > & {
-  suppliers:
+  supplier_plants:
     | {
         name: string;
-        parent_company: string | null;
         latitude: number | null;
         longitude: number | null;
+        suppliers: { name: string } | { name: string }[] | null;
       }
     | {
         name: string;
-        parent_company: string | null;
         latitude: number | null;
         longitude: number | null;
+        suppliers: { name: string } | { name: string }[] | null;
       }[]
     | null;
 };
@@ -113,7 +118,12 @@ type QuoteHistoryRecord = QuoteCustomerQuoteHistory & {
 const BASE_PRICING_SELECT =
   "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton";
 
-const EXTENDED_PRICING_SELECT = `${BASE_PRICING_SELECT}, big_quote_threshold, follow_up_auto_send_enabled, follow_up_sms_enabled`;
+const DEFAULT_PROJECT_STATUS_OPTIONS: QuoteProjectStatusOption[] = [
+  { value: "bid", label: "Bid" },
+  { value: "existing_job", label: "Existing job" },
+];
+
+const EXTENDED_PRICING_SELECT = `${BASE_PRICING_SELECT}, big_quote_threshold, default_followup_max_attempts, jobs_starting_soon_days, follow_up_auto_send_enabled, follow_up_sms_enabled, project_status_options`;
 
 export async function getNewQuoteContext(
   user: AppUser,
@@ -134,6 +144,7 @@ export async function getNewQuoteContext(
     pricingConfigResult,
     quoteHistoryResult,
     markupRulesResult,
+    unitConversions,
   ] = await Promise.all([
     supabase
       .from("feature_flags")
@@ -160,11 +171,11 @@ export async function getNewQuoteContext(
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_sku, catalog_category, name, tier, unit, cost_per_unit, suppliers!inner(name, parent_company, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_sku, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(name, latitude, longitude, suppliers(name))",
       )
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
-      .eq("suppliers.is_active", true)
+      .eq("supplier_plants.is_active", true)
       .order("name", { ascending: true })
       .returns<MaterialRecord[]>(),
     supabase
@@ -197,6 +208,10 @@ export async function getNewQuoteContext(
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
       .returns<CatalogMarkupRule[]>(),
+    getQuoteUnitConversions({
+      supabase,
+      organizationId: user.organization_id,
+    }),
   ]);
   const quoteHistoryByCustomer = new Map<string, QuoteCustomerQuoteHistory[]>();
 
@@ -232,6 +247,7 @@ export async function getNewQuoteContext(
           taxRate: Number(firstTaxRate.rate),
           pricingConfig,
           vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
+          unitConversions,
           catalogMarkupRule: resolveCatalogMarkupRule(firstMaterial, markupRules),
         })
       : null;
@@ -254,9 +270,12 @@ export async function getNewQuoteContext(
       })) ?? [],
     materials:
       materialsResult.data?.map((material) => {
-        const supplier = Array.isArray(material.suppliers)
-          ? material.suppliers[0]
-          : material.suppliers;
+        const plant = Array.isArray(material.supplier_plants)
+          ? material.supplier_plants[0]
+          : material.supplier_plants;
+        const supplier = Array.isArray(plant?.suppliers)
+          ? plant?.suppliers[0]
+          : plant?.suppliers;
 
         return {
           id: material.id,
@@ -266,16 +285,16 @@ export async function getNewQuoteContext(
           catalog_sku: material.catalog_sku,
           catalog_category: material.catalog_category,
           catalog_markup_rule: resolveCatalogMarkupRule(material, markupRules),
-          supplier_name: supplier?.name ?? "Unknown supplier",
-          supplier_parent_company: supplier?.parent_company ?? null,
+          supplier_name: plant?.name ?? "Unknown plant",
+          supplier_parent_company: supplier?.name ?? null,
           supplier_latitude:
-            supplier?.latitude === null || supplier?.latitude === undefined
+            plant?.latitude === null || plant?.latitude === undefined
               ? null
-              : Number(supplier.latitude),
+              : Number(plant.latitude),
           supplier_longitude:
-            supplier?.longitude === null || supplier?.longitude === undefined
+            plant?.longitude === null || plant?.longitude === undefined
               ? null
-              : Number(supplier.longitude),
+              : Number(plant.longitude),
           name: material.name,
           tier: material.tier,
           unit: material.unit,
@@ -288,7 +307,11 @@ export async function getNewQuoteContext(
         rate: Number(taxRate.rate),
       })) ?? [],
     vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
+    unitConversions,
     pricingConfig,
+    projectStatusOptions: normalizeProjectStatusOptions(
+      pricingConfig?.project_status_options,
+    ),
     sampleCalculation,
   };
 }
@@ -382,8 +405,19 @@ export function normalizePricingConfig(config: PricingConfig): PricingConfig {
       config.big_quote_threshold === undefined
         ? undefined
         : Number(config.big_quote_threshold),
+    default_followup_max_attempts:
+      config.default_followup_max_attempts === undefined
+        ? undefined
+        : Number(config.default_followup_max_attempts),
+    jobs_starting_soon_days:
+      config.jobs_starting_soon_days === undefined
+        ? undefined
+        : Number(config.jobs_starting_soon_days),
     follow_up_auto_send_enabled: Boolean(config.follow_up_auto_send_enabled),
     follow_up_sms_enabled: Boolean(config.follow_up_sms_enabled),
+    project_status_options: normalizeProjectStatusOptions(
+      config.project_status_options,
+    ),
   };
 }
 
@@ -396,9 +430,41 @@ function emptyContext(): NewQuoteContext {
     materials: [],
     taxRates: [],
     vehicleTypes: [],
+    unitConversions: [],
     pricingConfig: null,
+    projectStatusOptions: DEFAULT_PROJECT_STATUS_OPTIONS,
     sampleCalculation: null,
   };
+}
+
+export function normalizeProjectStatusOptions(
+  value: unknown,
+): QuoteProjectStatusOption[] {
+  if (!Array.isArray(value)) {
+    return DEFAULT_PROJECT_STATUS_OPTIONS;
+  }
+
+  const options = value
+    .map((option) => {
+      if (!option || typeof option !== "object" || Array.isArray(option)) {
+        return null;
+      }
+
+      const record = option as Record<string, unknown>;
+      const optionValue =
+        typeof record.value === "string" ? record.value.trim() : "";
+      const label =
+        typeof record.label === "string" ? record.label.trim() : "";
+
+      if (!optionValue || !label) {
+        return null;
+      }
+
+      return { value: optionValue, label };
+    })
+    .filter((option): option is QuoteProjectStatusOption => Boolean(option));
+
+  return options.length ? options : DEFAULT_PROJECT_STATUS_OPTIONS;
 }
 
 export function normalizeVehicleTypes(

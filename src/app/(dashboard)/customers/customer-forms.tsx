@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState } from "react";
 import type { ReactNode } from "react";
 import { MapPin, Plus } from "lucide-react";
 
@@ -10,6 +10,7 @@ import {
   updateCustomer,
   type CustomerFormState,
 } from "@/app/(dashboard)/customers/actions";
+import { MapboxAddressSearch } from "@/components/mapbox-address-search";
 import { Button } from "@/components/ui/button";
 import type {
   CustomerDeskSummary,
@@ -22,47 +23,6 @@ const initialCustomerFormState: CustomerFormState = {
   status: "idle",
   fieldErrors: {},
 };
-
-type GoogleAddressComponent = {
-  long_name: string;
-  short_name: string;
-  types: string[];
-};
-
-type GooglePlaceResult = {
-  address_components?: GoogleAddressComponent[];
-  geometry?: {
-    location?: {
-      lat: () => number;
-      lng: () => number;
-    };
-  };
-  name?: string;
-};
-
-type GooglePlacesAutocomplete = {
-  addListener: (eventName: "place_changed", handler: () => void) => void;
-  getPlace: () => GooglePlaceResult;
-};
-
-declare global {
-  interface Window {
-    google?: {
-      maps?: {
-        places?: {
-          Autocomplete: new (
-            input: HTMLInputElement,
-            options: {
-              componentRestrictions: { country: string };
-              fields: string[];
-              types: string[];
-            },
-          ) => GooglePlacesAutocomplete;
-        };
-      };
-    };
-  }
-}
 
 export function CustomerForm({
   plants,
@@ -401,6 +361,24 @@ export function JobSiteForm({
           variant === "panel" ? "mt-5" : ""
         }`}
       >
+        <div className="sm:col-span-2">
+          <MapboxAddressSearch
+            label="Job site address search"
+            placeholder="Search job site address with Mapbox..."
+            fieldIds={{
+              street: "job-site-line1",
+              city: "job-site-city",
+              county: "job-site-county",
+              state: "job-site-state",
+              postalCode: "job-site-postal-code",
+              latitude: "job-site-latitude",
+              longitude: "job-site-longitude",
+              mapboxId: "job-site-mapbox-id",
+            }}
+          />
+        </div>
+        <input id="job-site-postal-code" type="hidden" name="postal_code" />
+        <input id="job-site-mapbox-id" type="hidden" name="mapbox_id" />
         <Field
           label="Customer"
           name="customer_id"
@@ -448,7 +426,6 @@ export function JobSiteForm({
             maxLength={240}
           />
         </Field>
-        <JobSiteAddressAutocomplete />
         <Field
           label="City"
           name="city"
@@ -576,171 +553,6 @@ function LocationDatalists({
       </datalist>
     </>
   );
-}
-
-function JobSiteAddressAutocomplete() {
-  const autocompleteRef = useRef<GooglePlacesAutocomplete | null>(null);
-  const [isReady, setIsReady] = useState(false);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    loadGooglePlaces()
-      .then(() => {
-        if (isMounted) {
-          setIsReady(true);
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setIsReady(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-      autocompleteRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isReady || autocompleteRef.current) {
-      return;
-    }
-
-    const addressInput = inputById("job-site-line1");
-
-    if (!addressInput || !window.google?.maps?.places?.Autocomplete) {
-      return;
-    }
-
-    const autocomplete = new window.google.maps.places.Autocomplete(
-      addressInput,
-      {
-        componentRestrictions: { country: "us" },
-        fields: ["address_components", "geometry", "name"],
-        types: ["address"],
-      },
-    );
-
-    autocomplete.addListener("place_changed", () => {
-      const place = autocomplete.getPlace();
-
-      applySelectedPlace(place);
-    });
-    autocompleteRef.current = autocomplete;
-  }, [isReady]);
-
-  return null;
-}
-
-function applySelectedPlace(place: GooglePlaceResult) {
-  const components = place.address_components ?? [];
-  const streetNumber = componentValue(components, "street_number", "short_name");
-  const route = componentValue(components, "route", "long_name");
-  const line1 = [streetNumber, route].filter(Boolean).join(" ");
-  const city =
-    componentValue(components, "locality", "long_name") ||
-    componentValue(components, "postal_town", "long_name") ||
-    componentValue(components, "sublocality", "long_name");
-  const county = stripCountySuffix(
-    componentValue(components, "administrative_area_level_2", "long_name"),
-  );
-  const state = componentValue(
-    components,
-    "administrative_area_level_1",
-    "short_name",
-  );
-  const latitude = place.geometry?.location?.lat();
-  const longitude = place.geometry?.location?.lng();
-
-  setInputValue("job-site-line1", line1 || place.name || "");
-  setInputValue("job-site-city", city);
-  setInputValue("job-site-county", county);
-  setInputValue("job-site-state", state);
-  setInputValue(
-    "job-site-latitude",
-    typeof latitude === "number" ? formatCoordinate(latitude) : "",
-  );
-  setInputValue(
-    "job-site-longitude",
-    typeof longitude === "number" ? formatCoordinate(longitude) : "",
-  );
-}
-
-function loadGooglePlaces(): Promise<void> {
-  if (window.google?.maps?.places?.Autocomplete) {
-    return Promise.resolve();
-  }
-
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-
-  if (!apiKey) {
-    return Promise.reject(new Error("Google Maps browser key is not configured."));
-  }
-
-  const existingScript = document.querySelector<HTMLScriptElement>(
-    "script[data-google-places='true']",
-  );
-
-  if (existingScript) {
-    return new Promise((resolve, reject) => {
-      existingScript.addEventListener("load", () => resolve(), { once: true });
-      existingScript.addEventListener("error", () => reject(), { once: true });
-    });
-  }
-
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    const url = new URL("https://maps.googleapis.com/maps/api/js");
-
-    url.searchParams.set("key", apiKey);
-    url.searchParams.set("libraries", "places");
-    url.searchParams.set("loading", "async");
-    script.src = url.toString();
-    script.async = true;
-    script.dataset.googlePlaces = "true";
-    script.addEventListener("load", () => resolve(), { once: true });
-    script.addEventListener("error", () => reject(), { once: true });
-    document.head.appendChild(script);
-  });
-}
-
-function componentValue(
-  components: GoogleAddressComponent[],
-  type: string,
-  key: "long_name" | "short_name",
-): string {
-  return (
-    components.find((component) => component.types.includes(type))?.[key] ?? ""
-  );
-}
-
-function inputById(id: string): HTMLInputElement | null {
-  const element = document.getElementById(id);
-
-  return element instanceof HTMLInputElement ? element : null;
-}
-
-function setInputValue(id: string, value: string) {
-  if (!value) {
-    return;
-  }
-
-  const input = inputById(id);
-
-  if (input) {
-    input.value = value;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  }
-}
-
-function stripCountySuffix(value: string): string {
-  return value.replace(/\s+County$/i, "");
-}
-
-function formatCoordinate(value: number): string {
-  return String(Math.round((value + Number.EPSILON) * 10_000_000) / 10_000_000);
 }
 
 function isPlantOption(value: CustomerPlantOption | null): value is CustomerPlantOption {

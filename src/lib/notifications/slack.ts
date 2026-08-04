@@ -78,7 +78,7 @@ type QuoteApprovalItemRecord = {
   fees_subtotal: number;
   line_total: number;
   load_count: number;
-  suppliers: { name: string } | { name: string }[] | null;
+  supplier_plants: { name: string } | { name: string }[] | null;
   materials:
     | { name: string; tier: string }
     | { name: string; tier: string }[]
@@ -470,7 +470,7 @@ async function getQuoteApprovalContext({
     supabase
       .from("quotes")
       .select(
-        "material_subtotal, trucking_subtotal, fees_subtotal, tax_total, customers(name), job_sites(name, city, state), quote_items(quantity, unit, unit_cost, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, load_count, suppliers(name), materials(name, tier), vehicle_types(name))",
+        "material_subtotal, trucking_subtotal, fees_subtotal, tax_total, customers(name), job_sites(name, city, state), quote_items(quantity, unit, unit_cost, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, load_count, supplier_plants(name), materials(name, tier), vehicle_types(name))",
       )
       .eq("organization_id", organizationId)
       .eq("id", quoteId)
@@ -498,7 +498,7 @@ async function getQuoteApprovalContext({
 
   const materials = quote.quote_items
     .map((item, index): QuoteApprovalMaterial | null => {
-      const supplier = relationOne(item.suppliers);
+      const supplier = relationOne(item.supplier_plants);
       const material = relationOne(item.materials);
       const vehicle = relationOne(item.vehicle_types);
 

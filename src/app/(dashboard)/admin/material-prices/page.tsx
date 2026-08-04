@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
+  ArrowUpDown,
   BadgeDollarSign,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   FileUp,
   PackageOpen,
@@ -9,10 +12,7 @@ import {
   X,
 } from "lucide-react";
 
-import {
-  updateMaterialPrice,
-  uploadMaterialPriceCsv,
-} from "@/app/(dashboard)/admin/material-prices/actions";
+import { updateMaterialPrice } from "@/app/(dashboard)/admin/material-prices/actions";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,12 +21,26 @@ import {
 } from "@/lib/admin/material-prices";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
+const SORT_KEYS = [
+  "material",
+  "supplier",
+  "tier",
+  "unit_price",
+  "supplier_pdf_info",
+  "last_update",
+] as const;
+
+type SortKey = (typeof SORT_KEYS)[number];
+type SortDir = "asc" | "desc";
+
 export default async function AdminMaterialPricesPage({
   searchParams,
 }: {
   searchParams: Promise<{
     material?: string;
+    dir?: string;
     saved?: string;
+    sort?: string;
     unchanged?: string;
     catalog_imported?: string;
   }>;
@@ -50,6 +64,9 @@ export default async function AdminMaterialPricesPage({
       ? (data.materials.find((material) => material.id === params.material) ??
         null)
       : null;
+  const sortKey = parseSortKey(params.sort);
+  const sortDir: SortDir = params.dir === "desc" ? "desc" : "asc";
+  const sortedMaterials = sortMaterials(data.materials, sortKey, sortDir);
 
   return (
     <main className="app-background">
@@ -86,132 +103,6 @@ export default async function AdminMaterialPricesPage({
           </div>
         ) : null}
 
-        <section className="mt-6 grid gap-4 md:grid-cols-4">
-          <SummaryCard
-            label="Catalog rows"
-            value={data.summary.activeMaterials.toString()}
-          />
-          <SummaryCard
-            label="Suppliers"
-            value={data.summary.suppliers.toString()}
-          />
-          <SummaryCard
-            label="Material families"
-            value={data.summary.materialFamilies.toString()}
-          />
-          <SummaryCard
-            label="Prices over 30 days"
-            value={data.summary.stalePrices.toString()}
-            attention={data.summary.stalePrices > 0}
-          />
-        </section>
-
-        <section className="mt-6">
-          <section className="glass-panel overflow-hidden">
-            <div className="slide-panel-header">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Current Catalog
-                </p>
-                <h2 className="accent-title text-2xl font-semibold tracking-normal">
-                  {data.materials.length} active materials
-                </h2>
-              </div>
-              <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
-                <PackageOpen className="size-4" />
-                Quote source
-              </div>
-              </div>
-            </div>
-
-            <div className="master-table-head lg:grid-cols-[minmax(220px,1.2fr)_minmax(180px,1fr)_100px_150px_150px_90px] lg:gap-4">
-              <span>Material</span>
-              <span>Supplier</span>
-              <span>Tier</span>
-              <span>Unit price</span>
-              <span>Last update</span>
-              <span>Action</span>
-            </div>
-
-            <div className="divide-y divide-border">
-              {data.materials.map((material) => (
-                <Link
-                  key={material.id}
-                  href={`/admin/material-prices?material=${material.id}`}
-                  className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[minmax(220px,1.2fr)_minmax(180px,1fr)_100px_150px_150px_90px] lg:items-center lg:gap-4 ${
-                    selected?.id === material.id ? "bg-secondary" : ""
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <h3 className="truncate text-sm font-semibold">
-                      {material.name}
-                    </h3>
-                    <p className="mt-1 text-xs text-muted-foreground lg:hidden">
-                      {material.supplier_name}
-                    </p>
-                  </div>
-                  <p className="hidden min-w-0 truncate text-sm text-muted-foreground lg:block">
-                    {material.supplier_name}
-                  </p>
-                  <TierBadge tier={material.tier} />
-                  <p className="font-mono text-sm font-semibold">
-                    {formatCurrency(material.cost_per_unit)}/{material.unit}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {formatDate(material.last_price_update)}
-                  </p>
-                  <span className="mac-link h-9 justify-center px-3 text-xs">
-                    Update
-                  </span>
-                </Link>
-              ))}
-            </div>
-          </section>
-        </section>
-
-        <MaterialPriceSlideOver material={selected} />
-
-        <section className="mt-6 glass-panel p-5 sm:p-6">
-          <div className="flex items-center gap-3">
-            <div className="icon-well text-blue-700">
-              <FileUp className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Bulk Update
-              </p>
-              <h2 className="text-xl font-semibold">Upload price CSV</h2>
-            </div>
-          </div>
-
-          <form
-            action={uploadMaterialPriceCsv}
-            className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto]"
-          >
-            <label>
-              <span className="text-sm font-medium text-muted-foreground">
-                CSV file
-              </span>
-              <input
-                name="price_csv"
-                type="file"
-                accept=".csv,text/csv"
-                className="soft-control mt-2 w-full"
-                required
-              />
-            </label>
-            <Button type="submit" className="h-11 self-end rounded-full">
-              <FileUp className="size-4" />
-              Upload CSV
-            </Button>
-          </form>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Header: material_id,new_price,price_date,notes. Uploads are capped
-            at 100 rows.
-          </p>
-        </section>
-
         {user.role === "admin" || user.role === "account_manager" ? (
           <section className="mt-6 glass-panel p-5 sm:p-6">
             <div className="flex items-center gap-3">
@@ -230,8 +121,9 @@ export default async function AdminMaterialPricesPage({
 
             <div className="mt-5 flex flex-col gap-4 rounded-[18px] border border-border bg-card/70 p-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm leading-6 text-muted-foreground">
-                New supplier files should go through the versioned price book
-                workflow so old quotes keep their original costs.
+                Upload supplier material PDFs through the price book workflow so
+                QuoteBase can track each supplier version and preserve pricing
+                used on older quotes.
               </p>
               <Link
                 href="/admin/price-book"
@@ -240,12 +132,124 @@ export default async function AdminMaterialPricesPage({
                 Open price book
               </Link>
             </div>
-            <p className="mt-3 text-xs leading-5 text-muted-foreground">
-              The old bulk catalog importer is intentionally bypassed from the
-              UI now that catalog versions are tracked.
-            </p>
           </section>
         ) : null}
+
+        <section className="mt-6">
+          <section className="glass-panel overflow-hidden">
+            <div className="slide-panel-header">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Current Catalog
+                  </p>
+                  <h2 className="accent-title text-2xl font-semibold tracking-normal">
+                    {data.materials.length} active materials
+                  </h2>
+                </div>
+                <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
+                  <PackageOpen className="size-4" />
+                  Quote source
+                </div>
+              </div>
+            </div>
+
+            <div className="master-table-head lg:grid-cols-[minmax(200px,1.1fr)_minmax(160px,0.8fr)_90px_135px_minmax(190px,1fr)_130px_90px] lg:gap-4">
+              <SortableHeader
+                label="Material"
+                sortKey="material"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+              />
+              <SortableHeader
+                label="Supplier"
+                sortKey="supplier"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+              />
+              <SortableHeader
+                label="Tier"
+                sortKey="tier"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+              />
+              <SortableHeader
+                label="Unit price"
+                sortKey="unit_price"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+              />
+              <SortableHeader
+                label="Supplier PDF Info"
+                sortKey="supplier_pdf_info"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+              />
+              <SortableHeader
+                label="Last update"
+                sortKey="last_update"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+              />
+              <span>Action</span>
+            </div>
+
+            <div className="divide-y divide-border">
+              {sortedMaterials.map((material) => (
+                <Link
+                  key={material.id}
+                  href={buildMaterialPriceHref(material.id, sortKey, sortDir)}
+                  className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[minmax(200px,1.1fr)_minmax(160px,0.8fr)_90px_135px_minmax(190px,1fr)_130px_90px] lg:items-center lg:gap-4 ${
+                    selected?.id === material.id ? "bg-secondary" : ""
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-semibold">
+                      {material.name}
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground lg:hidden">
+                      {material.supplier_name}
+                    </p>
+                  </div>
+                  <p className="hidden min-w-0 truncate text-sm text-muted-foreground lg:block">
+                    {material.supplier_name}
+                  </p>
+                  <TierBadge tier={material.tier} />
+                  <p className="font-mono text-sm font-semibold">
+                    {formatCurrency(material.cost_per_unit)}/{material.unit}
+                  </p>
+                  <div className="min-w-0 text-xs leading-5 text-muted-foreground">
+                    <p className="truncate">
+                      {material.catalog_source_plant ?? "Plant not mapped"}
+                    </p>
+                    <p className="truncate">
+                      {material.catalog_surcharge_per_load === null
+                        ? "No surcharge mapped"
+                        : `${formatCurrency(material.catalog_surcharge_per_load)}/load`}
+                      {material.catalog_quote_number
+                        ? ` - ${material.catalog_quote_number}`
+                        : ""}
+                    </p>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {formatDate(material.last_price_update)}
+                  </p>
+                  <span className="mac-link h-9 justify-center px-3 text-xs">
+                    Update
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
+        </section>
+
+        <MaterialPriceSlideOver material={selected} />
 
         <section className="mt-6 glass-panel p-5 sm:p-6">
           <div className="flex items-center gap-3">
@@ -293,6 +297,44 @@ export default async function AdminMaterialPricesPage({
         </section>
       </div>
     </main>
+  );
+}
+
+function SortableHeader({
+  activeSort,
+  label,
+  selectedMaterialId,
+  sortDir,
+  sortKey,
+}: {
+  activeSort: SortKey;
+  label: string;
+  selectedMaterialId: string | null;
+  sortDir: SortDir;
+  sortKey: SortKey;
+}) {
+  const isActive = activeSort === sortKey;
+  const nextDir: SortDir = isActive && sortDir === "asc" ? "desc" : "asc";
+  const Icon = isActive ? (sortDir === "asc" ? ChevronUp : ChevronDown) : ArrowUpDown;
+  const params = new URLSearchParams({
+    dir: nextDir,
+    sort: sortKey,
+  });
+
+  if (selectedMaterialId) {
+    params.set("material", selectedMaterialId);
+  }
+
+  return (
+    <Link
+      href={`/admin/material-prices?${params.toString()}`}
+      className={`inline-flex min-w-0 items-center gap-1.5 transition hover:text-foreground ${
+        isActive ? "text-foreground" : ""
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      <Icon className="size-3.5 shrink-0" />
+    </Link>
   );
 }
 
@@ -413,27 +455,83 @@ function MaterialPriceSlideOver({
   );
 }
 
-function SummaryCard({
-  label,
-  value,
-  attention = false,
-}: {
-  label: string;
-  value: string;
-  attention?: boolean;
-}) {
-  return (
-    <div className="glass-panel p-5">
-      <p className="text-sm font-medium text-muted-foreground">{label}</p>
-      <p
-        className={`mt-2 font-mono text-3xl font-semibold ${
-          attention ? "text-amber-700" : ""
-        }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
+function buildMaterialPriceHref(
+  materialId: string,
+  sortKey: SortKey,
+  sortDir: SortDir,
+) {
+  const params = new URLSearchParams({
+    dir: sortDir,
+    material: materialId,
+    sort: sortKey,
+  });
+
+  return `/admin/material-prices?${params.toString()}`;
+}
+
+function parseSortKey(value: string | undefined): SortKey {
+  return SORT_KEYS.includes(value as SortKey) ? (value as SortKey) : "material";
+}
+
+function sortMaterials(
+  materials: AdminMaterialPrice[],
+  sortKey: SortKey,
+  sortDir: SortDir,
+) {
+  return [...materials].sort((a, b) => compareMaterials(a, b, sortKey, sortDir));
+}
+
+function compareMaterials(
+  a: AdminMaterialPrice,
+  b: AdminMaterialPrice,
+  sortKey: SortKey,
+  sortDir: SortDir,
+) {
+  const direction = sortDir === "asc" ? 1 : -1;
+
+  switch (sortKey) {
+    case "supplier":
+      return compareText(a.supplier_name, b.supplier_name) * direction;
+    case "tier":
+      return compareText(a.tier, b.tier) * direction;
+    case "unit_price":
+      return (a.cost_per_unit - b.cost_per_unit) * direction;
+    case "supplier_pdf_info":
+      return (
+        compareText(a.catalog_source_plant ?? "", b.catalog_source_plant ?? "") ||
+        compareText(a.catalog_quote_number ?? "", b.catalog_quote_number ?? "") ||
+        compareText(a.name, b.name)
+      ) * direction;
+    case "last_update":
+      return compareNullableDate(a.last_price_update, b.last_price_update, sortDir);
+    case "material":
+    default:
+      return compareText(a.name, b.name) * direction;
+  }
+}
+
+function compareText(a: string, b: string) {
+  return a.localeCompare(b, "en-US", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function compareNullableDate(a: string | null, b: string | null, sortDir: SortDir) {
+  if (!a && !b) {
+    return 0;
+  }
+
+  if (!a) {
+    return 1;
+  }
+
+  if (!b) {
+    return -1;
+  }
+
+  const direction = sortDir === "asc" ? 1 : -1;
+  return (new Date(a).getTime() - new Date(b).getTime()) * direction;
 }
 
 function TierBadge({ tier }: { tier: "R1" | "R2" | "R3" | "R4" }) {

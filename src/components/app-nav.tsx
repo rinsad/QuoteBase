@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-type AppRole = "admin" | "account_manager" | "estimator";
+type AppRole = "platform_admin" | "admin" | "account_manager" | "estimator";
 
 export function WorkspaceNav({ role }: { role: AppRole }) {
   return (
@@ -22,15 +22,15 @@ export function WorkspaceNav({ role }: { role: AppRole }) {
       </Link>
       {role === "admin" || role === "account_manager" ? (
         <>
-          <Link href="/admin/plants" className="mac-link">
-            Plants
-          </Link>
-          <Link href="/admin/material-prices" className="mac-link">
-            Material prices
+          <Link href="/admin/suppliers" className="mac-link">
+            Suppliers
           </Link>
         </>
       ) : null}
-      {role === "admin" ? <AdminMenu /> : null}
+      {role === "admin" || role === "account_manager" ? (
+        <AdminMenu role={role} />
+      ) : null}
+      {role === "platform_admin" ? <PlatformMenu /> : null}
     </nav>
   );
 }
@@ -44,7 +44,10 @@ export function AdminNav({ role = "admin" }: { role?: AppRole } = {}) {
       <Link href="/quotes" className="mac-link">
         Pipeline
       </Link>
-      {role === "admin" ? <AdminMenu /> : null}
+      {role === "admin" || role === "account_manager" ? (
+        <AdminMenu role={role} />
+      ) : null}
+      {role === "platform_admin" ? <PlatformMenu /> : null}
     </nav>
   );
 }
@@ -76,38 +79,69 @@ export function QuoteNav({
   );
 }
 
-function AdminMenu() {
+function PlatformMenu() {
+  return (
+    <details className="nav-menu">
+      <summary className="nav-summary">Platform</summary>
+      <div className="nav-panel">
+        <NavGroup
+          title="Catalogs"
+          links={[{ href: "/platform/units", label: "Unit catalog" }]}
+        />
+      </div>
+    </details>
+  );
+}
+
+function AdminMenu({ role }: { role: "admin" | "account_manager" }) {
+  if (role === "account_manager") {
+    return (
+      <details className="nav-menu">
+        <summary className="nav-summary">Admin</summary>
+        <div className="nav-panel">
+          <NavGroup
+            title="Workspace"
+            links={[{ href: "/assets", label: "Assets" }]}
+          />
+        </div>
+      </details>
+    );
+  }
+
   return (
     <details className="nav-menu">
       <summary className="nav-summary">Admin</summary>
       <div className="nav-panel">
         <NavGroup
-          title="Operations"
+          title="Masters"
           links={[
-            { href: "/admin/plants", label: "Plants" },
             { href: "/admin/suppliers", label: "Suppliers" },
+            { href: "/admin/plants", label: "Plants", nested: true },
+            {
+              href: "/admin/material-prices",
+              label: "Materials",
+              nested: true,
+            },
+            { href: "/admin/pricing", label: "Pricing rules" },
+            { href: "/admin/units", label: "Units" },
+            { href: "/admin/tax-rates", label: "Tax rates" },
             { href: "/admin/yards", label: "Yards" },
             { href: "/admin/vehicle-types", label: "Vehicle types" },
           ]}
         />
         <NavGroup
-          title="Pricing"
-          links={[
-            { href: "/admin/pricing", label: "Pricing rules" },
-            { href: "/admin/price-book", label: "Price book" },
-            { href: "/admin/tax-rates", label: "Tax rates" },
-            { href: "/admin/material-prices", label: "Material prices" },
-          ]}
-        />
-        <NavGroup
           title="Workspace"
           links={[
+            { href: "/admin/settings", label: "Settings" },
+            { href: "/assets", label: "Assets" },
             { href: "/admin/onboarding", label: "Onboarding" },
             { href: "/admin/branding", label: "Branding" },
             { href: "/admin/reports", label: "Reports" },
             { href: "/admin/feature-flags", label: "Features" },
-            { href: "/admin/integrations/gmail", label: "Gmail integration" },
+            { href: "/admin/integrations/gmail", label: "Gmail" },
+            { href: "/admin/integrations/openai", label: "OpenAI" },
             { href: "/admin/integrations/slack", label: "Slack integration" },
+            { href: "/admin/integrations/mapbox", label: "Mapbox" },
             { href: "/admin/integrations/stripe", label: "Stripe" },
             { href: "/admin/integrations/authorizenet", label: "Authorize.net" },
             { href: "/admin/users", label: "Users" },
@@ -125,14 +159,18 @@ function NavGroup({
   links,
 }: {
   title: string;
-  links: Array<{ href: string; label: string }>;
+  links: Array<{ href: string; label: string; nested?: boolean }>;
 }) {
   return (
     <div>
       <p className="nav-group-title">{title}</p>
       <div className="nav-group-links">
         {links.map((link) => (
-          <Link key={link.href} href={link.href} className="nav-panel-link">
+          <Link
+            key={link.href}
+            href={link.href}
+            className={`nav-panel-link ${link.nested ? "pl-6 text-muted-foreground" : ""}`}
+          >
             {link.label}
           </Link>
         ))}

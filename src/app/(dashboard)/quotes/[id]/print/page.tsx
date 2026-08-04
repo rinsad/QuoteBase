@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { notFound, redirect } from "next/navigation";
 
 import { PrintButton } from "@/app/(dashboard)/quotes/[id]/print/print-button";
@@ -32,6 +33,7 @@ export default async function QuotePrintPage({
 
   const branding = await getQuoteBranding(user.organization_id);
   const companyName = branding?.branding.company_name ?? "QuoteBase";
+  const logoUrl = branding?.branding.logo_url ?? null;
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 print:bg-white print:px-0 print:py-0">
@@ -48,9 +50,7 @@ export default async function QuotePrintPage({
         <article className="bg-white p-8 shadow-[0_20px_70px_rgba(15,23,42,0.12)] print:p-0 print:shadow-none">
           <header className="flex flex-col gap-8 border-b border-slate-200 pb-8 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
-                {companyName}
-              </p>
+              <BrandMark companyName={companyName} logoUrl={logoUrl} />
               <h1 className="mt-3 text-4xl font-semibold">Quote</h1>
               <p className="mt-2 text-sm text-slate-500">
                 {quote.quote_number}
@@ -63,7 +63,11 @@ export default async function QuotePrintPage({
               </p>
               <p className="mt-4 text-sm font-medium text-slate-500">Date</p>
               <p className="mt-1 text-sm font-semibold">
-                {formatDate(quote.created_at)}
+                {formatDate(quote.quote_date)}
+              </p>
+              <p className="mt-4 text-sm font-medium text-slate-500">Expires</p>
+              <p className="mt-1 text-sm font-semibold">
+                {formatDate(quote.expires_at)}
               </p>
             </div>
           </header>
@@ -156,6 +160,35 @@ export default async function QuotePrintPage({
   );
 }
 
+function BrandMark({
+  companyName,
+  logoUrl,
+}: {
+  companyName: string;
+  logoUrl: string | null;
+}) {
+  if (logoUrl) {
+    return (
+      <div className="flex h-14 w-64 items-center">
+        <Image
+          src={logoUrl}
+          alt={`${companyName} logo`}
+          width={256}
+          height={56}
+          unoptimized
+          className="max-h-14 max-w-64 object-contain object-left"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
+      {companyName}
+    </p>
+  );
+}
+
 function PrintItemRow({ item }: { item: QuoteDetailItem }) {
   return (
     <div className="grid grid-cols-[1.5fr_0.6fr_0.6fr_0.8fr] border-t border-slate-200 px-4 py-4 text-sm">
@@ -206,7 +239,8 @@ function formatDate(value: string) {
     month: "long",
     day: "numeric",
     year: "numeric",
-  }).format(new Date(value));
+    timeZone: "UTC",
+  }).format(new Date(`${value}T00:00:00.000Z`));
 }
 
 function formatAddress(address: Record<string, unknown>) {

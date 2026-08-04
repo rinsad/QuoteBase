@@ -7,7 +7,7 @@ import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
 import { geocodeJobSiteAddress } from "@/lib/geo/geocode";
-import { getGoogleMapsIntegration } from "@/lib/integrations/google-maps";
+import { getMapboxIntegration } from "@/lib/integrations/mapbox";
 import { importCrmLeadCsv } from "@/lib/customers/crm";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,14 +34,51 @@ type JobSiteRecord = {
   customer_id: string;
 };
 
+type CrmCompanyUpdateRecord = {
+  id: string;
+  name: string;
+  domain: string | null;
+  email: string | null;
+  phone: string | null;
+};
+
+type CrmContactUpdateRecord = {
+  id: string;
+  company_id: string | null;
+  full_name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+};
+
+type CrmDealUpdateRecord = {
+  id: string;
+  company_id: string | null;
+  contact_id: string | null;
+  title: string;
+  stage: "new" | "qualified" | "quoted" | "won" | "lost";
+  value: number;
+  expected_close_date: string | null;
+  is_active: boolean;
+};
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const crmDealStageSchema = z.enum(["new", "qualified", "quoted", "won", "lost"]);
-
-const moveCrmDealSchema = z.object({
-  dealId: z.string().uuid(),
-  toStage: crmDealStageSchema,
+const updateCrmDealSchema = z.object({
+  deal_id: z.string().uuid(),
+  company_name: z.string().trim().min(1, "Company name is required.").max(160),
+  company_domain: z.string().trim().max(160).optional().default(""),
+  company_email: z.string().trim().email("Enter a valid company email.").optional().or(z.literal("")),
+  company_phone: z.string().trim().max(40).optional().default(""),
+  contact_name: z.string().trim().max(160).optional().default(""),
+  contact_title: z.string().trim().max(120).optional().default(""),
+  contact_email: z.string().trim().email("Enter a valid contact email.").optional().or(z.literal("")),
+  contact_phone: z.string().trim().max(40).optional().default(""),
+  deal_title: z.string().trim().min(1, "Deal title is required.").max(180),
+  value: z.coerce.number().min(0, "Deal value must be zero or more.").max(999999999),
+  expected_close_date: z.string().trim().max(20).optional().default(""),
+  is_active: z.boolean(),
 });
 
 const customerSchema = z.object({
@@ -73,6 +110,8 @@ const jobSiteSchema = z.object({
   line1: z.string().trim().max(240).optional().default(""),
   city: z.string().trim().min(1, "City is required.").max(120),
   county: z.string().trim().min(1, "County is required.").max(120),
+  postal_code: z.string().trim().max(20).optional().default(""),
+  mapbox_id: z.string().trim().max(240).optional().default(""),
   state: z
     .string()
     .trim()
@@ -101,6 +140,12 @@ const jobSiteSchema = z.object({
 export type CustomerFormState = {
   message: string;
   status: "idle" | "error";
+  fieldErrors: Record<string, string>;
+};
+
+export type CrmEditFormState = {
+  message: string;
+  status: "idle" | "success" | "error";
   fieldErrors: Record<string, string>;
 };
 
@@ -313,7 +358,16 @@ export async function createJobSite(
     state,
     latitude,
     longitude,
+    postal_code: postalCode,
+    mapbox_id: mapboxId,
   } = parsed.data;
+
+  if ((latitude === null) !== (longitude === null)) {
+    return formError("Fix the highlighted job site fields.", undefined, {
+      latitude: "Latitude and longitude must be saved together.",
+      longitude: "Latitude and longitude must be saved together.",
+    });
+  }
 
   const { data: customer } = await supabase
     .from("customers")
@@ -329,9 +383,9 @@ export async function createJobSite(
     });
   }
 
-  const googleMapsIntegration =
+  const mapboxIntegration =
     latitude === null && longitude === null
-      ? await getGoogleMapsIntegration({
+      ? await getMapboxIntegration({
           supabase,
           organizationId: user.organization_id,
         })
@@ -344,8 +398,8 @@ export async function createJobSite(
           county,
           state,
           apiKey:
-            googleMapsIntegration?.isEnabled && googleMapsIntegration.apiKey
-              ? googleMapsIntegration.apiKey
+            mapboxIntegration?.isEnabled && mapboxIntegration.publicAccessToken
+              ? mapboxIntegration.publicAccessToken
               : null,
         })
       : null;
@@ -364,6 +418,8 @@ export async function createJobSite(
           city,
           county,
           state,
+          postal_code: postalCode || null,
+          mapbox_id: mapboxId || null,
         },
         city,
         county,
@@ -394,7 +450,7 @@ export async function createJobSite(
       state,
       latitude: resolvedLatitude,
       longitude: resolvedLongitude,
-      geocoded_from_address: Boolean(geocoded),
+      location_source: latitude !== null && longitude !== null ? "mapbox" : "geocoder",
     },
   });
 
@@ -441,97 +497,209 @@ export async function importCrmLeads(formData: FormData) {
   redirect(`/customers?crm_import=${result.imported}&crm_failed=${result.failed}`);
 }
 
-type MoveCrmDealResult =
-  | { ok: true }
-  | { ok: false; message: string };
-
-export async function moveCrmDealStage(
-  input: unknown,
-): Promise<MoveCrmDealResult> {
-  const parsed = moveCrmDealSchema.safeParse(input);
-
-  if (!parsed.success) {
-    return { ok: false, message: "Invalid CRM deal move." };
-  }
-
+export async function updateCrmDealDetails(
+  _previousState: CrmEditFormState,
+  formData: FormData,
+): Promise<CrmEditFormState> {
   const user = await getCurrentUser();
 
   if (!user) {
-    return { ok: false, message: "Authentication is required." };
+    redirect("/login");
   }
 
   if (user.role !== "admin" && user.role !== "account_manager") {
-    return {
-      ok: false,
-      message: "Only admins and account managers can move CRM deals.",
-    };
+    return crmFormError("Only admins and account managers can edit CRM deals.");
   }
 
   const supabase = await createClient();
 
   if (!supabase) {
-    return { ok: false, message: "Supabase is not configured." };
+    return crmFormError("Supabase is not configured.");
   }
 
-  const { data: deal } = await supabase
+  const parsed = updateCrmDealSchema.safeParse({
+    ...formDataObject(formData),
+    is_active: formData.get("is_active") === "on",
+  });
+
+  if (!parsed.success) {
+    return crmFormError("Fix the highlighted CRM fields.", parsed.error);
+  }
+
+  const input = parsed.data;
+  const { data: beforeDeal } = await supabase
     .from("crm_deals")
-    .select("id, title, stage, value")
+    .select(
+      "id, company_id, contact_id, title, stage, value, expected_close_date, is_active",
+    )
     .eq("organization_id", user.organization_id)
-    .eq("id", parsed.data.dealId)
-    .eq("is_active", true)
-    .single<{
-      id: string;
-      title: string;
-      stage: z.infer<typeof crmDealStageSchema>;
-      value: number;
-    }>();
+    .eq("id", input.deal_id)
+    .single<CrmDealUpdateRecord>();
 
-  if (!deal) {
-    return { ok: false, message: "CRM deal not found." };
+  if (!beforeDeal) {
+    return crmFormError("Selected CRM deal was not found.");
   }
 
-  if (deal.stage === parsed.data.toStage) {
-    return { ok: true };
+  let nextContactId = beforeDeal.contact_id;
+
+  if (beforeDeal.company_id) {
+    const { data: beforeCompany } = await supabase
+      .from("crm_companies")
+      .select("id, name, domain, email, phone")
+      .eq("organization_id", user.organization_id)
+      .eq("id", beforeDeal.company_id)
+      .single<CrmCompanyUpdateRecord>();
+
+    if (beforeCompany) {
+      const { data: afterCompany, error } = await supabase
+        .from("crm_companies")
+        .update({
+          name: input.company_name,
+          domain: input.company_domain || null,
+          email: input.company_email || null,
+          phone: input.company_phone || null,
+          updated_by: user.id,
+        })
+        .eq("organization_id", user.organization_id)
+        .eq("id", beforeCompany.id)
+        .select("id, name, domain, email, phone")
+        .single<CrmCompanyUpdateRecord>();
+
+      if (error || !afterCompany) {
+        return crmFormError(error?.message ?? "Could not update CRM company.");
+      }
+
+      await logAction({
+        user,
+        action: "crm.company.updated",
+        targetTable: "crm_companies",
+        targetId: afterCompany.id,
+        before: beforeCompany,
+        after: afterCompany,
+        supabase,
+      });
+    }
   }
 
-  const { error } = await supabase
+  const hasContactInput = Boolean(
+    input.contact_name ||
+      input.contact_title ||
+      input.contact_email ||
+      input.contact_phone,
+  );
+
+  if (beforeDeal.contact_id) {
+    const { data: beforeContact } = await supabase
+      .from("crm_contacts")
+      .select("id, company_id, full_name, title, email, phone")
+      .eq("organization_id", user.organization_id)
+      .eq("id", beforeDeal.contact_id)
+      .single<CrmContactUpdateRecord>();
+
+    if (beforeContact) {
+      const { data: afterContact, error } = await supabase
+        .from("crm_contacts")
+        .update({
+          full_name: input.contact_name || input.contact_email || "Unknown contact",
+          title: input.contact_title || null,
+          email: input.contact_email || null,
+          phone: input.contact_phone || null,
+          updated_by: user.id,
+        })
+        .eq("organization_id", user.organization_id)
+        .eq("id", beforeContact.id)
+        .select("id, company_id, full_name, title, email, phone")
+        .single<CrmContactUpdateRecord>();
+
+      if (error || !afterContact) {
+        return crmFormError(error?.message ?? "Could not update CRM contact.");
+      }
+
+      await logAction({
+        user,
+        action: "crm.contact.updated",
+        targetTable: "crm_contacts",
+        targetId: afterContact.id,
+        before: beforeContact,
+        after: afterContact,
+        supabase,
+      });
+    }
+  } else if (hasContactInput) {
+    const { data: afterContact, error } = await supabase
+      .from("crm_contacts")
+      .insert({
+        organization_id: user.organization_id,
+        company_id: beforeDeal.company_id,
+        full_name: input.contact_name || input.contact_email || "Unknown contact",
+        title: input.contact_title || null,
+        email: input.contact_email || null,
+        phone: input.contact_phone || null,
+        source: "manual",
+        is_primary: true,
+        is_active: true,
+        created_by: user.id,
+        updated_by: user.id,
+      })
+      .select("id, company_id, full_name, title, email, phone")
+      .single<CrmContactUpdateRecord>();
+
+    if (error || !afterContact) {
+      return crmFormError(error?.message ?? "Could not create CRM contact.");
+    }
+
+    nextContactId = afterContact.id;
+
+    await logAction({
+      user,
+      action: "crm.contact.created",
+      targetTable: "crm_contacts",
+      targetId: afterContact.id,
+      before: null,
+      after: afterContact,
+      supabase,
+    });
+  }
+
+  const { data: afterDeal, error } = await supabase
     .from("crm_deals")
     .update({
-      stage: parsed.data.toStage,
+      contact_id: nextContactId,
+      title: input.deal_title,
+      value: input.value,
+      expected_close_date: normalizeOptionalDate(input.expected_close_date),
+      is_active: input.is_active,
       updated_by: user.id,
     })
     .eq("organization_id", user.organization_id)
-    .eq("id", deal.id)
-    .eq("stage", deal.stage)
-    .eq("is_active", true);
+    .eq("id", beforeDeal.id)
+    .select(
+      "id, company_id, contact_id, title, stage, value, expected_close_date, is_active",
+    )
+    .single<CrmDealUpdateRecord>();
 
-  if (error) {
-    return { ok: false, message: "Could not move CRM deal." };
+  if (error || !afterDeal) {
+    return crmFormError(error?.message ?? "Could not update CRM deal.");
   }
 
   await logAction({
     user,
-    action: `crm.deal.stage.${parsed.data.toStage}`,
+    action: "crm.deal.updated",
     targetTable: "crm_deals",
-    targetId: deal.id,
-    before: {
-      stage: deal.stage,
-    },
-    after: {
-      stage: parsed.data.toStage,
-      value: Number(deal.value),
-    },
-    metadata: {
-      title: deal.title,
-      source: "crm_kanban_drag_drop",
-    },
+    targetId: afterDeal.id,
+    before: beforeDeal,
+    after: afterDeal,
     supabase,
   });
 
   revalidatePath("/customers");
   revalidatePath("/dashboard");
 
-  return { ok: true };
+  return {
+    message: "CRM deal updated.",
+    status: "success",
+    fieldErrors: {},
+  };
 }
 
 function formDataObject(formData: FormData): Record<string, FormDataEntryValue> {
@@ -553,6 +721,17 @@ function formError(
   };
 }
 
+function crmFormError(
+  message: string,
+  error?: z.ZodError,
+): CrmEditFormState {
+  return {
+    message,
+    status: "error",
+    fieldErrors: error ? flattenFieldErrors(error) : {},
+  };
+}
+
 function flattenFieldErrors(error: z.ZodError): Record<string, string> {
   const fieldErrors: Record<string, string> = {};
 
@@ -569,6 +748,16 @@ function getString(formData: FormData, key: string): string {
   const value = formData.get(key);
 
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeOptionalDate(value: string): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : null;
 }
 
 function optionalNumber(

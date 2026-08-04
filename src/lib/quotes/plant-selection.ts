@@ -12,6 +12,7 @@ import {
   type MaterialTier,
   type PricingConfig,
   type QuoteDraftCalculation,
+  type QuoteUnitConversion,
   type TruckRateKey,
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
@@ -26,7 +27,7 @@ export type PlantSelectionMaterial = {
   tier: MaterialTier;
   unit: string;
   cost_per_unit: number;
-  suppliers:
+  supplier_plants:
     | {
         name: string;
         latitude: number | null;
@@ -73,6 +74,7 @@ export async function selectBestPlantForQuote({
   taxRate,
   pricingConfig,
   vehicleTypes,
+  unitConversions = [],
   useRequestedPlant = false,
   materialUnitPriceOverride = null,
   truckRateOverride = null,
@@ -82,7 +84,7 @@ export async function selectBestPlantForQuote({
   manualRouteDistanceMiles = null,
   manualDeadheadDistanceMiles = null,
   catalogMarkupRules = [],
-  googleMapsApiKey = null,
+  mapboxAccessToken = null,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -92,6 +94,7 @@ export async function selectBestPlantForQuote({
   taxRate: number;
   pricingConfig: PricingConfig;
   vehicleTypes: VehicleCapacity[];
+  unitConversions?: QuoteUnitConversion[];
   useRequestedPlant?: boolean;
   materialUnitPriceOverride?: number | null;
   truckRateOverride?: TruckRateKey | null;
@@ -101,26 +104,25 @@ export async function selectBestPlantForQuote({
   manualRouteDistanceMiles?: number | null;
   manualDeadheadDistanceMiles?: number | null;
   catalogMarkupRules?: CatalogMarkupRule[];
-  googleMapsApiKey?: string | null;
+  mapboxAccessToken?: string | null;
 }): Promise<PlantRecommendation> {
   const [
     materialsResult,
     yardsResult,
-    googleMapsEnabled,
     multiPitComparisonEnabled,
     autoPlantSelectionEnabled,
   ] = await Promise.all([
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(name, latitude, longitude)",
       )
       .eq("organization_id", organizationId)
       .eq("name", requestedMaterial.name)
       .eq("unit", requestedMaterial.unit)
       .eq("tier", requestedMaterial.tier)
       .eq("is_active", true)
-      .eq("suppliers.is_active", true)
+      .eq("supplier_plants.is_active", true)
       .returns<PlantSelectionMaterial[]>(),
     supabase
       .from("yards")
@@ -128,11 +130,6 @@ export async function selectBestPlantForQuote({
       .eq("organization_id", organizationId)
       .eq("is_active", true)
       .returns<YardRecord[]>(),
-    isFeatureEnabled({
-      supabase,
-      organizationId,
-      featureName: "google_maps_distance_api",
-    }),
     isFeatureEnabled({
       supabase,
       organizationId,
@@ -160,9 +157,10 @@ export async function selectBestPlantForQuote({
         taxRate,
         pricingConfig,
         vehicleTypes,
+        unitConversions,
         yards: yardsResult.data ?? [],
-        useGoogleMaps: googleMapsEnabled,
-        googleMapsApiKey,
+        useMapbox: Boolean(mapboxAccessToken),
+        mapboxAccessToken,
         truckRateOverride,
         paymentTerms,
         manualRouteDistanceMiles,
@@ -186,6 +184,7 @@ export async function selectBestPlantForQuote({
       taxRate,
       pricingConfig,
       vehicleTypes,
+      unitConversions,
       materialUnitPriceOverride,
       truckRateOverride,
       materialMinimumOverride,
@@ -201,6 +200,7 @@ export async function selectBestPlantForQuote({
     taxRate,
     pricingConfig,
     vehicleTypes,
+    unitConversions,
     materialUnitPriceOverride,
     truckRateOverride,
     materialMinimumOverride,
@@ -219,9 +219,10 @@ async function buildRecommendation({
   taxRate,
   pricingConfig,
   vehicleTypes,
+  unitConversions,
   yards,
-  useGoogleMaps,
-  googleMapsApiKey,
+  useMapbox,
+  mapboxAccessToken,
   truckRateOverride,
   paymentTerms,
   manualRouteDistanceMiles,
@@ -236,16 +237,17 @@ async function buildRecommendation({
   taxRate: number;
   pricingConfig: PricingConfig;
   vehicleTypes: VehicleCapacity[];
+  unitConversions: QuoteUnitConversion[];
   yards: YardRecord[];
-  useGoogleMaps: boolean;
-  googleMapsApiKey: string | null;
+  useMapbox: boolean;
+  mapboxAccessToken: string | null;
   truckRateOverride: TruckRateKey | null;
   paymentTerms: string | null;
   manualRouteDistanceMiles: number | null;
   manualDeadheadDistanceMiles: number | null;
   catalogMarkupRules: CatalogMarkupRule[];
 }): Promise<PlantRecommendation> {
-  const supplier = relationOne(material.suppliers);
+  const supplier = relationOne(material.supplier_plants);
   const supplierCoordinates = {
     latitude:
       supplier?.latitude === null || supplier?.latitude === undefined
@@ -263,7 +265,7 @@ async function buildRecommendation({
           organizationId,
           supplierCoordinates,
           jobSite,
-          { useGoogleMaps, googleMapsApiKey },
+          { useMapbox, mapboxAccessToken },
         )
       : manualDistanceEstimate(manualRouteDistanceMiles);
   const deadheadDistance =
@@ -273,8 +275,8 @@ async function buildRecommendation({
           organizationId,
           supplierCoordinates,
           yards,
-          useGoogleMaps,
-          googleMapsApiKey,
+          useMapbox,
+          mapboxAccessToken,
         })
       : manualDistanceEstimate(manualDeadheadDistanceMiles);
   const calculation = calculateQuoteDraft({
@@ -285,6 +287,7 @@ async function buildRecommendation({
     taxRate,
     pricingConfig,
     vehicleTypes,
+    unitConversions,
     routeDurationSeconds: routeDistance?.durationSeconds ?? null,
     deadheadDurationSeconds: deadheadDistance?.durationSeconds ?? null,
     truckRateOverride,
@@ -316,6 +319,7 @@ function applyMaterialUnitPriceOverride({
   taxRate,
   pricingConfig,
   vehicleTypes,
+  unitConversions,
   materialUnitPriceOverride,
   truckRateOverride,
   materialMinimumOverride,
@@ -328,6 +332,7 @@ function applyMaterialUnitPriceOverride({
   taxRate: number;
   pricingConfig: PricingConfig;
   vehicleTypes: VehicleCapacity[];
+  unitConversions: QuoteUnitConversion[];
   materialUnitPriceOverride: number | null;
   truckRateOverride: TruckRateKey | null;
   materialMinimumOverride: number | null;
@@ -354,6 +359,7 @@ function applyMaterialUnitPriceOverride({
       taxRate,
       pricingConfig,
       vehicleTypes,
+      unitConversions,
       routeDurationSeconds: recommendation.routeDistance?.durationSeconds ?? null,
       deadheadDurationSeconds:
         recommendation.deadheadDistance?.durationSeconds ?? null,
@@ -375,15 +381,15 @@ async function getNearestYardDistance({
   organizationId,
   supplierCoordinates,
   yards,
-  useGoogleMaps,
-  googleMapsApiKey,
+  useMapbox,
+  mapboxAccessToken,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
   supplierCoordinates: JobSiteCoordinates;
   yards: YardRecord[];
-  useGoogleMaps: boolean;
-  googleMapsApiKey: string | null;
+  useMapbox: boolean;
+  mapboxAccessToken: string | null;
 }): Promise<DistanceEstimate | null> {
   const distances = await Promise.all(
     yards.map((yard) =>
@@ -395,7 +401,7 @@ async function getNearestYardDistance({
           longitude: yard.longitude === null ? null : Number(yard.longitude),
         },
         supplierCoordinates,
-        { useGoogleMaps, googleMapsApiKey },
+        { useMapbox, mapboxAccessToken },
       ),
     ),
   );

@@ -135,6 +135,10 @@ async function extractPdfDocument({
   data: ArrayBuffer;
   maxRows: number;
 }): Promise<SupplierDocumentExtraction> {
+  installPdfGeometryPolyfills();
+
+  await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const document = await pdfjs.getDocument({
     data: new Uint8Array(data),
@@ -167,6 +171,145 @@ async function extractPdfDocument({
   throw new Error(
     "No parser matched this PDF yet. Add a supplier PDF parser before importing it.",
   );
+}
+
+function installPdfGeometryPolyfills() {
+  if (globalThis.DOMMatrix) {
+    return;
+  }
+
+  globalThis.DOMMatrix = SimpleDOMMatrix as unknown as typeof DOMMatrix;
+}
+
+class SimpleDOMMatrix {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  f: number;
+  is2D = true;
+  isIdentity: boolean;
+
+  constructor(init?: number[] | string) {
+    const values = Array.isArray(init) ? init : [];
+
+    this.a = values[0] ?? 1;
+    this.b = values[1] ?? 0;
+    this.c = values[2] ?? 0;
+    this.d = values[3] ?? 1;
+    this.e = values[4] ?? 0;
+    this.f = values[5] ?? 0;
+    this.isIdentity = this.a === 1 && this.b === 0 && this.c === 0 && this.d === 1 && this.e === 0 && this.f === 0;
+  }
+
+  multiplySelf(other: SimpleDOMMatrix | number[]): this {
+    const matrix = toSimpleDOMMatrix(other);
+    const { a, b, c, d, e, f } = this;
+
+    this.a = a * matrix.a + c * matrix.b;
+    this.b = b * matrix.a + d * matrix.b;
+    this.c = a * matrix.c + c * matrix.d;
+    this.d = b * matrix.c + d * matrix.d;
+    this.e = a * matrix.e + c * matrix.f + e;
+    this.f = b * matrix.e + d * matrix.f + f;
+    this.updateIdentity();
+
+    return this;
+  }
+
+  preMultiplySelf(other: SimpleDOMMatrix | number[]): this {
+    const matrix = toSimpleDOMMatrix(other);
+    const current = new SimpleDOMMatrix([
+      this.a,
+      this.b,
+      this.c,
+      this.d,
+      this.e,
+      this.f,
+    ]);
+
+    this.a = matrix.a;
+    this.b = matrix.b;
+    this.c = matrix.c;
+    this.d = matrix.d;
+    this.e = matrix.e;
+    this.f = matrix.f;
+
+    return this.multiplySelf(current);
+  }
+
+  translate(tx = 0, ty = 0): SimpleDOMMatrix {
+    return new SimpleDOMMatrix([
+      this.a,
+      this.b,
+      this.c,
+      this.d,
+      this.e,
+      this.f,
+    ]).translateSelf(tx, ty);
+  }
+
+  translateSelf(tx = 0, ty = 0): this {
+    return this.multiplySelf(new SimpleDOMMatrix([1, 0, 0, 1, tx, ty]));
+  }
+
+  scale(scaleX = 1, scaleY = scaleX): SimpleDOMMatrix {
+    return new SimpleDOMMatrix([
+      this.a,
+      this.b,
+      this.c,
+      this.d,
+      this.e,
+      this.f,
+    ]).scaleSelf(scaleX, scaleY);
+  }
+
+  scaleSelf(scaleX = 1, scaleY = scaleX): this {
+    return this.multiplySelf(new SimpleDOMMatrix([scaleX, 0, 0, scaleY, 0, 0]));
+  }
+
+  invertSelf(): this {
+    const determinant = this.a * this.d - this.b * this.c;
+
+    if (!determinant) {
+      this.a = Number.NaN;
+      this.b = Number.NaN;
+      this.c = Number.NaN;
+      this.d = Number.NaN;
+      this.e = Number.NaN;
+      this.f = Number.NaN;
+      this.is2D = false;
+      this.isIdentity = false;
+      return this;
+    }
+
+    const { a, b, c, d, e, f } = this;
+
+    this.a = d / determinant;
+    this.b = -b / determinant;
+    this.c = -c / determinant;
+    this.d = a / determinant;
+    this.e = (c * f - d * e) / determinant;
+    this.f = (b * e - a * f) / determinant;
+    this.updateIdentity();
+
+    return this;
+  }
+
+  private updateIdentity(): void {
+    this.isIdentity =
+      this.a === 1 &&
+      this.b === 0 &&
+      this.c === 0 &&
+      this.d === 1 &&
+      this.e === 0 &&
+      this.f === 0;
+  }
+}
+
+function toSimpleDOMMatrix(value: SimpleDOMMatrix | number[]): SimpleDOMMatrix {
+  return value instanceof SimpleDOMMatrix ? value : new SimpleDOMMatrix(value);
 }
 
 function extractHiGradeAggregateQuote({
@@ -298,7 +441,7 @@ function textOnLine(
   maxX: number,
 ): string {
   return textInRange(
-    items.filter((item) => Math.abs(item.y - y) < 2),
+    items.filter((item) => Math.abs(item.y - y) <= 3),
     minX,
     maxX,
   );

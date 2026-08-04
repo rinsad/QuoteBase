@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/cron/pipedrive-sync",
+      "path": "/api/cron/follow-up-scheduler",
       "schedule": "0 * * * *"
     }
   ]

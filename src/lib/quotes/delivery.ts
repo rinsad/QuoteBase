@@ -8,6 +8,24 @@ import { getStripeCheckoutSession } from "@/lib/integrations/stripe";
 import { isCodPaymentTerms } from "@/lib/quotes/pricing";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+const PUBLIC_QUOTE_VISIBLE_STATUSES = [
+  "approved",
+  "sent",
+  "viewed",
+  "follow_up",
+  "won",
+  "lost",
+  "accepted",
+  "declined",
+];
+
+const PUBLIC_QUOTE_RESPONDABLE_STATUSES = [
+  "approved",
+  "sent",
+  "viewed",
+  "follow_up",
+];
+
 export type QuotePublicLink = {
   id: string;
   quote_id: string;
@@ -28,6 +46,8 @@ export type PublicQuote = {
   total: number;
   notes: string | null;
   created_at: string;
+  quote_date: string;
+  quote_expires_at: string;
   customer: {
     name: string;
     contact_name: string | null;
@@ -124,6 +144,8 @@ type PublicQuoteRecord = {
   total: number;
   notes: string | null;
   created_at: string;
+  quote_date: string;
+  expires_at: string;
   organization_id: string;
   customers:
     | {
@@ -258,7 +280,7 @@ type PublicQuoteItemRecord = {
   unit: string;
   load_count: number;
   line_total: number;
-  suppliers: { name: string } | { name: string }[] | null;
+  supplier_plants: { name: string } | { name: string }[] | null;
   materials:
     | { name: string; tier: string }
     | { name: string; tier: string }[]
@@ -364,12 +386,12 @@ export async function getPublicQuoteByToken(
   const { data: quote } = await admin
     .from("quotes")
     .select(
-      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, organization_id, customers(name, contact_name, email, phone, payment_terms), job_sites(name, city, county, state, address), users(full_name, email), quote_items(id, quantity, unit, load_count, line_total, suppliers(name), materials(name, tier), vehicle_types(name))",
+      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, organization_id, customers(name, contact_name, email, phone, payment_terms), job_sites(name, city, county, state, address), users(full_name, email), quote_items(id, quantity, unit, load_count, line_total, supplier_plants(name), materials(name, tier), vehicle_types(name))",
     )
     .eq("organization_id", link.organization_id)
     .eq("id", link.quote_id)
     .eq("is_active", true)
-    .in("status", ["sent", "viewed", "follow_up", "won", "lost", "accepted", "declined"])
+    .in("status", PUBLIC_QUOTE_VISIBLE_STATUSES)
     .single<PublicQuoteRecord>();
 
   if (!quote) {
@@ -404,6 +426,8 @@ export async function getPublicQuoteByToken(
     total: Number(quote.total),
     notes: quote.notes,
     created_at: quote.created_at,
+    quote_date: quote.quote_date,
+    quote_expires_at: quote.expires_at,
     customer,
     job_site: jobSite,
     requested_by: requestedBy,
@@ -413,7 +437,7 @@ export async function getPublicQuoteByToken(
     },
     items:
       quote.quote_items?.map((item) => {
-        const supplier = relationOne(item.suppliers);
+        const supplier = relationOne(item.supplier_plants);
         const material = relationOne(item.materials);
         const vehicle = relationOne(item.vehicle_types);
 
@@ -471,7 +495,7 @@ export async function respondToPublicQuote({
     .eq("is_active", true)
     .single<PublicQuoteResponseWithCustomerRecord>();
 
-  if (!quote || !["sent", "viewed", "follow_up"].includes(quote.status)) {
+  if (!quote || !PUBLIC_QUOTE_RESPONDABLE_STATUSES.includes(quote.status)) {
     return null;
   }
 
@@ -487,10 +511,11 @@ export async function respondToPublicQuote({
     .update({
       status: nextStatus,
       notes: nextNote,
+      followup_date: null,
     })
     .eq("organization_id", link.organization_id)
     .eq("id", quote.id)
-    .in("status", ["sent", "viewed", "follow_up"])
+    .in("status", PUBLIC_QUOTE_RESPONDABLE_STATUSES)
     .eq("is_active", true);
 
   if (error) {
@@ -569,7 +594,7 @@ export async function startPublicQuoteAcceptance({
     .eq("is_active", true)
     .single<PublicQuoteAcceptanceRecord>();
 
-  if (!quote || !["sent", "viewed", "follow_up"].includes(quote.status)) {
+  if (!quote || !PUBLIC_QUOTE_RESPONDABLE_STATUSES.includes(quote.status)) {
     return null;
   }
 
@@ -689,7 +714,7 @@ export async function getPublicQuotePaymentSession({
   const quote = relationOne(attempt.quotes);
   const customer = relationOne(quote?.customers ?? null);
 
-  if (!quote || !["sent", "viewed", "follow_up"].includes(quote.status)) {
+  if (!quote || !PUBLIC_QUOTE_RESPONDABLE_STATUSES.includes(quote.status)) {
     return null;
   }
 
@@ -795,7 +820,7 @@ export async function completePublicQuotePayment({
     };
   }
 
-  if (!["sent", "viewed", "follow_up"].includes(quote.status)) {
+  if (!PUBLIC_QUOTE_RESPONDABLE_STATUSES.includes(quote.status)) {
     return null;
   }
 
@@ -902,7 +927,7 @@ export async function completePublicQuotePayment({
     })
     .eq("organization_id", link.organization_id)
     .eq("id", quote.id)
-    .in("status", ["sent", "viewed", "follow_up"])
+    .in("status", PUBLIC_QUOTE_RESPONDABLE_STATUSES)
     .eq("is_active", true);
 
   if (quoteError) {
@@ -1060,7 +1085,7 @@ export async function completePublicStripeQuotePayment({
     };
   }
 
-  if (!["sent", "viewed", "follow_up"].includes(quote.status)) {
+  if (!PUBLIC_QUOTE_RESPONDABLE_STATUSES.includes(quote.status)) {
     return null;
   }
 
@@ -1143,7 +1168,7 @@ export async function completePublicStripeQuotePayment({
     })
     .eq("organization_id", link.organization_id)
     .eq("id", quote.id)
-    .in("status", ["sent", "viewed", "follow_up"])
+    .in("status", PUBLIC_QUOTE_RESPONDABLE_STATUSES)
     .eq("is_active", true);
 
   if (quoteError) {
@@ -1267,7 +1292,7 @@ export async function completeStripeQuotePaymentAttempt({
     };
   }
 
-  if (!["sent", "viewed", "follow_up"].includes(quote.status)) {
+  if (!PUBLIC_QUOTE_RESPONDABLE_STATUSES.includes(quote.status)) {
     return null;
   }
 
@@ -1331,7 +1356,7 @@ export async function completeStripeQuotePaymentAttempt({
     })
     .eq("organization_id", organizationId)
     .eq("id", quote.id)
-    .in("status", ["sent", "viewed", "follow_up"])
+    .in("status", PUBLIC_QUOTE_RESPONDABLE_STATUSES)
     .eq("is_active", true);
 
   if (quoteError) {

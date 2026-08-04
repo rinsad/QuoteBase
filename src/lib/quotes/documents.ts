@@ -32,6 +32,8 @@ type QuoteSnapshotRecord = {
   total: number;
   notes: string | null;
   created_at: string;
+  quote_date: string;
+  expires_at: string;
   customers:
     | {
         name: string;
@@ -82,7 +84,7 @@ type QuoteSnapshotItemRecord = {
     | { name: string; tier: string }
     | { name: string; tier: string }[]
     | null;
-  suppliers: { name: string } | { name: string }[] | null;
+  supplier_plants: { name: string } | { name: string }[] | null;
   vehicle_types: { name: string } | { name: string }[] | null;
 };
 
@@ -182,7 +184,7 @@ export async function createQuoteHtmlDocument({
   const { data: quote } = await supabase
     .from("quotes")
     .select(
-      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, materials(name, tier), suppliers(name), vehicle_types(name))",
+      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, materials(name, tier), supplier_plants(name), vehicle_types(name))",
     )
     .eq("organization_id", user.organization_id)
     .eq("id", quoteId)
@@ -279,7 +281,7 @@ export async function createQuotePdfDocument({
   const { data: quote } = await supabase
     .from("quotes")
     .select(
-      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, materials(name, tier), suppliers(name), vehicle_types(name))",
+      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, materials(name, tier), supplier_plants(name), vehicle_types(name))",
     )
     .eq("organization_id", user.organization_id)
     .eq("id", quoteId)
@@ -478,11 +480,14 @@ function renderQuoteHtml(
   const site = relationOne(quote.job_sites);
   const owner = relationOne(quote.users);
   const activeBranding = branding ?? defaultQuoteBranding();
+  const brandHeader = activeBranding.logo_url
+    ? `<img class="logo" src="${escapeHtml(activeBranding.logo_url)}" alt="${escapeHtml(activeBranding.company_name)} logo" />`
+    : `<p class="muted">${escapeHtml(activeBranding.company_name)}</p>`;
   const rows =
     quote.quote_items
       ?.map((item) => {
         const material = relationOne(item.materials);
-        const supplier = relationOne(item.suppliers);
+        const supplier = relationOne(item.supplier_plants);
         const vehicle = relationOne(item.vehicle_types);
 
         return `<tr>
@@ -506,6 +511,7 @@ function renderQuoteHtml(
     body { color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; margin: 40px; }
     header { border-bottom: 1px solid #dbe3ef; padding-bottom: 24px; }
     h1 { font-size: 36px; margin: 8px 0; }
+    .logo { display: block; max-height: 56px; max-width: 260px; object-fit: contain; object-position: left center; }
     .muted { color: #64748b; }
     .grid { display: grid; gap: 24px; grid-template-columns: 1fr 1fr; margin: 28px 0; }
     table { border-collapse: collapse; width: 100%; }
@@ -520,9 +526,9 @@ function renderQuoteHtml(
 </head>
 <body>
   <header>
-    <p class="muted">${escapeHtml(activeBranding.company_name)}</p>
+    ${brandHeader}
     <h1>Quote ${escapeHtml(quote.quote_number)}</h1>
-    <p class="muted">Version ${version} - ${escapeHtml(formatStatus(quote.status))} - ${formatDate(quote.created_at)}</p>
+    <p class="muted">Version ${version} - ${escapeHtml(formatStatus(quote.status))} - ${formatDate(quote.quote_date)} - Expires ${formatDate(quote.expires_at)}</p>
   </header>
   <section class="grid">
     <div>
@@ -685,8 +691,8 @@ function drawEmailedQuoteHeader({
 
   drawQuoteMetadataBox(page, 426, 666, [
     ["Quote #", quote.quote_number],
-    ["Date", formatDate(quote.created_at)],
-    ["Expires", formatDate(addDays(quote.created_at, 30))],
+    ["Date", formatDate(quote.quote_date)],
+    ["Expires", formatDate(quote.expires_at)],
     ["Contact", owner?.full_name ?? branding.company_name],
   ]);
   drawAcceptQuoteButton(page, quoteUrl, 426, 572);
@@ -1225,13 +1231,6 @@ function defaultQuoteBranding(): QuoteBrandingConfig {
   };
 }
 
-function addDays(value: string, days: number): string {
-  const date = new Date(value);
-
-  date.setDate(date.getDate() + days);
-  return date.toISOString();
-}
-
 async function loadPdfLogo(url: string): Promise<PdfImageInput | null> {
   try {
     const response = await fetch(url, { cache: "no-store" });
@@ -1735,11 +1734,14 @@ function formatStatus(status: string): string {
 }
 
 function formatDate(value: string): string {
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+
   return new Intl.DateTimeFormat("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
-  }).format(new Date(value));
+    timeZone: dateOnly ? "UTC" : undefined,
+  }).format(new Date(dateOnly ? `${value}T00:00:00.000Z` : value));
 }
 
 function formatAddress(address: Record<string, unknown>): string {

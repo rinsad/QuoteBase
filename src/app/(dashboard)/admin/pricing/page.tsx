@@ -152,11 +152,6 @@ export default async function AdminPricingPage({
               group="Minimums and fees"
             />
             <PricingSummaryRow
-              label="Big quote threshold"
-              value={formatMoney(pricing.big_quote_threshold ?? 10000)}
-              group="Follow-up agent"
-            />
-            <PricingSummaryRow
               label="Auto-send follow-ups"
               value={pricing.follow_up_auto_send_enabled ? "Enabled" : "Disabled"}
               group="Follow-up agent"
@@ -165,6 +160,13 @@ export default async function AdminPricingPage({
               label="SMS follow-up drafts"
               value={pricing.follow_up_sms_enabled ? "Enabled" : "Disabled"}
               group="Follow-up agent"
+            />
+            <PricingSummaryRow
+              label="Project status options"
+              value={(pricing.project_status_options ?? [])
+                .map((option) => option.label)
+                .join(", ")}
+              group="Quote intake"
             />
           </div>
         </section>
@@ -218,6 +220,21 @@ function PricingRulesSlideOver({
         </div>
 
         <form action={updatePricingConfig} className="space-y-5 p-4" noValidate>
+          <input
+            type="hidden"
+            name="big_quote_threshold"
+            value={pricing.big_quote_threshold ?? 10000}
+          />
+          <input
+            type="hidden"
+            name="jobs_starting_soon_days"
+            value={pricing.jobs_starting_soon_days ?? 14}
+          />
+          <input
+            type="hidden"
+            name="default_followup_max_attempts"
+            value={pricing.default_followup_max_attempts ?? 5}
+          />
           <section className="soft-row p-4">
             <h3 className="text-sm font-semibold">Tier dollar markups</h3>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -288,7 +305,6 @@ function PricingRulesSlideOver({
               <MoneyField name="environmental_fee_per_load" label="Environmental fee" value={pricing.environmental_fee_per_load} />
               <MoneyField name="overhead_per_ton" label="Overhead per ton" value={pricing.overhead_per_ton} />
               <MoneyField name="cc_surcharge_pct" label="CC surcharge %" value={pricing.cc_surcharge_pct ?? 0} />
-              <MoneyField name="big_quote_threshold" label="Big quote threshold" value={pricing.big_quote_threshold ?? 10000} />
             </div>
             <div className="mt-4 grid gap-3">
               <CheckboxField
@@ -302,6 +318,27 @@ function PricingRulesSlideOver({
                 defaultChecked={Boolean(pricing.follow_up_sms_enabled)}
               />
             </div>
+          </section>
+
+          <section className="soft-row p-4">
+            <h3 className="text-sm font-semibold">Quote intake options</h3>
+            <label className="mt-4 block">
+              <span className="text-sm font-medium text-muted-foreground">
+                Project status options
+              </span>
+              <textarea
+                name="project_status_options"
+                className="soft-control mt-2 min-h-32 w-full resize-y py-3"
+                defaultValue={(pricing.project_status_options ?? [])
+                  .map((option) => option.label)
+                  .join("\n")}
+                placeholder={"Bid\nExisting job"}
+              />
+              <span className="mt-2 block text-xs leading-5 text-muted-foreground">
+                One option per line. QuoteBase stores stable slugs from these
+                labels, so other industries can use their own quote categories.
+              </span>
+            </label>
           </section>
 
           <Button type="submit" className="h-11 w-full rounded-md">
@@ -376,10 +413,16 @@ function NumberField({
   name,
   label,
   value,
+  min = 0,
+  max,
+  step = 0.01,
 }: {
   name: string;
   label: string;
   value: number;
+  min?: number;
+  max?: number;
+  step?: number;
 }) {
   return (
     <label className="block">
@@ -387,8 +430,9 @@ function NumberField({
       <input
         name={name}
         type="number"
-        min="0"
-        step="0.01"
+        min={min}
+        max={max}
+        step={step}
         defaultValue={value}
         className="soft-control mt-2 w-full"
         required

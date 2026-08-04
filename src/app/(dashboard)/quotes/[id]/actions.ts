@@ -3,17 +3,24 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { getCurrentUser } from "@/lib/auth/current-user";
+import { getQuoteUnitConversions } from "@/lib/admin/units";
+import { getCurrentUser, type AppUser } from "@/lib/auth/current-user";
 import { logAction } from "@/lib/audit/log-action";
 import { isFeatureEnabled } from "@/lib/features/flags";
-import { getGoogleMapsIntegration } from "@/lib/integrations/google-maps";
+import { getMapboxIntegration } from "@/lib/integrations/mapbox";
 import { sendQuoteEmail } from "@/lib/notifications/email";
 import { ensureQuotePublicLink } from "@/lib/quotes/delivery";
+import { getQuoteAssetAttachments } from "@/lib/quotes/assets";
+import {
+  ensureCreditApplicationLink,
+  sendCreditApplicationEmail,
+} from "@/lib/quotes/credit-applications";
 import {
   createQuoteHtmlDocument,
   createQuotePdfDocument,
   getQuoteDocumentAttachment,
 } from "@/lib/quotes/documents";
+import { scheduleNextFollowUpForQuote } from "@/lib/quotes/follow-up-schedule";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -97,6 +104,17 @@ const EDITABLE_UNAPPROVED_STATUSES: QuoteStatus[] = [
   "changes_requested",
   "rejected",
 ];
+const ALLOWED_QUOTE_ASSET_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "text/plain",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+const MAX_QUOTE_ASSET_BYTES = 20 * 1024 * 1024;
+const QUOTE_ASSET_TYPES = new Set(["spec", "test", "photo", "other"]);
 
 export async function submitQuoteForApproval(quoteId: string) {
   if (!UUID_PATTERN.test(quoteId)) {
@@ -317,10 +335,10 @@ export async function createCustomerQuoteLink(quoteId: string) {
     redirectQuoteActionError(quoteId, "Quote not found.");
   }
 
-  if (!["sent", "viewed", "follow_up", "won", "lost"].includes(quote.status)) {
+  if (!["approved", "sent", "viewed", "follow_up", "won", "lost"].includes(quote.status)) {
     redirectQuoteActionError(
       quoteId,
-      "Customer links are available after the quote is sent.",
+      "Customer links are available after the quote is approved.",
     );
   }
 
@@ -350,7 +368,7 @@ export async function createCustomerQuoteLink(quoteId: string) {
   redirect(`/quotes/${quoteId}?public_link=${encodeURIComponent(publicLink.url)}`);
 }
 
-export async function sendCustomerQuoteEmail(quoteId: string) {
+export async function sendCustomerQuoteEmail(quoteId: string, formData?: FormData) {
   if (!UUID_PATTERN.test(quoteId)) {
     redirect("/quotes?action_error=Invalid%20quote%20id.");
   }
@@ -426,6 +444,11 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
 
   let pdfDocument: Awaited<ReturnType<typeof createQuotePdfDocument>> = null;
   let attachment: Awaited<ReturnType<typeof getQuoteDocumentAttachment>> = null;
+  const assetIds =
+    formData
+      ?.getAll("asset_ids")
+      .filter((value): value is string => typeof value === "string")
+      .filter((value) => UUID_PATTERN.test(value)) ?? [];
 
   try {
     pdfDocument = await createQuotePdfDocument({
@@ -450,6 +473,27 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
       publicLink.url,
     );
   }
+  const assetAttachments = await getQuoteAssetAttachments({
+    supabase,
+    organizationId: user.organization_id,
+    assetIds,
+  });
+
+  if (assetIds.length) {
+    await supabase.from("quote_asset_links").upsert(
+      assetIds.map((assetId) => ({
+        organization_id: user.organization_id,
+        quote_id: quoteId,
+        asset_id: assetId,
+        attached_by: user.id,
+      })),
+      {
+        onConflict: "organization_id,quote_id,asset_id",
+        ignoreDuplicates: true,
+      },
+    );
+  }
+
   let delivery: Awaited<ReturnType<typeof sendQuoteEmail>>;
 
   try {
@@ -462,7 +506,10 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
       quoteNumber: quote.quote_number,
       quoteUrl: publicLink.url,
       total: Number(quote.total),
-      attachments: attachment ? [attachment] : [],
+      attachments: [
+        ...(attachment ? [attachment] : []),
+        ...assetAttachments,
+      ],
     });
   } catch (error) {
     redirectQuoteEmailError(
@@ -485,11 +532,11 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
       allowedRoles: ["admin", "account_manager"],
       note: `Sent to ${customer.email} by email.`,
     });
-    await supabase
-      .from("quotes")
-      .update({ followup_date: offsetDate(2) })
-      .eq("organization_id", user.organization_id)
-      .eq("id", quoteId);
+    await scheduleNextFollowUpForQuote({
+      supabase,
+      organizationId: user.organization_id,
+      quoteId,
+    });
   }
 
   await logAction({
@@ -505,6 +552,7 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
       provider: delivery.provider,
       message_id: delivery.messageId,
       document_id: pdfDocument?.id ?? null,
+      asset_attachment_count: assetAttachments.length,
     },
     metadata: {
       delivery_reason: delivery.reason,
@@ -523,6 +571,490 @@ export async function sendCustomerQuoteEmail(quoteId: string) {
 
   redirect(
     `/quotes/${quoteId}?email_status=${delivery.status}${publicLinkParam}${errorParam}`,
+  );
+}
+
+export async function createCreditApplicationLink(quoteId: string) {
+  if (!UUID_PATTERN.test(quoteId)) {
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (user.role !== "admin" && user.role !== "account_manager") {
+    redirectQuoteActionError(
+      quoteId,
+      "You do not have permission to create credit application links.",
+    );
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
+  }
+
+  const link = await ensureCreditApplicationLink({
+    supabase,
+    user,
+    quoteId,
+  });
+
+  if (!link?.url) {
+    redirectQuoteActionError(
+      quoteId,
+      "Credit application links are available after a quote is won.",
+    );
+  }
+
+  await logAction({
+    user,
+    action: "credit_application.link_created",
+    targetTable: "credit_applications",
+    targetId: link.id,
+    before: null,
+    after: {
+      quote_id: quoteId,
+      customer_id: link.customer_id,
+      expires_at: link.expires_at,
+    },
+  });
+
+  revalidatePath(`/quotes/${quoteId}`);
+  redirect(
+    `/quotes/${quoteId}?credit_application_status=link_created&credit_application_link=${encodeURIComponent(
+      link.url,
+    )}`,
+  );
+}
+
+export async function sendCreditApplicationToCustomer(quoteId: string) {
+  if (!UUID_PATTERN.test(quoteId)) {
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (user.role !== "admin" && user.role !== "account_manager") {
+    redirectQuoteActionError(
+      quoteId,
+      "You do not have permission to send credit applications.",
+    );
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
+  }
+
+  const delivery = await sendCreditApplicationEmail({
+    supabase,
+    user,
+    quoteId,
+  });
+
+  if (!delivery.url) {
+    redirectQuoteActionError(
+      quoteId,
+      delivery.reason ?? "Could not create the credit application link.",
+    );
+  }
+
+  await logAction({
+    user,
+    action: "credit_application.email_requested",
+    targetTable: "quotes",
+    targetId: quoteId,
+    before: null,
+    after: {
+      delivery_status: delivery.status,
+      link_created: Boolean(delivery.url),
+    },
+    metadata: {
+      delivery_reason: delivery.reason,
+    },
+  });
+
+  revalidatePath(`/quotes/${quoteId}`);
+  const errorParam =
+    delivery.status === "failed" && delivery.reason
+      ? `&credit_application_error=${encodeURIComponent(delivery.reason)}`
+      : "";
+
+  redirect(
+    `/quotes/${quoteId}?credit_application_status=${delivery.status}&credit_application_link=${encodeURIComponent(
+      delivery.url,
+    )}${errorParam}`,
+  );
+}
+
+export async function uploadQuoteAsset(quoteId: string, formData: FormData) {
+  if (!UUID_PATTERN.test(quoteId)) {
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (user.role !== "admin" && user.role !== "account_manager") {
+    redirectQuoteSendError(
+      quoteId,
+      "You do not have permission to upload quote assets.",
+    );
+  }
+
+  const fileValue = formData.get("asset_file");
+  const file = fileValue instanceof File ? fileValue : null;
+  const title = getString(formData, "asset_title");
+  const assetTypeValue = getString(formData, "asset_type");
+  const assetType = QUOTE_ASSET_TYPES.has(assetTypeValue)
+    ? assetTypeValue
+    : "other";
+
+  if (!file || file.size === 0) {
+    redirectQuoteSendError(quoteId, "Choose an asset file to upload.");
+  }
+
+  if (file.size > MAX_QUOTE_ASSET_BYTES) {
+    redirectQuoteSendError(quoteId, "Quote assets must be 20 MB or smaller.");
+  }
+
+  if (!ALLOWED_QUOTE_ASSET_TYPES.has(file.type)) {
+    redirectQuoteSendError(
+      quoteId,
+      "Quote assets must be a PDF, Word document, text file, or image.",
+    );
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    redirectQuoteSendError(quoteId, "Supabase is not configured for this workspace.");
+  }
+
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("id")
+    .eq("organization_id", user.organization_id)
+    .eq("id", quoteId)
+    .eq("is_active", true)
+    .single<{ id: string }>();
+
+  if (!quote) {
+    redirectQuoteSendError(quoteId, "Quote not found.");
+  }
+
+  const safeName = safeFileName(file.name);
+  const storagePath = `${user.organization_id}/assets/${crypto.randomUUID()}-${safeName}`;
+  const { error: uploadError } = await supabase.storage
+    .from("quote-assets")
+    .upload(storagePath, file, {
+      contentType: file.type,
+      upsert: false,
+    });
+
+  if (uploadError) {
+    redirectQuoteSendError(quoteId, uploadError.message);
+  }
+
+  const { data: asset, error: assetError } = await supabase
+    .from("quote_assets")
+    .insert({
+      organization_id: user.organization_id,
+      uploaded_by: user.id,
+      asset_type: assetType,
+      title: title || safeName,
+      source_filename: file.name,
+      source_mime_type: file.type,
+      storage_bucket: "quote-assets",
+      storage_path: storagePath,
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  if (assetError || !asset) {
+    redirectQuoteSendError(
+      quoteId,
+      assetError?.message ?? "Could not save the uploaded quote asset.",
+    );
+  }
+
+  await supabase.from("quote_asset_links").upsert(
+    {
+      organization_id: user.organization_id,
+      quote_id: quoteId,
+      asset_id: asset.id,
+      attached_by: user.id,
+    },
+    {
+      onConflict: "organization_id,quote_id,asset_id",
+      ignoreDuplicates: true,
+    },
+  );
+
+  await logAction({
+    user,
+    action: "quote_asset.uploaded",
+    targetTable: "quote_assets",
+    targetId: asset.id,
+    before: null,
+    after: {
+      quote_id: quoteId,
+      title: title || safeName,
+      asset_type: assetType,
+      source_filename: file.name,
+      storage_bucket: "quote-assets",
+      storage_path: storagePath,
+    },
+  });
+
+  revalidatePath(`/quotes/${quoteId}/send`);
+  redirect(`/quotes/${quoteId}/send?asset_uploaded=1`);
+}
+
+export async function recordQuoteFeedback(quoteId: string, formData: FormData) {
+  if (!UUID_PATTERN.test(quoteId)) {
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (user.role !== "admin" && user.role !== "account_manager") {
+    redirectQuoteActionError(
+      quoteId,
+      "You do not have permission to record quote feedback.",
+    );
+  }
+
+  const feedbackTypeValue = getString(formData, "feedback_type");
+  const feedbackType = [
+    "price_too_high",
+    "question",
+    "requested_change",
+    "timing",
+    "general",
+  ].includes(feedbackTypeValue)
+    ? feedbackTypeValue
+    : "general";
+  const note = getString(formData, "feedback_note");
+
+  if (!note) {
+    redirectQuoteActionError(quoteId, "Add a feedback note before saving.");
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    redirectQuoteActionError(
+      quoteId,
+      "Supabase is not configured for this workspace.",
+    );
+  }
+
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("id")
+    .eq("organization_id", user.organization_id)
+    .eq("id", quoteId)
+    .eq("is_active", true)
+    .single<{ id: string }>();
+
+  if (!quote) {
+    redirectQuoteActionError(quoteId, "Quote not found.");
+  }
+
+  const { data: feedback, error } = await supabase
+    .from("quote_feedback")
+    .insert({
+      organization_id: user.organization_id,
+      quote_id: quoteId,
+      created_by: user.id,
+      feedback_type: feedbackType,
+      note,
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  if (error || !feedback) {
+    redirectQuoteActionError(
+      quoteId,
+      error?.message ?? "Could not save quote feedback.",
+    );
+  }
+
+  await supabase
+    .from("quotes")
+    .update({ followup_date: null })
+    .eq("organization_id", user.organization_id)
+    .eq("id", quoteId)
+    .in("status", ["sent", "viewed", "follow_up"])
+    .eq("is_active", true);
+
+  await supabase
+    .from("quote_follow_up_drafts")
+    .update({
+      status: "cancelled",
+      failure_reason: "Customer feedback was recorded by the sales team.",
+    })
+    .eq("organization_id", user.organization_id)
+    .eq("quote_id", quoteId)
+    .in("status", ["pending_approval", "approved"]);
+
+  await logAction({
+    user,
+    action: "quote.feedback_recorded",
+    targetTable: "quotes",
+    targetId: quoteId,
+    before: null,
+    after: {
+      feedback_id: feedback.id,
+      feedback_type: feedbackType,
+      note,
+    },
+  });
+
+  revalidatePath(`/quotes/${quoteId}`);
+  redirect(`/quotes/${quoteId}?feedback_recorded=1`);
+}
+
+export async function createCustomerQuoteTextMessage(quoteId: string) {
+  if (!UUID_PATTERN.test(quoteId)) {
+    redirect("/quotes?action_error=Invalid%20quote%20id.");
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (user.role !== "admin" && user.role !== "account_manager") {
+    redirectQuoteSendError(
+      quoteId,
+      "You do not have permission to create customer quote text messages.",
+    );
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    redirectQuoteSendError(quoteId, "Supabase is not configured for this workspace.");
+  }
+
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("id, quote_number, status, total, customers(name, phone)")
+    .eq("organization_id", user.organization_id)
+    .eq("id", quoteId)
+    .eq("is_active", true)
+    .single<{
+      id: string;
+      quote_number: string;
+      status: QuoteStatus;
+      total: number;
+      customers:
+        | { name: string; phone: string | null }
+        | { name: string; phone: string | null }[]
+        | null;
+    }>();
+
+  if (!quote) {
+    redirectQuoteSendError(quoteId, "Quote not found.");
+  }
+
+  if (!["approved", "sent", "viewed", "follow_up", "won", "lost"].includes(quote.status)) {
+    redirectQuoteSendError(
+      quoteId,
+      "Customer text messages are available after the quote is approved.",
+    );
+  }
+
+  const customer = relationOne(quote.customers);
+
+  if (!customer?.phone) {
+    redirectQuoteSendError(
+      quoteId,
+      "This customer does not have a phone number.",
+    );
+  }
+
+  const publicLink = await ensureQuotePublicLink({
+    supabase,
+    user,
+    quoteId,
+  });
+
+  if (!publicLink?.url) {
+    redirectQuoteSendError(quoteId, "Could not create the customer quote link.");
+  }
+
+  const message = [
+    `Hello ${customer.name},`,
+    `Quote ${quote.quote_number} is ready for your review.`,
+    `Total: ${formatCurrency(Number(quote.total))}`,
+    publicLink.url,
+  ].join("\n");
+
+  if (quote.status === "approved") {
+    await transitionQuoteStatus({
+      supabase,
+      user,
+      action: "quote.sent_to_customer_by_text",
+      quoteId,
+      from: "approved",
+      to: "sent",
+      allowedRoles: ["admin", "account_manager"],
+      note: `Prepared text message to ${customer.phone}.`,
+    });
+    await scheduleNextFollowUpForQuote({
+      supabase,
+      organizationId: user.organization_id,
+      quoteId,
+    });
+  }
+
+  await logAction({
+    user,
+    action: "quote.text_message_created",
+    targetTable: "quotes",
+    targetId: quoteId,
+    before: null,
+    after: {
+      public_link_id: publicLink.id,
+      recipient: customer.phone,
+      quote_number: quote.quote_number,
+    },
+  });
+
+  revalidatePath(`/quotes/${quoteId}`);
+  redirect(
+    `/quotes/${quoteId}/send?text_status=ready&phone=${encodeURIComponent(
+      customer.phone,
+    )}&text_message=${encodeURIComponent(message)}&public_link=${encodeURIComponent(
+      publicLink.url,
+    )}`,
   );
 }
 
@@ -677,6 +1209,7 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     pricingConfigResult,
     vehicleTypesResult,
     markupRulesResult,
+    unitConversions,
   ] = await Promise.all([
     supabase
       .from("quotes")
@@ -690,12 +1223,12 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", materialId)
       .eq("is_active", true)
-      .eq("suppliers.is_active", true)
+      .eq("supplier_plants.is_active", true)
       .single<PlantSelectionMaterial>(),
     supabase
       .from("pricing_config")
@@ -719,6 +1252,10 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
       .returns<CatalogMarkupRule[]>(),
+    getQuoteUnitConversions({
+      supabase,
+      organizationId: user.organization_id,
+    }),
   ]);
 
   if (!quoteResult.data || !materialResult.data || !pricingConfigResult.data) {
@@ -769,7 +1306,7 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
   const catalogMarkupRules = normalizeCatalogMarkupRules(
     markupRulesResult.data ?? [],
   );
-  const googleMapsIntegration = await getGoogleMapsIntegration({
+  const mapboxIntegration = await getMapboxIntegration({
     supabase,
     organizationId: user.organization_id,
   });
@@ -791,10 +1328,11 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
         Number(pricingConfigResult.data.trucking_minimum),
     },
     vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
+    unitConversions,
     catalogMarkupRules,
-    googleMapsApiKey:
-      googleMapsIntegration?.isEnabled && googleMapsIntegration.apiKey
-        ? googleMapsIntegration.apiKey
+    mapboxAccessToken:
+      mapboxIntegration?.isEnabled && mapboxIntegration.publicAccessToken
+        ? mapboxIntegration.publicAccessToken
         : null,
   });
   const material = recommendation.material;
@@ -1083,6 +1621,7 @@ export async function updateQuoteItemQuantity(
     itemResult,
     pricingConfigResult,
     vehicleTypesResult,
+    unitConversions,
   ] = await Promise.all([
     supabase
       .from("quotes")
@@ -1115,6 +1654,10 @@ export async function updateQuoteItemQuantity(
       .eq("is_active", true)
       .order("capacity_tons", { ascending: false })
       .returns<VehicleCapacity[]>(),
+    getQuoteUnitConversions({
+      supabase,
+      organizationId: user.organization_id,
+    }),
   ]);
 
   if (!quoteResult.data || !itemResult.data || !pricingConfigResult.data) {
@@ -1170,6 +1713,7 @@ export async function updateQuoteItemQuantity(
         Number(pricingConfigResult.data.trucking_minimum),
     },
     vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
+    unitConversions,
     applyMaterialMinimum: false,
     materialUnitPriceOverride: Number(item.material_unit_price),
   });
@@ -1294,7 +1838,7 @@ async function transitionQuoteStatusAction({
   from: QuoteStatus;
   to: QuoteStatus;
   action: string;
-  allowedRoles: Array<"admin" | "account_manager" | "estimator">;
+  allowedRoles: Array<AppUser["role"]>;
   note?: string;
 }) {
   if (!UUID_PATTERN.test(quoteId)) {
@@ -1346,11 +1890,11 @@ async function transitionQuoteStatusAction({
   }
 
   if (to === "sent") {
-    await supabase
-      .from("quotes")
-      .update({ followup_date: offsetDate(2) })
-      .eq("organization_id", user.organization_id)
-      .eq("id", quote.id);
+    await scheduleNextFollowUpForQuote({
+      supabase,
+      organizationId: user.organization_id,
+      quoteId: quote.id,
+    });
   }
 
   if (to === "won" || to === "lost") {
@@ -1367,13 +1911,6 @@ async function transitionQuoteStatusAction({
     ? `?integration_warning=${encodeURIComponent(quote.integrationWarning)}`
     : "";
   redirect(`/quotes/${quote.id}${warningParam}`);
-}
-
-function offsetDate(days: number): string {
-  const value = new Date();
-  value.setUTCDate(value.getUTCDate() + days);
-
-  return value.toISOString().slice(0, 10);
 }
 
 async function getQuoteTotals(
@@ -1543,6 +2080,22 @@ function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(value);
+}
+
+function safeFileName(value: string): string {
+  const sanitized = value
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+
+  return sanitized || "quote-asset";
+}
+
 function relationOne<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
@@ -1561,6 +2114,10 @@ function redirectQuoteEmailError(
       message,
     )}`,
   );
+}
+
+function redirectQuoteSendError(quoteId: string, message: string): never {
+  redirect(`/quotes/${quoteId}/send?send_error=${encodeURIComponent(message)}`);
 }
 
 function redirectQuoteActionError(quoteId: string, message: string): never {

@@ -11,16 +11,10 @@ import { createClient } from "@/lib/supabase/server";
 type SupplierApiRecord = {
   id: string;
   name: string;
-  parent_company: string | null;
-  address: Record<string, unknown>;
-  latitude: number | null;
-  longitude: number | null;
-  hours: string | null;
-  primary_contact_name: string | null;
-  primary_contact_phone: string | null;
   notes: string | null;
   is_active: boolean;
   updated_at: string;
+  supplier_plants: Array<{ id: string; name: string }> | null;
 };
 
 export async function GET(request: Request) {
@@ -49,7 +43,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("suppliers")
     .select(
-      "id, name, parent_company, address, latitude, longitude, hours, primary_contact_name, primary_contact_phone, notes, is_active, updated_at",
+      "id, name, notes, is_active, updated_at, supplier_plants(id, name)",
       { count: "exact" },
     )
     .eq("organization_id", user.organization_id)
@@ -76,10 +70,7 @@ export async function GET(request: Request) {
       suppliers:
         data?.map((supplier) => ({
           ...supplier,
-          latitude:
-            supplier.latitude === null ? null : Number(supplier.latitude),
-          longitude:
-            supplier.longitude === null ? null : Number(supplier.longitude),
+          plant_count: supplier.supplier_plants?.length ?? 0,
         })) ?? [],
     },
     {

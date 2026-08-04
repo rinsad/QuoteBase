@@ -47,10 +47,10 @@ export type AdminOpenAIIntegration = {
   updated_at: string | null;
 };
 
-export type AdminGoogleMapsIntegration = {
+export type AdminMapboxIntegration = {
   id: string | null;
   is_enabled: boolean;
-  api_key_last4: string | null;
+  public_access_token_last4: string | null;
   updated_at: string | null;
 };
 
@@ -232,30 +232,31 @@ export async function getAdminOpenAIIntegration(
   };
 }
 
-export async function getAdminGoogleMapsIntegration(
+export async function getAdminMapboxIntegration(
   organizationId: string,
-): Promise<AdminGoogleMapsIntegration> {
+): Promise<AdminMapboxIntegration> {
   const supabase = await createClient();
 
   if (!supabase) {
-    return emptyGoogleMapsIntegration();
+    return emptyMapboxIntegration();
   }
 
   const { data } = await supabase
     .from("organization_integrations")
     .select("id, is_enabled, credentials_last4, updated_at")
     .eq("organization_id", organizationId)
-    .eq("provider", "google_maps")
+    .eq("provider", "mapbox")
     .maybeSingle<OrganizationIntegrationRecord>();
 
   if (!data) {
-    return emptyGoogleMapsIntegration();
+    return emptyMapboxIntegration();
   }
 
   return {
     id: data.id,
     is_enabled: data.is_enabled,
-    api_key_last4: stringValue(data.credentials_last4?.api_key) ?? null,
+    public_access_token_last4:
+      stringValue(data.credentials_last4?.public_access_token) ?? null,
     updated_at: data.updated_at,
   };
 }
@@ -316,11 +317,11 @@ function emptyOpenAIIntegration(): AdminOpenAIIntegration {
   };
 }
 
-function emptyGoogleMapsIntegration(): AdminGoogleMapsIntegration {
+function emptyMapboxIntegration(): AdminMapboxIntegration {
   return {
     id: null,
     is_enabled: false,
-    api_key_last4: null,
+    public_access_token_last4: null,
     updated_at: null,
   };
 }

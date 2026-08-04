@@ -41,7 +41,11 @@ export type CrmDeal = {
   source: "manual" | "csv_import" | "web_form";
   is_active: boolean;
   company_name: string | null;
+  company_domain: string | null;
+  company_email: string | null;
+  company_phone: string | null;
   contact_name: string | null;
+  contact_title: string | null;
   contact_email: string | null;
   contact_phone: string | null;
 };
@@ -73,13 +77,44 @@ type CompanyRecord = Omit<CrmCompany, "contacts" | "deals">;
 
 type DealRecord = Omit<
   CrmDeal,
-  "value" | "company_name" | "contact_name" | "contact_email" | "contact_phone"
+  | "value"
+  | "company_name"
+  | "company_domain"
+  | "company_email"
+  | "company_phone"
+  | "contact_name"
+  | "contact_title"
+  | "contact_email"
+  | "contact_phone"
 > & {
   value: number;
-  crm_companies: { name: string } | { name: string }[] | null;
+  crm_companies:
+    | {
+        name: string;
+        domain: string | null;
+        email: string | null;
+        phone: string | null;
+      }
+    | {
+        name: string;
+        domain: string | null;
+        email: string | null;
+        phone: string | null;
+      }[]
+    | null;
   crm_contacts:
-    | { full_name: string; email: string | null; phone: string | null }
-    | { full_name: string; email: string | null; phone: string | null }[]
+    | {
+        full_name: string;
+        title: string | null;
+        email: string | null;
+        phone: string | null;
+      }
+    | {
+        full_name: string;
+        title: string | null;
+        email: string | null;
+        phone: string | null;
+      }[]
     | null;
 };
 
@@ -132,7 +167,7 @@ export async function getCrmLiteSummary(
         .returns<CrmContact[]>(),
       supabase
         .from("crm_deals")
-        .select("id, company_id, contact_id, title, stage, value, expected_close_date, source, is_active, crm_companies(name), crm_contacts(full_name, email, phone)")
+        .select("id, company_id, contact_id, title, stage, value, expected_close_date, source, is_active, crm_companies(name, domain, email, phone), crm_contacts(full_name, title, email, phone)")
         .eq("organization_id", user.organization_id)
         .eq("is_active", true)
         .order("created_at", { ascending: false })
@@ -164,7 +199,11 @@ export async function getCrmLiteSummary(
         source: deal.source,
         is_active: deal.is_active,
         company_name: company?.name ?? null,
+        company_domain: company?.domain ?? null,
+        company_email: company?.email ?? null,
+        company_phone: company?.phone ?? null,
         contact_name: contact?.full_name ?? null,
+        contact_title: contact?.title ?? null,
         contact_email: contact?.email ?? null,
         contact_phone: contact?.phone ?? null,
       };

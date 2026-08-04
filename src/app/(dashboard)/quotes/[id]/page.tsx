@@ -8,25 +8,27 @@ import {
   FileText,
   GitBranch,
   MapPin,
+  MessageSquare,
   Send,
   Share2,
   XCircle,
   UserRound,
 } from "lucide-react";
 
-import { AddMaterialLineForm } from "@/app/(dashboard)/quotes/[id]/add-material-line-form";
 import {
-  addQuoteItem,
   approveQuote,
+  createCreditApplicationLink,
   createCustomerQuoteLink,
   createQuoteRevisionAction,
   generateQuoteDocument,
   markQuoteAccepted,
   markQuoteDeclined,
   markQuoteSent,
+  recordQuoteFeedback,
   requestQuoteChanges,
   rejectQuote,
   removeQuoteItem,
+  sendCreditApplicationToCustomer,
   submitQuoteForApproval,
   updateQuoteItemQuantity,
 } from "@/app/(dashboard)/quotes/[id]/actions";
@@ -34,7 +36,6 @@ import { Button } from "@/components/ui/button";
 import { QuoteNav } from "@/components/app-nav";
 import { QuoteStatusListener } from "@/components/quote-status-listener";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { getNewQuoteContext } from "@/lib/quotes/new-quote";
 import {
   getQuoteDetail,
   type QuoteDetailItem,
@@ -48,10 +49,14 @@ export default async function QuoteDetailPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{
     action_error?: string;
+    credit_application_error?: string;
+    credit_application_link?: string;
+    credit_application_status?: string;
     created?: string;
     document_created?: string;
     email_error?: string;
     email_status?: string;
+    feedback_recorded?: string;
     integration_warning?: string;
     public_link?: string;
     revision_created?: string;
@@ -77,7 +82,6 @@ export default async function QuoteDetailPage({
     "rejected",
   ];
   const canEditItems = editableUnapprovedStatuses.includes(quote.status);
-  const quoteContext = canEditItems ? await getNewQuoteContext(user) : null;
   const submitAction = submitQuoteForApproval.bind(null, quote.id);
   const approveAction = approveQuote.bind(null, quote.id);
   const rejectAction = rejectQuote.bind(null, quote.id);
@@ -85,8 +89,16 @@ export default async function QuoteDetailPage({
   const sendAction = markQuoteSent.bind(null, quote.id);
   const acceptedAction = markQuoteAccepted.bind(null, quote.id);
   const declinedAction = markQuoteDeclined.bind(null, quote.id);
-  const addItemAction = addQuoteItem.bind(null, quote.id);
+  const recordFeedbackAction = recordQuoteFeedback.bind(null, quote.id);
   const createPublicLinkAction = createCustomerQuoteLink.bind(null, quote.id);
+  const createCreditApplicationLinkAction = createCreditApplicationLink.bind(
+    null,
+    quote.id,
+  );
+  const sendCreditApplicationAction = sendCreditApplicationToCustomer.bind(
+    null,
+    quote.id,
+  );
   const generateDocumentAction = generateQuoteDocument.bind(null, quote.id);
   const createRevisionAction = createQuoteRevisionAction.bind(null, quote.id);
   const canSubmit =
@@ -113,6 +125,9 @@ export default async function QuoteDetailPage({
     ["approved", "sent", "viewed", "follow_up", "won", "lost", "expired"].includes(
       quote.status,
     ) && user.role === "admin";
+  const canSendCreditApplication =
+    ["won", "accepted"].includes(quote.status) &&
+    (user.role === "admin" || user.role === "account_manager");
 
   return (
     <main className="app-background">
@@ -164,6 +179,12 @@ export default async function QuoteDetailPage({
           </div>
         ) : null}
 
+        {query.feedback_recorded ? (
+          <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
+            Customer feedback was recorded.
+          </div>
+        ) : null}
+
         {query.integration_warning ? (
           <div className="mt-6 rounded-[20px] border border-amber-100 bg-amber-50/90 px-5 py-4 text-sm font-medium text-amber-900 shadow-sm">
             {query.integration_warning}
@@ -180,6 +201,50 @@ export default async function QuoteDetailPage({
               Created {formatDateTime(quote.created_at)} by{" "}
               {quote.requested_by.full_name}.
             </p>
+            <dl className="mt-5 grid gap-3 rounded-[18px] border border-white/70 bg-white/65 p-4 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-muted-foreground">Quote date</dt>
+                <dd className="mt-1 font-semibold">
+                  {formatDate(quote.quote_date)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Expires at</dt>
+                <dd className="mt-1 font-semibold">
+                  {formatDate(quote.expires_at)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Account type</dt>
+                <dd className="mt-1 font-semibold">
+                  {formatAccountType(quote.account_type)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Project status</dt>
+                <dd className="mt-1 font-semibold">
+                  {formatProjectStatus(quote.project_status)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Job start</dt>
+                <dd className="mt-1 font-semibold">
+                  {quote.job_start_date ? formatDate(quote.job_start_date) : "Not set"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Job end</dt>
+                <dd className="mt-1 font-semibold">
+                  {quote.job_end_date ? formatDate(quote.job_end_date) : "Not set"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Follow-ups</dt>
+                <dd className="mt-1 font-semibold">
+                  {quote.followup_attempt_count} / {quote.followup_max_attempts}
+                </dd>
+              </div>
+            </dl>
             <div className="mt-5 rounded-[18px] border border-white/70 bg-white/65 p-4">
               <div className="flex items-start gap-3">
                 <div className="icon-well text-blue-700">
@@ -248,6 +313,32 @@ export default async function QuoteDetailPage({
             {query.email_error ? (
               <div className="mt-5 rounded-[18px] border border-rose-100 bg-rose-50/90 p-4 text-sm font-medium text-rose-800">
                 {query.email_error}
+              </div>
+            ) : null}
+            {query.credit_application_link ? (
+              <div className="mt-5 rounded-[18px] border border-emerald-100 bg-emerald-50/80 p-4 text-sm text-emerald-900">
+                <p className="font-semibold">
+                  {creditApplicationStatusMessage(
+                    query.credit_application_status,
+                  )}
+                </p>
+                <label
+                  htmlFor="credit-application-link"
+                  className="mt-3 block text-xs font-semibold uppercase text-emerald-800/80"
+                >
+                  Credit application link
+                </label>
+                <input
+                  id="credit-application-link"
+                  readOnly
+                  value={query.credit_application_link}
+                  className="soft-control mt-2 w-full bg-white/85 font-mono text-xs"
+                />
+              </div>
+            ) : null}
+            {query.credit_application_error ? (
+              <div className="mt-5 rounded-[18px] border border-rose-100 bg-rose-50/90 p-4 text-sm font-medium text-rose-800">
+                {query.credit_application_error}
               </div>
             ) : null}
             {canSubmit || canApprove || canSend || canRecordCustomerResponse ? (
@@ -387,6 +478,33 @@ export default async function QuoteDetailPage({
                 </Button>
               </form>
             ) : null}
+            {canSendCreditApplication ? (
+              <div className="mt-3 grid gap-3 rounded-[18px] border border-white/70 bg-white/65 p-4">
+                <div>
+                  <p className="text-sm font-semibold">Credit application</p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    Send the accepted customer an electronic credit application,
+                    or create a secure link to share manually.
+                  </p>
+                </div>
+                <form action={sendCreditApplicationAction}>
+                  <Button type="submit" className="h-11 w-full rounded-full">
+                    <Send className="size-4" />
+                    Email credit application
+                  </Button>
+                </form>
+                <form action={createCreditApplicationLinkAction}>
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    className="h-11 w-full rounded-full bg-white/70"
+                  >
+                    <Share2 className="size-4" />
+                    Create application link
+                  </Button>
+                </form>
+              </div>
+            ) : null}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -450,12 +568,6 @@ export default async function QuoteDetailPage({
                 />
               ))}
             </div>
-            {quoteContext ? (
-              <AddMaterialLineForm
-                action={addItemAction}
-                materials={quoteContext.materials}
-              />
-            ) : null}
           </div>
 
           <aside className="space-y-6">
@@ -529,6 +641,65 @@ export default async function QuoteDetailPage({
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     No quote documents generated yet.
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section className="glass-panel p-5 sm:p-6">
+              <SectionHeading
+                icon={MessageSquare}
+                kicker="Feedback"
+                title="Customer follow-up notes"
+              />
+              {canRecordCustomerResponse ? (
+                <form action={recordFeedbackAction} className="mt-5 space-y-3">
+                  <select
+                    name="feedback_type"
+                    className="soft-control h-11 w-full"
+                    defaultValue="general"
+                  >
+                    <option value="price_too_high">Price too high</option>
+                    <option value="question">Question</option>
+                    <option value="requested_change">Requested change</option>
+                    <option value="timing">Timing</option>
+                    <option value="general">General</option>
+                  </select>
+                  <textarea
+                    name="feedback_note"
+                    className="soft-control min-h-24 w-full resize-none py-3"
+                    placeholder="What did the customer say?"
+                    required
+                  />
+                  <Button type="submit" className="h-11 w-full rounded-full">
+                    <MessageSquare className="size-4" />
+                    Record feedback
+                  </Button>
+                </form>
+              ) : null}
+              <div className="mt-5 space-y-3">
+                {quote.feedbackEntries.length ? (
+                  quote.feedbackEntries.map((entry) => (
+                    <div key={entry.id} className="soft-row px-4 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-sm font-semibold">
+                          {formatFeedbackType(entry.feedback_type)}
+                        </p>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {formatDateTime(entry.created_at)}
+                        </span>
+                      </div>
+                      <p className="mt-2 whitespace-pre-line text-sm leading-6 text-muted-foreground">
+                        {entry.note}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {entry.user_name ?? "System"}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No customer feedback recorded yet.
                   </p>
                 )}
               </div>
@@ -789,6 +960,13 @@ function formatPublicEvent(eventType: string) {
     .join(" ");
 }
 
+function formatFeedbackType(feedbackType: string) {
+  return feedbackType
+    .split("_")
+    .map(formatStatus)
+    .join(" ");
+}
+
 function publicEventDetail(metadata: Record<string, unknown>) {
   const transactionId = metadata.transaction_id;
   const viewCount = metadata.view_count;
@@ -819,6 +997,23 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${value}T00:00:00.000Z`));
+}
+
+function formatAccountType(value: string) {
+  return value === "contractor" ? "Contractor" : "Non-contractor";
+}
+
+function formatProjectStatus(value: string) {
+  return value === "bid" ? "Bid" : "Existing job";
+}
+
 function emailStatusMessage(status: string) {
   if (status === "sent") {
     return "Quote email sent";
@@ -833,4 +1028,20 @@ function emailStatusMessage(status: string) {
   }
 
   return "Customer link created";
+}
+
+function creditApplicationStatusMessage(status?: string) {
+  if (status === "sent") {
+    return "Credit application email sent";
+  }
+
+  if (status === "skipped") {
+    return "Credit application link created; Gmail was not connected";
+  }
+
+  if (status === "failed") {
+    return "Credit application email failed; link created";
+  }
+
+  return "Credit application link created";
 }

@@ -1,4 +1,5 @@
 import type { PricingConfig } from "@/lib/quotes/pricing";
+import { normalizeProjectStatusOptions } from "@/lib/quotes/new-quote";
 import { createClient } from "@/lib/supabase/server";
 
 export type AdminPricingConfig = PricingConfig & {
@@ -9,7 +10,7 @@ export type AdminPricingConfig = PricingConfig & {
 const BASE_PRICING_SELECT =
   "id, tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton, updated_at";
 
-const EXTENDED_PRICING_SELECT = `${BASE_PRICING_SELECT}, big_quote_threshold, follow_up_auto_send_enabled, follow_up_sms_enabled`;
+const EXTENDED_PRICING_SELECT = `${BASE_PRICING_SELECT}, big_quote_threshold, default_followup_max_attempts, jobs_starting_soon_days, follow_up_auto_send_enabled, follow_up_sms_enabled, project_status_options`;
 
 export async function getAdminPricingConfig(
   organizationId: string,
@@ -85,7 +86,18 @@ function normalizePricingConfig(data: AdminPricingConfig): AdminPricingConfig {
       data.big_quote_threshold === undefined
         ? undefined
         : Number(data.big_quote_threshold),
+    default_followup_max_attempts:
+      data.default_followup_max_attempts === undefined
+        ? undefined
+        : Number(data.default_followup_max_attempts),
+    jobs_starting_soon_days:
+      data.jobs_starting_soon_days === undefined
+        ? undefined
+        : Number(data.jobs_starting_soon_days),
     follow_up_auto_send_enabled: Boolean(data.follow_up_auto_send_enabled),
     follow_up_sms_enabled: Boolean(data.follow_up_sms_enabled),
+    project_status_options: normalizeProjectStatusOptions(
+      data.project_status_options,
+    ),
   };
 }

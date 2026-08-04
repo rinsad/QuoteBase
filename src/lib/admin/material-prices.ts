@@ -10,6 +10,12 @@ export type AdminMaterialPrice = {
   cost_per_unit: number;
   last_price_update: string | null;
   minimum_order_quantity: number | null;
+  catalog_material_price: number | null;
+  catalog_per_ton: number | null;
+  catalog_surcharge_per_load: number | null;
+  catalog_source_plant: string | null;
+  catalog_quote_number: string | null;
+  catalog_effective_through: string | null;
   is_active: boolean;
 };
 
@@ -34,7 +40,13 @@ export type MaterialPriceSummary = {
 };
 
 type MaterialRecord = Omit<AdminMaterialPrice, "supplier_name"> & {
-  suppliers: { name: string } | { name: string }[] | null;
+  supplier_plants:
+    | { name: string; suppliers: { name: string } | { name: string }[] | null }
+    | {
+        name: string;
+        suppliers: { name: string } | { name: string }[] | null;
+      }[]
+    | null;
 };
 
 export async function getAdminMaterialPrices(
@@ -54,7 +66,7 @@ export async function getAdminMaterialPrices(
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, last_price_update, minimum_order_quantity, is_active, suppliers(name)",
+        "id, supplier_id, name, tier, unit, cost_per_unit, last_price_update, minimum_order_quantity, catalog_material_price, catalog_per_ton, catalog_surcharge_per_load, catalog_source_plant, catalog_quote_number, catalog_effective_through, is_active, supplier_plants(name, suppliers(name))",
       )
       .eq("organization_id", organizationId)
       .eq("is_active", true)
@@ -70,18 +82,33 @@ export async function getAdminMaterialPrices(
 
   const materials =
     materialsResult.data?.map((material) => {
-        const supplier = Array.isArray(material.suppliers)
-          ? material.suppliers[0]
-          : material.suppliers;
+        const plant = Array.isArray(material.supplier_plants)
+          ? material.supplier_plants[0]
+          : material.supplier_plants;
+        const supplier = Array.isArray(plant?.suppliers)
+          ? plant?.suppliers[0]
+          : plant?.suppliers;
 
         return {
           ...material,
-          supplier_name: supplier?.name ?? "Unknown supplier",
+          supplier_name: [supplier?.name, plant?.name].filter(Boolean).join(" / ") || "Unknown plant",
           cost_per_unit: Number(material.cost_per_unit),
           minimum_order_quantity:
             material.minimum_order_quantity === null
               ? null
               : Number(material.minimum_order_quantity),
+          catalog_material_price:
+            material.catalog_material_price === null
+              ? null
+              : Number(material.catalog_material_price),
+          catalog_per_ton:
+            material.catalog_per_ton === null
+              ? null
+              : Number(material.catalog_per_ton),
+          catalog_surcharge_per_load:
+            material.catalog_surcharge_per_load === null
+              ? null
+              : Number(material.catalog_surcharge_per_load),
         };
       }) ?? [];
 

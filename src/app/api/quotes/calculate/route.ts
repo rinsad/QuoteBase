@@ -6,10 +6,11 @@ import {
   serverError,
   unauthorized,
 } from "@/lib/api/responses";
+import { getQuoteUnitConversions } from "@/lib/admin/units";
 import { UUID_PATTERN } from "@/lib/api/validation";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { geocodeJobSiteAddress } from "@/lib/geo/geocode";
-import { getGoogleMapsIntegration } from "@/lib/integrations/google-maps";
+import { getMapboxIntegration } from "@/lib/integrations/mapbox";
 import {
   normalizePricingConfig,
   normalizeVehicleTypes,
@@ -133,16 +134,17 @@ export async function POST(request: Request) {
     vehicleTypesResult,
     jobSiteResult,
     markupRulesResult,
+    unitConversions,
   ] = await Promise.all([
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, suppliers!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", parsed.value.material_id)
       .eq("is_active", true)
-      .eq("suppliers.is_active", true)
+      .eq("supplier_plants.is_active", true)
       .single<PlantSelectionMaterial>(),
     supabase
       .from("pricing_config")
@@ -175,6 +177,10 @@ export async function POST(request: Request) {
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
       .returns<CatalogMarkupRule[]>(),
+    getQuoteUnitConversions({
+      supabase,
+      organizationId: user.organization_id,
+    }),
   ]);
 
   if (!materialResult.data || !pricingConfigResult.data) {
@@ -185,13 +191,13 @@ export async function POST(request: Request) {
     return badRequest("Selected job site was not found.");
   }
 
-  const googleMapsIntegration = await getGoogleMapsIntegration({
+  const mapboxIntegration = await getMapboxIntegration({
     supabase,
     organizationId: user.organization_id,
   });
-  const googleMapsApiKey =
-    googleMapsIntegration?.isEnabled && googleMapsIntegration.apiKey
-      ? googleMapsIntegration.apiKey
+  const mapboxAccessToken =
+    mapboxIntegration?.isEnabled && mapboxIntegration.publicAccessToken
+      ? mapboxIntegration.publicAccessToken
       : null;
   const jobSiteCoordinates = await resolveJobSiteCoordinates({
     jobSite: jobSiteResult.data ?? null,
@@ -200,7 +206,7 @@ export async function POST(request: Request) {
     fallbackCity: parsed.value.site_city,
     fallbackCounty: parsed.value.site_county,
     fallbackState: parsed.value.site_state,
-    googleMapsApiKey,
+    mapboxAccessToken,
   });
   const taxRate = await resolveSalesTaxRate({
     supabase,
@@ -225,6 +231,7 @@ export async function POST(request: Request) {
       quantity: parsed.value.quantity,
       pricingConfig: normalizePricingConfig(pricingConfigResult.data),
       vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
+      unitConversions,
       useRequestedPlant: parsed.value.use_selected_plant,
       materialUnitPriceOverride:
         parsed.value.material_unit_price_override ?? null,
@@ -242,7 +249,7 @@ export async function POST(request: Request) {
       catalogMarkupRules: normalizeCatalogMarkupRules(
         markupRulesResult.data ?? [],
       ),
-      googleMapsApiKey,
+      mapboxAccessToken,
     });
     const calculation = recommendation.calculation;
 
@@ -265,6 +272,9 @@ export async function POST(request: Request) {
         },
         vehicle_type_id: calculation.vehicleTypeId,
         vehicle_name: calculation.vehicleName,
+        quote_quantity_basis: calculation.quoteQuantityBasis,
+        quote_quantity_factor: calculation.quoteQuantityFactor,
+        truck_capacity_quantity: calculation.truckCapacityQuantity,
         load_count: calculation.loadCount,
         trucking_rate_key: calculation.truckingRateKey,
         trucking_hourly_rate: calculation.truckingHourlyRate,
@@ -427,7 +437,7 @@ async function resolveJobSiteCoordinates({
   fallbackCity,
   fallbackCounty,
   fallbackState,
-  googleMapsApiKey,
+  mapboxAccessToken,
 }: {
   jobSite: JobSiteRecord | null;
   explicitLatitude: number | null;
@@ -435,7 +445,7 @@ async function resolveJobSiteCoordinates({
   fallbackCity: string;
   fallbackCounty: string;
   fallbackState: string;
-  googleMapsApiKey: string | null;
+  mapboxAccessToken: string | null;
 }): Promise<{ latitude: number | null; longitude: number | null }> {
   if (explicitLatitude !== null && explicitLongitude !== null) {
     return {
@@ -461,7 +471,7 @@ async function resolveJobSiteCoordinates({
     city: jobSite?.city ?? fallbackCity,
     county: jobSite?.county ?? fallbackCounty,
     state: jobSite?.state ?? fallbackState,
-    apiKey: googleMapsApiKey,
+    apiKey: mapboxAccessToken,
   });
 
   return geocoded ?? storedCoordinates;

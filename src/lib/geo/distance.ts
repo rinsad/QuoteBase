@@ -8,7 +8,7 @@ export type Coordinate = {
 export type DistanceEstimate = {
   distanceMiles: number;
   durationSeconds: number;
-  source: "cache" | "google_maps" | "estimate";
+  source: "cache" | "mapbox" | "estimate";
 };
 
 type ResolvedCoordinate = {
@@ -26,7 +26,7 @@ export async function estimateAndCacheDistance(
   organizationId: string,
   origin: Coordinate,
   destination: Coordinate,
-  options: { useGoogleMaps?: boolean; googleMapsApiKey?: string | null } = {},
+  options: { useMapbox?: boolean; mapboxAccessToken?: string | null } = {},
 ): Promise<DistanceEstimate | null> {
   if (
     origin.latitude === null ||
@@ -57,16 +57,16 @@ export async function estimateAndCacheDistance(
     return cachedDistance;
   }
 
-  const googleMapsDistance =
-    options.useGoogleMaps === true
-      ? await getGoogleMapsDistance(
+  const mapboxDistance =
+    options.useMapbox === true
+      ? await getMapboxDistance(
           resolvedOrigin,
           resolvedDestination,
-          options.googleMapsApiKey ?? null,
+          options.mapboxAccessToken ?? null,
         )
       : null;
   const distance =
-    googleMapsDistance ?? estimateDistance(resolvedOrigin, resolvedDestination);
+    mapboxDistance ?? estimateDistance(resolvedOrigin, resolvedDestination);
 
   await cacheDistance(
     supabase,
@@ -138,25 +138,27 @@ async function cacheDistance(
   );
 }
 
-async function getGoogleMapsDistance(
+async function getMapboxDistance(
   origin: ResolvedCoordinate,
   destination: ResolvedCoordinate,
-  apiKey: string | null,
+  accessToken: string | null,
 ): Promise<DistanceEstimate | null> {
-  const googleMapsApiKey = apiKey?.trim() || process.env.GOOGLE_MAPS_API_KEY;
+  const mapboxAccessToken = accessToken?.trim();
 
-  if (!googleMapsApiKey) {
+  if (!mapboxAccessToken) {
     return null;
   }
 
-  const url = new URL("https://maps.googleapis.com/maps/api/distancematrix/json");
-  url.searchParams.set("origins", `${origin.latitude},${origin.longitude}`);
-  url.searchParams.set(
-    "destinations",
-    `${destination.latitude},${destination.longitude}`,
+  const coordinates = [
+    `${origin.longitude},${origin.latitude}`,
+    `${destination.longitude},${destination.latitude}`,
+  ].join(";");
+  const url = new URL(
+    `https://api.mapbox.com/directions/v5/mapbox/driving/${coordinates}`,
   );
-  url.searchParams.set("units", "imperial");
-  url.searchParams.set("key", googleMapsApiKey);
+  url.searchParams.set("access_token", mapboxAccessToken);
+  url.searchParams.set("overview", "false");
+  url.searchParams.set("alternatives", "false");
 
   try {
     const response = await fetch(url, { cache: "no-store" });
@@ -165,42 +167,29 @@ async function getGoogleMapsDistance(
       return null;
     }
 
-    return parseGoogleMapsDistance(await response.json());
+    return parseMapboxDistance(await response.json());
   } catch {
     return null;
   }
 }
 
-function parseGoogleMapsDistance(payload: unknown): DistanceEstimate | null {
+function parseMapboxDistance(payload: unknown): DistanceEstimate | null {
   if (
     !isRecord(payload) ||
-    payload.status !== "OK" ||
-    !Array.isArray(payload.rows)
+    payload.code !== "Ok" ||
+    !Array.isArray(payload.routes)
   ) {
     return null;
   }
 
-  const firstRow = payload.rows[0];
+  const firstRoute = payload.routes[0];
 
-  if (!isRecord(firstRow) || !Array.isArray(firstRow.elements)) {
+  if (!isRecord(firstRoute)) {
     return null;
   }
 
-  const firstElement = firstRow.elements[0];
-
-  if (!isRecord(firstElement) || firstElement.status !== "OK") {
-    return null;
-  }
-
-  const distance = firstElement.distance;
-  const duration = firstElement.duration;
-
-  if (!isRecord(distance) || !isRecord(duration)) {
-    return null;
-  }
-
-  const meters = distance.value;
-  const seconds = duration.value;
+  const meters = firstRoute.distance;
+  const seconds = firstRoute.duration;
 
   if (typeof meters !== "number" || typeof seconds !== "number") {
     return null;
@@ -209,7 +198,7 @@ function parseGoogleMapsDistance(payload: unknown): DistanceEstimate | null {
   return {
     distanceMiles: roundDistance(meters / METERS_PER_MILE),
     durationSeconds: Math.round(seconds),
-    source: "google_maps",
+    source: "mapbox",
   };
 }
 

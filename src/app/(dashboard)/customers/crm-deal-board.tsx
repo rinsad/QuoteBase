@@ -1,16 +1,24 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   BadgeCheck,
   CircleDollarSign,
   FileText,
   Flame,
+  Pencil,
+  Save,
   Trophy,
+  X,
   XCircle,
 } from "lucide-react";
 
-import { moveCrmDealStage } from "@/app/(dashboard)/customers/actions";
+import {
+  updateCrmDealDetails,
+  type CrmEditFormState,
+} from "@/app/(dashboard)/customers/actions";
+import { Button } from "@/components/ui/button";
 import type { CrmDeal } from "@/lib/customers/crm";
 
 type DealStage = CrmDeal["stage"];
@@ -56,10 +64,7 @@ const DEAL_COLUMNS: DealColumn[] = [
 ];
 
 export function CrmDealBoard({ deals }: { deals: CrmDeal[] }) {
-  const [pendingDealId, setPendingDealId] = useState<string | null>(null);
-  const [dragOverColumn, setDragOverColumn] = useState<DealStage | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [selectedDeal, setSelectedDeal] = useState<CrmDeal | null>(null);
   const columns = useMemo(
     () =>
       DEAL_COLUMNS.map((column) => {
@@ -74,54 +79,16 @@ export function CrmDealBoard({ deals }: { deals: CrmDeal[] }) {
     [deals],
   );
 
-  function handleDrop(toStage: DealStage, dealId: string): void {
-    setDragOverColumn(null);
-    setMessage(null);
-    setPendingDealId(dealId);
-
-    startTransition(async () => {
-      const result = await moveCrmDealStage({ dealId, toStage });
-
-      if (!result.ok) {
-        setMessage(result.message);
-      }
-
-      setPendingDealId(null);
-    });
-  }
-
   return (
     <div>
-      {message ? (
-        <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">
-          {message}
-        </div>
-      ) : null}
-
       <div className="grid gap-4 xl:grid-cols-5">
         {columns.map((column) => {
           const Icon = column.icon;
-          const isDragOver = dragOverColumn === column.key;
 
           return (
             <section
               key={column.key}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragOverColumn(column.key);
-              }}
-              onDragLeave={() => setDragOverColumn(null)}
-              onDrop={(event) => {
-                event.preventDefault();
-                const dealId = event.dataTransfer.getData("text/plain");
-
-                if (dealId) {
-                  handleDrop(column.key, dealId);
-                }
-              }}
-              className={`min-h-[430px] rounded-lg border bg-background p-3 transition ${
-                isDragOver ? "border-primary ring-2 ring-primary/20" : "border-border"
-              }`}
+              className="min-h-[430px] rounded-lg border border-border bg-background p-3"
             >
               <div className="border-b border-border pb-3">
                 <div className="flex items-start justify-between gap-3">
@@ -154,13 +121,12 @@ export function CrmDealBoard({ deals }: { deals: CrmDeal[] }) {
                     <DealCard
                       key={deal.id}
                       deal={deal}
-                      disabled={isPending}
-                      pending={pendingDealId === deal.id}
+                      onEdit={() => setSelectedDeal(deal)}
                     />
                   ))
                 ) : (
                   <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-                    Drop deals here
+                    No deals in this stage
                   </div>
                 )}
               </div>
@@ -168,29 +134,33 @@ export function CrmDealBoard({ deals }: { deals: CrmDeal[] }) {
           );
         })}
       </div>
+      <CrmDealEditPanel
+        deal={selectedDeal}
+        onClose={() => setSelectedDeal(null)}
+      />
     </div>
   );
 }
 
 function DealCard({
   deal,
-  disabled,
-  pending,
+  onEdit,
 }: {
   deal: CrmDeal;
-  disabled: boolean;
-  pending: boolean;
+  onEdit: () => void;
 }) {
   return (
     <article
-      draggable={!disabled}
-      onDragStart={(event) => {
-        event.dataTransfer.setData("text/plain", deal.id);
-        event.dataTransfer.effectAllowed = "move";
+      role="button"
+      tabIndex={0}
+      onClick={onEdit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onEdit();
+        }
       }}
-      className={`cursor-grab rounded-md border border-border bg-card p-3 shadow-sm transition hover:border-input hover:bg-secondary/70 active:cursor-grabbing ${
-        pending ? "opacity-60" : ""
-      }`}
+      className="cursor-pointer rounded-md border border-border bg-card p-3 shadow-sm transition hover:border-input hover:bg-secondary/70"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -222,7 +192,271 @@ function DealCard({
             : "No close date"}
         </span>
       </div>
+
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onEdit();
+        }}
+        className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-semibold text-muted-foreground transition hover:border-input hover:text-foreground"
+      >
+        <Pencil className="size-3.5" />
+        Edit
+      </button>
     </article>
+  );
+}
+
+function CrmDealEditPanel({
+  deal,
+  onClose,
+}: {
+  deal: CrmDeal | null;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [state, formAction, isPending] = useActionState(
+    updateCrmDealDetails,
+    initialCrmEditState,
+  );
+
+  useEffect(() => {
+    if (state.status === "success") {
+      router.refresh();
+      onClose();
+    }
+  }, [onClose, router, state.status]);
+
+  if (!deal) {
+    return null;
+  }
+
+  return (
+    <aside className="customer-slide-over" aria-label="Edit CRM deal">
+      <button
+        type="button"
+        className="customer-slide-backdrop"
+        aria-label="Close CRM deal editor"
+        onClick={onClose}
+      />
+      <div className="customer-slide-panel">
+        <div className="slide-panel-header">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-muted-foreground">
+                CRM deal
+              </p>
+              <h2 className="mt-1 truncate text-2xl font-semibold">
+                {deal.title}
+              </h2>
+              <p className="mt-1 truncate text-sm text-muted-foreground">
+                {deal.company_name ?? "Company pending"}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="mac-link size-9 shrink-0 px-0"
+              aria-label="Close CRM deal editor"
+              onClick={onClose}
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </div>
+
+        <form action={formAction} className="grid gap-5 p-4" noValidate>
+          <input type="hidden" name="deal_id" value={deal.id} />
+          <Fieldset title="Company">
+            <CrmField
+              label="Company name"
+              name="company_name"
+              defaultValue={deal.company_name ?? ""}
+              error={state.fieldErrors.company_name}
+              required
+            />
+            <CrmField
+              label="Domain"
+              name="company_domain"
+              defaultValue={deal.company_domain ?? ""}
+            />
+            <CrmField
+              label="Company email"
+              name="company_email"
+              type="email"
+              defaultValue={deal.company_email ?? ""}
+              error={state.fieldErrors.company_email}
+            />
+            <CrmField
+              label="Company phone"
+              name="company_phone"
+              defaultValue={deal.company_phone ?? ""}
+            />
+          </Fieldset>
+
+          <Fieldset title="Contact">
+            <CrmField
+              label="Contact name"
+              name="contact_name"
+              defaultValue={deal.contact_name ?? ""}
+            />
+            <CrmField
+              label="Title"
+              name="contact_title"
+              defaultValue={deal.contact_title ?? ""}
+            />
+            <CrmField
+              label="Contact email"
+              name="contact_email"
+              type="email"
+              defaultValue={deal.contact_email ?? ""}
+              error={state.fieldErrors.contact_email}
+            />
+            <CrmField
+              label="Contact phone"
+              name="contact_phone"
+              defaultValue={deal.contact_phone ?? ""}
+            />
+          </Fieldset>
+
+          <Fieldset title="Deal">
+            <CrmField
+              label="Deal title"
+              name="deal_title"
+              defaultValue={deal.title}
+              error={state.fieldErrors.deal_title}
+              required
+            />
+            <ReadOnlyCrmField label="Stage" value={formatStage(deal.stage)} />
+            <CrmField
+              label="Deal value"
+              name="value"
+              type="number"
+              defaultValue={String(deal.value)}
+              error={state.fieldErrors.value}
+            />
+            <CrmField
+              label="Expected close"
+              name="expected_close_date"
+              type="date"
+              defaultValue={deal.expected_close_date ?? ""}
+            />
+            <label className="flex items-center gap-3 rounded-md border border-border bg-background px-4 py-3">
+              <input
+                name="is_active"
+                type="checkbox"
+                defaultChecked={deal.is_active}
+                className="size-4 accent-[#3d6652]"
+              />
+              <span>
+                <span className="block text-sm font-semibold">Active deal</span>
+                <span className="block text-xs text-muted-foreground">
+                  Inactive deals stay in history but leave the active board.
+                </span>
+              </span>
+            </label>
+          </Fieldset>
+
+          {state.message ? (
+            <p
+              className={`rounded-md border px-3 py-2 text-sm font-medium ${
+                state.status === "error"
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-800"
+              }`}
+            >
+              {state.message}
+            </p>
+          ) : null}
+
+          <Button type="submit" disabled={isPending} className="h-11 rounded-md">
+            <Save className="size-4" />
+            {isPending ? "Saving..." : "Save CRM deal"}
+          </Button>
+        </form>
+      </div>
+    </aside>
+  );
+}
+
+const initialCrmEditState: CrmEditFormState = {
+  message: "",
+  status: "idle",
+  fieldErrors: {},
+};
+
+function Fieldset({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <h3 className="mb-3 text-xs font-semibold uppercase text-muted-foreground">
+        {title}
+      </h3>
+      <div className="grid gap-4 sm:grid-cols-2">{children}</div>
+    </section>
+  );
+}
+
+function CrmField({
+  label,
+  name,
+  type = "text",
+  defaultValue,
+  error,
+  required = false,
+}: {
+  label: string;
+  name: string;
+  type?: "date" | "email" | "number" | "text";
+  defaultValue: string;
+  error?: string;
+  required?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm font-medium text-muted-foreground">
+        {label}
+      </span>
+      <input
+        name={name}
+        type={type}
+        defaultValue={defaultValue}
+        required={required}
+        step={type === "number" ? "0.01" : undefined}
+        className="soft-control mt-2 w-full"
+        aria-invalid={Boolean(error)}
+      />
+      {error ? (
+        <span className="mt-1 block text-xs font-medium text-destructive">
+          {error}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
+function ReadOnlyCrmField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div>
+      <span className="text-sm font-medium text-muted-foreground">{label}</span>
+      <div className="mt-2 rounded-md border border-border bg-secondary/50 px-4 py-3 text-sm font-semibold text-foreground">
+        {value}
+      </div>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+        Stage changes come from quote/customer lifecycle events.
+      </p>
+    </div>
   );
 }
 

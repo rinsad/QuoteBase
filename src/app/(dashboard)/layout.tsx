@@ -26,11 +26,13 @@ type NavItem = {
   href?: string;
   icon: typeof LayoutDashboard;
   adminOnly?: boolean;
+  platformOnly?: boolean;
   accountManagerAllowed?: boolean;
   children?: Array<{
     label: string;
     href: string;
     adminOnly?: boolean;
+    nested?: boolean;
   }>;
 };
 
@@ -49,12 +51,12 @@ const primaryNav: NavItem[] = [
     adminOnly: true,
     accountManagerAllowed: true,
     children: [
-      { label: "Pricing rules", href: "/admin/pricing" },
-      { label: "Price book", href: "/admin/price-book" },
-      { label: "Material prices", href: "/admin/material-prices" },
-      { label: "Tax rates", href: "/admin/tax-rates" },
-      { label: "Plants", href: "/admin/plants" },
       { label: "Suppliers", href: "/admin/suppliers" },
+      { label: "Plants", href: "/admin/plants", nested: true },
+      { label: "Materials", href: "/admin/material-prices", nested: true },
+      { label: "Pricing rules", href: "/admin/pricing" },
+      { label: "Units", href: "/admin/units" },
+      { label: "Tax rates", href: "/admin/tax-rates" },
       { label: "Vehicle types", href: "/admin/vehicle-types" },
       { label: "Yards", href: "/admin/yards" },
     ],
@@ -64,8 +66,10 @@ const primaryNav: NavItem[] = [
     href: "/admin/integrations/gmail",
     icon: Zap,
     children: [
-      { label: "Gmail + OpenAI", href: "/admin/integrations/gmail" },
+      { label: "Gmail", href: "/admin/integrations/gmail" },
+      { label: "OpenAI", href: "/admin/integrations/openai", adminOnly: true },
       { label: "Slack", href: "/admin/integrations/slack", adminOnly: true },
+      { label: "Mapbox", href: "/admin/integrations/mapbox", adminOnly: true },
       {
         label: "Stripe",
         href: "/admin/integrations/stripe",
@@ -83,12 +87,22 @@ const primaryNav: NavItem[] = [
     href: "/admin/system-check",
     icon: Settings,
     adminOnly: true,
+    accountManagerAllowed: true,
     children: [
-      { label: "Onboarding", href: "/admin/onboarding" },
-      { label: "Branding", href: "/admin/branding" },
-      { label: "Users", href: "/admin/users" },
-      { label: "System check", href: "/admin/system-check" },
+      { label: "Settings", href: "/admin/settings", adminOnly: true },
+      { label: "Assets", href: "/assets" },
+      { label: "Onboarding", href: "/admin/onboarding", adminOnly: true },
+      { label: "Branding", href: "/admin/branding", adminOnly: true },
+      { label: "Users", href: "/admin/users", adminOnly: true },
+      { label: "System check", href: "/admin/system-check", adminOnly: true },
     ],
+  },
+  {
+    label: "Platform",
+    href: "/platform/units",
+    icon: Settings,
+    platformOnly: true,
+    children: [{ label: "Unit catalog", href: "/platform/units" }],
   },
 ];
 
@@ -103,9 +117,10 @@ export default async function WorkspaceLayout({
 
   const visibleNav = primaryNav.filter(
     (item) =>
-      !item.adminOnly ||
-      user.role === "admin" ||
-      (item.accountManagerAllowed && user.role === "account_manager"),
+      (!item.platformOnly || user.role === "platform_admin") &&
+      (!item.adminOnly ||
+        user.role === "admin" ||
+        (item.accountManagerAllowed && user.role === "account_manager")),
   );
   const showAssistant = await isAssistantEnabled(user.organization_id);
 
@@ -152,7 +167,9 @@ export default async function WorkspaceLayout({
                         <Link
                           key={child.href}
                           href={child.href}
-                          className="flex min-w-fit items-center rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground/80 transition hover:bg-secondary hover:text-primary lg:mb-0.5"
+                          className={`flex min-w-fit items-center rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground/80 transition hover:bg-secondary hover:text-primary lg:mb-0.5 ${
+                            child.nested ? "lg:pl-6" : ""
+                          }`}
                         >
                           <span className="mr-2 hidden h-1.5 w-1.5 rounded-full bg-border lg:inline-block" />
                           {child.label}

@@ -8,6 +8,7 @@ import {
   cancelPendingFollowUpDraft,
   runFollowUpScheduler,
 } from "@/lib/quotes/follow-up-agent";
+import { scheduleNextFollowUpForQuote } from "@/lib/quotes/follow-up-schedule";
 import type { QuoteStatus } from "@/lib/quotes/quotes";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -210,10 +211,6 @@ async function moveQuoteStatus(
     followup_date?: string | null;
   } = { status: toStatus };
 
-  if (toStatus === "sent") {
-    updatePayload.followup_date = offsetDate(2);
-  }
-
   if (toStatus === "follow_up") {
     updatePayload.followup_date = offsetDate(-2);
   }
@@ -232,6 +229,14 @@ async function moveQuoteStatus(
 
   if (error) {
     return { ok: false, message: "Could not update the quote." };
+  }
+
+  if (toStatus === "sent") {
+    await scheduleNextFollowUpForQuote({
+      supabase,
+      organizationId: context.user.organization_id,
+      quoteId: quote.id,
+    });
   }
 
   await logAction({

@@ -9,6 +9,7 @@ import {
   UUID_PATTERN,
 } from "@/lib/api/validation";
 import { createQuoteDraftRecord } from "@/lib/quotes/create-draft";
+import type { QuoteAccountType, QuoteProjectStatus } from "@/lib/quotes/create-draft";
 import { createClient } from "@/lib/supabase/server";
 import type { QuoteStatus } from "@/lib/quotes/quotes";
 
@@ -18,6 +19,14 @@ type QuoteApiRecord = {
   status: QuoteStatus;
   total: number;
   created_at: string;
+  quote_date: string;
+  expires_at: string;
+  job_start_date: string | null;
+  job_end_date: string | null;
+  followup_attempt_count: number;
+  followup_max_attempts: number;
+  account_type: QuoteAccountType;
+  project_status: QuoteProjectStatus;
   customers: { name: string } | { name: string }[] | null;
   job_sites:
     | { name: string; city: string; state: string }
@@ -30,6 +39,23 @@ const createQuoteSchema = z
   .object({
     customer_id: z.string().regex(UUID_PATTERN),
     job_site_id: z.string().regex(UUID_PATTERN),
+    quote_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    expires_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    account_type: z.enum(["contractor", "non_contractor"]).default("contractor"),
+    project_status: z
+      .string()
+      .regex(/^[a-z0-9_]{1,60}$/)
+      .default("bid"),
+    job_start_date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .optional(),
+    job_end_date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .optional(),
     manual_route_distance_miles: z.coerce
       .number()
       .min(0)
@@ -77,6 +103,26 @@ const createQuoteSchema = z
       .optional(),
   });
 
+const createQuoteWithDateValidationSchema = createQuoteSchema.refine(
+  (value) => value.expires_at >= value.quote_date,
+  {
+    message: "Expiration date cannot be before the quote date.",
+    path: ["expires_at"],
+  },
+);
+
+const createQuoteWithTimingValidationSchema =
+  createQuoteWithDateValidationSchema.refine(
+    (value) =>
+      !value.job_start_date ||
+      !value.job_end_date ||
+      value.job_end_date >= value.job_start_date,
+    {
+      message: "Job end date cannot be before the job start date.",
+      path: ["job_end_date"],
+    },
+  );
+
 export async function GET(request: Request) {
   const user = await getCurrentUser();
 
@@ -106,7 +152,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("quotes")
     .select(
-      "id, quote_number, status, total, created_at, customers(name), job_sites(name, city, state), users(full_name, email)",
+      "id, quote_number, status, total, created_at, quote_date, expires_at, job_start_date, job_end_date, followup_attempt_count, followup_max_attempts, account_type, project_status, customers(name), job_sites(name, city, state), users(full_name, email)",
       { count: "exact" },
     )
     .eq("organization_id", user.organization_id)
@@ -139,6 +185,14 @@ export async function GET(request: Request) {
             status: quote.status,
             total: Number(quote.total),
             created_at: quote.created_at,
+            quote_date: quote.quote_date,
+            expires_at: quote.expires_at,
+            job_start_date: quote.job_start_date,
+            job_end_date: quote.job_end_date,
+            followup_attempt_count: Number(quote.followup_attempt_count),
+            followup_max_attempts: Number(quote.followup_max_attempts),
+            account_type: quote.account_type,
+            project_status: quote.project_status,
             customer_name: customer?.name ?? null,
             job_site_name: jobSite?.name ?? null,
             job_site_city: [jobSite?.city, jobSite?.state].filter(Boolean).join(", "),
@@ -190,6 +244,13 @@ export async function POST(request: Request) {
           parsed.value.manual_deadhead_distance_miles ?? null,
         materialId: parsed.value.material_id,
         taxRateId: parsed.value.tax_rate_id ?? "",
+        quoteDate: parsed.value.quote_date,
+        expiresAt: parsed.value.expires_at,
+        jobStartDate: parsed.value.job_start_date ?? null,
+        jobEndDate: parsed.value.job_end_date ?? null,
+        followupMaxAttempts: null,
+        accountType: parsed.value.account_type,
+        projectStatus: parsed.value.project_status,
         quantity: parsed.value.quantity,
         lineItems: [],
         notes: parsed.value.notes,
@@ -230,7 +291,7 @@ export async function POST(request: Request) {
 async function parseCreateQuoteBody(
   request: Request,
 ): Promise<
-  | { ok: true; value: z.infer<typeof createQuoteSchema> }
+  | { ok: true; value: z.infer<typeof createQuoteWithTimingValidationSchema> }
   | { ok: false; message: string }
 > {
   let payload: unknown;
@@ -241,7 +302,7 @@ async function parseCreateQuoteBody(
     return { ok: false, message: "Request body must be valid JSON." };
   }
 
-  const result = createQuoteSchema.safeParse(payload);
+  const result = createQuoteWithTimingValidationSchema.safeParse(payload);
 
   if (!result.success) {
     return {

@@ -3,18 +3,32 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import {
+  getActiveUnitLookup,
+  normalizeUnitAlias,
+  type ActiveUnitLookup,
+} from "@/lib/admin/units";
 import { logAction } from "@/lib/audit/log-action";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 import { extractSupplierDocument } from "@/lib/supplier-documents/extract";
 
 const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REQUIRED_FIELDS = ["description", "uom", "cost"] as const;
-const OPTIONAL_FIELDS = ["sku", "category", "tier"] as const;
+const OPTIONAL_FIELDS = [
+  "sku",
+  "category",
+  "tier",
+  "material_price",
+  "per_ton",
+  "surcharge_per_load",
+  "source_plant",
+  "quote_number",
+  "effective_through",
+] as const;
 const ALL_FIELDS = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS] as const;
 const MATERIAL_TIERS = ["R1", "R2", "R3", "R4"] as const;
-const MATERIAL_UNITS = ["ton", "cy", "load", "bag", "sqft", "lbs", "each"] as const;
 const MARKUP_SCOPES = ["global", "category", "item"] as const;
 const MARKUP_TYPES = ["percent", "dollar"] as const;
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -33,9 +47,40 @@ type CatalogItemPayload = {
   tier: (typeof MATERIAL_TIERS)[number];
   uom: string;
   cost: number;
+  material_price: number | null;
+  per_ton: number | null;
+  surcharge_per_load: number | null;
+  source_plant: string | null;
+  quote_number: string | null;
+  effective_through: string | null;
   raw_row: CsvRow;
   is_active: boolean;
 };
+type ImportedCatalogItem = {
+  id: string;
+  supplier_id: string;
+  catalog_version_id: string;
+  sku: string | null;
+  description: string;
+  category: string | null;
+  tier: (typeof MATERIAL_TIERS)[number];
+  uom: string;
+  cost: number;
+  material_price: number | null;
+  per_ton: number | null;
+  surcharge_per_load: number | null;
+  source_plant: string | null;
+  quote_number: string | null;
+  effective_through: string | null;
+  raw_row: CsvRow;
+};
+type SelectedPlant = {
+  id: string;
+  name: string;
+  supplier_id: string;
+  suppliers: { name: string } | { name: string }[] | null;
+};
+type AppSupabaseClient = NonNullable<Awaited<ReturnType<typeof createClient>>>;
 
 export async function uploadSupplierPriceBook(formData: FormData) {
   const user = await getCurrentUser();
@@ -54,15 +99,75 @@ export async function uploadSupplierPriceBook(formData: FormData) {
     throw new Error("Supabase is not configured for this workspace.");
   }
 
-  const supplierId = requiredUuid(formData, "supplier_id");
-  const file = formData.get("price_book_file");
+  const normalizedFormData = normalizeActionFormData(formData);
+  const supplierCompany = optionalText(normalizedFormData, "supplier_company", 160);
+  const plantName = optionalText(normalizedFormData, "plant_name", 160);
+  const plantId =
+    optionalUploadUuid(normalizedFormData, "plant_id") ??
+    optionalUploadUuid(normalizedFormData, "plant_id_fallback");
+
+  if (!supplierCompany) {
+    redirectPriceBookUploadError("select-supplier", {
+      plantId,
+      supplierCompany,
+    });
+  }
+
+  if (!plantId && !plantName) {
+    redirectPriceBookUploadError("select-plant", {
+      plantId,
+      supplierCompany,
+    });
+  }
+
+  const plant = await findSelectedPlant({
+    supabase,
+    organizationId: user.organization_id,
+    plantId,
+    plantName,
+    supplierCompany,
+  });
+
+  if (!plant) {
+    redirectPriceBookUploadError("plant-not-found", {
+      plantId,
+      supplierCompany,
+    });
+  }
+
+  const parentSupplier = Array.isArray(plant.suppliers)
+    ? plant.suppliers[0]
+    : plant.suppliers;
+  const actualSupplierCompany = parentSupplier?.name ?? "";
+
+  if (supplierCompany && supplierCompany !== actualSupplierCompany) {
+    redirectPriceBookUploadError("plant-mismatch", {
+      plantId,
+      supplierCompany,
+    });
+  }
+
+  const file = normalizedFormData.get("price_book_file");
 
   if (!(file instanceof File) || file.size === 0) {
-    throw new Error("Price book file is required.");
+    redirectPriceBookUploadError("pdf-required", {
+      plantId,
+      supplierCompany,
+    });
+  }
+
+  if (!isMaterialPdfUpload(file)) {
+    redirectPriceBookUploadError("pdf-only", {
+      plantId,
+      supplierCompany,
+    });
   }
 
   if (file.size > MAX_UPLOAD_BYTES) {
-    throw new Error("Price book uploads are limited to 20 MB.");
+    redirectPriceBookUploadError("pdf-too-large", {
+      plantId,
+      supplierCompany,
+    });
   }
 
   const fileData = await file.arrayBuffer();
@@ -73,7 +178,8 @@ export async function uploadSupplierPriceBook(formData: FormData) {
     maxRows: MAX_IMPORT_ROWS,
   });
   const suggestedMapping = suggestMapping(extraction.headers);
-  const storagePath = `${user.organization_id}/${supplierId}/${Date.now()}-${safeFileName(file.name)}`;
+  const selectedPlantId = plant.id;
+  const storagePath = `${user.organization_id}/${selectedPlantId}/${Date.now()}-${safeFileName(file.name)}`;
   const upload = await supabase.storage
     .from(PRICE_BOOK_BUCKET)
     .upload(storagePath, file, {
@@ -89,7 +195,7 @@ export async function uploadSupplierPriceBook(formData: FormData) {
     .from("supplier_price_imports")
     .insert({
       organization_id: user.organization_id,
-      supplier_id: supplierId,
+      supplier_id: selectedPlantId,
       uploaded_by: user.id,
       source_filename: file.name,
       source_mime_type: file.type || contentTypeFromName(file.name),
@@ -123,7 +229,10 @@ export async function uploadSupplierPriceBook(formData: FormData) {
     targetId: priceImport.id,
     before: null,
     after: {
-      supplier_id: supplierId,
+      plant_id: selectedPlantId,
+      supplier_id: plant.supplier_id,
+      supplier_company: actualSupplierCompany,
+      plant_name: plant.name,
       source_filename: file.name,
       row_count: extraction.rows.length,
       detected_columns: extraction.headers,
@@ -136,7 +245,61 @@ export async function uploadSupplierPriceBook(formData: FormData) {
   redirect(`/admin/price-book?import=${priceImport.id}`);
 }
 
-export async function confirmSupplierPriceBookMapping(formData: FormData) {
+async function findSelectedPlant({
+  supabase,
+  organizationId,
+  plantId,
+  plantName,
+  supplierCompany,
+}: {
+  supabase: AppSupabaseClient;
+  organizationId: string;
+  plantId: string | null;
+  plantName: string | null;
+  supplierCompany: string | null;
+}): Promise<SelectedPlant | null> {
+  if (plantId) {
+    const { data } = await supabase
+      .from("supplier_plants")
+      .select("id, name, supplier_id, suppliers(name)")
+      .eq("organization_id", organizationId)
+      .eq("id", plantId)
+      .eq("is_active", true)
+      .maybeSingle<SelectedPlant>();
+
+    if (data) {
+      return data;
+    }
+  }
+
+  if (!plantName || !supplierCompany) {
+    return null;
+  }
+
+  const { data } = await supabase
+    .from("supplier_plants")
+    .select("id, name, supplier_id, suppliers(name)")
+    .eq("organization_id", organizationId)
+    .eq("name", plantName)
+    .eq("is_active", true)
+    .limit(5)
+    .returns<SelectedPlant[]>();
+
+  const matches = (data ?? []).filter((plant) => {
+    const supplier = Array.isArray(plant.suppliers)
+      ? plant.suppliers[0]
+      : plant.suppliers;
+
+    return supplier?.name === supplierCompany;
+  });
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export async function confirmSupplierPriceBookMapping(
+  importIdOrFormData: string | FormData,
+  maybeFormData?: FormData,
+) {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -153,8 +316,16 @@ export async function confirmSupplierPriceBookMapping(formData: FormData) {
     throw new Error("Supabase is not configured for this workspace.");
   }
 
-  const importId = requiredUuid(formData, "import_id");
-  const mapping = readColumnMapping(formData);
+  const formData =
+    importIdOrFormData instanceof FormData ? importIdOrFormData : maybeFormData;
+
+  if (!formData) {
+    throw new Error("Mapping form data is missing.");
+  }
+
+  const normalizedFormData = normalizeActionFormData(formData);
+  const importId = resolveImportId(importIdOrFormData, normalizedFormData);
+  const mapping = readColumnMapping(normalizedFormData);
 
   for (const field of REQUIRED_FIELDS) {
     if (!mapping[field]) {
@@ -206,6 +377,7 @@ export async function confirmSupplierPriceBookMapping(formData: FormData) {
     data: await download.data.arrayBuffer(),
     maxRows: MAX_IMPORT_ROWS,
   });
+  const unitLookup = await getActiveUnitLookup(user.organization_id);
   const itemRows = extraction.rows.map((row, index) =>
     mapCatalogItemRow({
       row,
@@ -213,6 +385,7 @@ export async function confirmSupplierPriceBookMapping(formData: FormData) {
       mapping,
       organizationId: user.organization_id,
       supplierId: priceImport.supplier_id,
+      unitLookup,
     }),
   );
   const versionNumber = await getNextCatalogVersionNumber({
@@ -257,19 +430,9 @@ export async function confirmSupplierPriceBookMapping(formData: FormData) {
   const { error: itemError } = await supabase
     .from("supplier_catalog_items")
     .insert(payloads)
-    .select("id, supplier_id, catalog_version_id, sku, description, category, tier, uom, cost")
+    .select("id, supplier_id, catalog_version_id, sku, description, category, tier, uom, cost, material_price, per_ton, surcharge_per_load, source_plant, quote_number, effective_through, raw_row")
     .returns<
-      Array<{
-        id: string;
-        supplier_id: string;
-        catalog_version_id: string;
-        sku: string | null;
-        description: string;
-        category: string | null;
-        tier: (typeof MATERIAL_TIERS)[number];
-        uom: string;
-        cost: number;
-      }>
+      ImportedCatalogItem[]
     >();
 
   if (itemError) {
@@ -278,7 +441,7 @@ export async function confirmSupplierPriceBookMapping(formData: FormData) {
 
   const { data: importedItems, error: importedItemsError } = await supabase
     .from("supplier_catalog_items")
-    .select("id, supplier_id, catalog_version_id, sku, description, category, tier, uom, cost")
+    .select("id, supplier_id, catalog_version_id, sku, description, category, tier, uom, cost, material_price, per_ton, surcharge_per_load, source_plant, quote_number, effective_through, raw_row")
     .eq("organization_id", user.organization_id)
     .eq("catalog_version_id", version.id)
     .returns<
@@ -292,6 +455,13 @@ export async function confirmSupplierPriceBookMapping(formData: FormData) {
         tier: (typeof MATERIAL_TIERS)[number];
         uom: string;
         cost: number;
+        material_price: number | null;
+        per_ton: number | null;
+        surcharge_per_load: number | null;
+        source_plant: string | null;
+        quote_number: string | null;
+        effective_through: string | null;
+        raw_row: CsvRow;
       }>
     >();
 
@@ -299,29 +469,97 @@ export async function confirmSupplierPriceBookMapping(formData: FormData) {
     throw new Error(importedItemsError?.message ?? "Could not read imported items.");
   }
 
-  const { error: materialSyncError } = await supabase.from("materials").upsert(
-    importedItems.map((item) => ({
-      organization_id: user.organization_id,
-      supplier_id: item.supplier_id,
-      name: item.description,
-      description: item.description,
-      tier: item.tier,
-      unit: normalizeMaterialUnit(item.uom),
-      cost_per_unit: Number(item.cost),
-      last_price_update: new Date().toISOString().slice(0, 10),
-      is_active: true,
-      supplier_catalog_version_id: item.catalog_version_id,
-      supplier_catalog_item_id: item.id,
-      catalog_sku: item.sku,
-      catalog_category: item.category,
-    })),
-    {
-      onConflict: "organization_id,supplier_id,name,unit",
-    },
-  );
+  const uniqueImportedItems = uniqueItemsByMaterialName(importedItems);
+  const { data: existingMaterials, error: existingMaterialsError } =
+    await supabase
+      .from("materials")
+      .select("id, name, updated_at")
+      .eq("organization_id", user.organization_id)
+      .eq("supplier_id", priceImport.supplier_id)
+      .returns<Array<{ id: string; name: string; updated_at: string }>>();
 
-  if (materialSyncError) {
-    throw new Error(materialSyncError.message);
+  if (existingMaterialsError || !existingMaterials) {
+    throw new Error(
+      existingMaterialsError?.message ?? "Could not read existing materials.",
+    );
+  }
+
+  const existingByMaterialName = new Map<string, { id: string; updated_at: string }>();
+
+  for (const material of existingMaterials) {
+    const nameKey = normalizeMaterialNameKey(material.name);
+    const current = existingByMaterialName.get(nameKey);
+
+    if (!current || material.updated_at > current.updated_at) {
+      existingByMaterialName.set(nameKey, {
+        id: material.id,
+        updated_at: material.updated_at,
+      });
+    }
+  }
+
+  const materialPayloads = uniqueImportedItems.map((item) => {
+      const existingMaterial = existingByMaterialName.get(
+        normalizeMaterialNameKey(item.description),
+      );
+
+      return {
+        existingId: existingMaterial?.id ?? null,
+        organization_id: user.organization_id,
+        supplier_id: item.supplier_id,
+        name: item.description,
+        description: item.description,
+        tier: item.tier,
+        unit: item.uom,
+        cost_per_unit: Number(item.cost),
+        last_price_update: new Date().toISOString().slice(0, 10),
+        is_active: true,
+        supplier_catalog_version_id: item.catalog_version_id,
+        supplier_catalog_item_id: item.id,
+        catalog_sku: item.sku,
+        catalog_category: item.category,
+        catalog_material_price:
+          item.material_price === null ? null : Number(item.material_price),
+        catalog_per_ton: item.per_ton === null ? null : Number(item.per_ton),
+        catalog_surcharge_per_load:
+          item.surcharge_per_load === null
+            ? null
+            : Number(item.surcharge_per_load),
+        catalog_source_plant: item.source_plant,
+        catalog_quote_number: item.quote_number,
+        catalog_effective_through: item.effective_through,
+        catalog_raw_row: item.raw_row,
+      };
+    });
+
+  const materialUpdates = materialPayloads
+    .filter((payload) => payload.existingId)
+    .map(({ existingId, ...payload }) => ({
+      id: existingId,
+      ...payload,
+    }));
+  const materialInserts = materialPayloads
+    .filter((payload) => !payload.existingId)
+    .map((payload) => stripExistingMaterialId(payload));
+
+  if (materialUpdates.length) {
+    const { error: materialUpdateError } = await supabase
+      .from("materials")
+      .upsert(materialUpdates, { onConflict: "id" });
+
+    if (materialUpdateError) {
+      throw new Error(materialUpdateError.message);
+    }
+  }
+
+  if (materialInserts.length) {
+    const { error: materialInsertError } = await supabase
+      .from("materials")
+      .insert(materialInserts);
+
+    if (materialInsertError) {
+      throw new Error(materialInsertError.message);
+    }
   }
 
   const { error: staleMaterialError } = await supabase
@@ -544,7 +782,7 @@ export async function deactivateSupplierMarkupRule(formData: FormData) {
 }
 
 function requiredUuid(formData: FormData, key: string): string {
-  const value = formData.get(key);
+  const value = formValue(formData, key);
 
   if (typeof value !== "string" || !UUID_PATTERN.test(value)) {
     throw new Error(`${key} is invalid.`);
@@ -553,8 +791,34 @@ function requiredUuid(formData: FormData, key: string): string {
   return value;
 }
 
+function resolveImportId(
+  importIdOrFormData: string | FormData,
+  formData: FormData,
+): string {
+  if (typeof importIdOrFormData === "string" && UUID_PATTERN.test(importIdOrFormData)) {
+    return importIdOrFormData;
+  }
+
+  const explicitValue = formValue(formData, "import_id");
+
+  if (typeof explicitValue === "string" && UUID_PATTERN.test(explicitValue)) {
+    return explicitValue;
+  }
+
+  const uuidValues = Array.from(formData.values()).filter(
+    (value): value is string =>
+      typeof value === "string" && UUID_PATTERN.test(value),
+  );
+
+  if (uuidValues.length === 1) {
+    return uuidValues[0];
+  }
+
+  throw new Error("import_id is invalid.");
+}
+
 function optionalUuid(formData: FormData, key: string): string | null {
-  const value = formData.get(key);
+  const value = formValue(formData, key);
 
   if (typeof value !== "string" || !value.trim()) {
     return null;
@@ -567,12 +831,42 @@ function optionalUuid(formData: FormData, key: string): string | null {
   return value;
 }
 
+function optionalUploadUuid(formData: FormData, key: string): string | null {
+  const value = formValue(formData, key);
+
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  return UUID_PATTERN.test(value) ? value : null;
+}
+
+function redirectPriceBookUploadError(
+  code: string,
+  selection: {
+    plantId?: string | null;
+    supplierCompany?: string | null;
+  } = {},
+): never {
+  const params = new URLSearchParams({ error: code });
+
+  if (selection.plantId) {
+    params.set("plant", selection.plantId);
+  }
+
+  if (selection.supplierCompany) {
+    params.set("company", selection.supplierCompany);
+  }
+
+  redirect(`/admin/price-book?${params.toString()}`);
+}
+
 function enumValue<const T extends readonly string[]>(
   formData: FormData,
   key: string,
   allowedValues: T,
 ): T[number] {
-  const value = formData.get(key);
+  const value = formValue(formData, key);
 
   if (
     typeof value !== "string" ||
@@ -589,7 +883,7 @@ function optionalText(
   key: string,
   maxLength: number,
 ): string | null {
-  const value = formData.get(key);
+  const value = formValue(formData, key);
 
   if (typeof value !== "string") {
     return null;
@@ -613,7 +907,7 @@ function positiveNumber(
   key: string,
   maxValue: number,
 ): number {
-  const value = Number(formData.get(key));
+  const value = Number(formValue(formData, key));
 
   if (!Number.isFinite(value) || value < 0 || value > maxValue) {
     throw new Error(`${key} must be a valid positive number.`);
@@ -628,7 +922,7 @@ function optionalNumber(
   minValue: number,
   maxValue: number,
 ): number | null {
-  const rawValue = formData.get(key);
+  const rawValue = formValue(formData, key);
 
   if (typeof rawValue !== "string" || !rawValue.trim()) {
     return null;
@@ -658,7 +952,7 @@ function readColumnMapping(formData: FormData): Record<string, string> {
   const mapping: Record<string, string> = {};
 
   for (const field of ALL_FIELDS) {
-    const value = formData.get(`map_${field}`);
+    const value = formValue(formData, `map_${field}`);
 
     if (typeof value === "string" && value.trim()) {
       mapping[field] = value.trim();
@@ -668,8 +962,62 @@ function readColumnMapping(formData: FormData): Record<string, string> {
   return mapping;
 }
 
+function formValue(formData: FormData, key: string): FormDataEntryValue | null {
+  const exactValue = formData.get(key);
+
+  if (exactValue !== null) {
+    return exactValue;
+  }
+
+  for (const [entryKey, value] of formData.entries()) {
+    if (entryKey.endsWith(`_${key}`)) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function normalizeActionFormData(formData: FormData): FormData {
+  const normalized = new FormData();
+
+  for (const [entryKey, value] of formData.entries()) {
+    const canonicalKey = canonicalFieldName(entryKey);
+    const existingValue = normalized.get(canonicalKey);
+
+    if (existingValue === null || shouldReplaceFormValue(existingValue, value)) {
+      normalized.set(canonicalKey, value);
+    }
+  }
+
+  return normalized;
+}
+
+function shouldReplaceFormValue(
+  existingValue: FormDataEntryValue,
+  nextValue: FormDataEntryValue,
+): boolean {
+  if (nextValue instanceof File) {
+    return !(existingValue instanceof File) || nextValue.size > 0;
+  }
+
+  if (existingValue instanceof File) {
+    return false;
+  }
+
+  return !existingValue.trim() && Boolean(nextValue.trim());
+}
+
+function canonicalFieldName(key: string): string {
+  return key
+    .replace(/^\$ACTION_[^_]+_/, "")
+    .replace(/^_\d+_/, "")
+    .replace(/^\d+_/, "")
+    .replace(/^.*:/, "");
+}
+
 function safeFileName(name: string): string {
-  return name.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 120) || "price-book.csv";
+  return name.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 120) || "material.pdf";
 }
 
 function normalizeHeader(header: string): string {
@@ -695,6 +1043,28 @@ function suggestMapping(headers: string[]): Record<string, string> {
       ]) ?? "",
     category: firstHeader(lookup, ["category", "type", "class"]) ?? "",
     tier: firstHeader(lookup, ["tier", "price_tier", "material_tier"]) ?? "",
+    material_price:
+      firstHeader(lookup, ["material_price", "mat_price", "material_cost"]) ??
+      "",
+    per_ton: firstHeader(lookup, ["per_ton", "net_per_ton", "delivered_per_ton"]) ?? "",
+    surcharge_per_load:
+      firstHeader(lookup, [
+        "surcharge_per_load",
+        "surch_s_load",
+        "surcharges_load",
+        "surcharge",
+      ]) ?? "",
+    source_plant:
+      firstHeader(lookup, ["source_plant", "plant", "yard", "location"]) ?? "",
+    quote_number:
+      firstHeader(lookup, ["quote_number", "quote", "quote_no"]) ?? "",
+    effective_through:
+      firstHeader(lookup, [
+        "effective_through",
+        "good_through",
+        "good_thru",
+        "term_date",
+      ]) ?? "",
   };
 }
 
@@ -714,6 +1084,12 @@ function contentTypeFromName(name: string): string {
   }
 
   return "text/csv";
+}
+
+function isMaterialPdfUpload(file: File): boolean {
+  return (
+    file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
+  );
 }
 
 function firstHeader(
@@ -737,25 +1113,36 @@ function mapCatalogItemRow({
   mapping,
   organizationId,
   supplierId,
+  unitLookup,
 }: {
   row: CsvRow;
   rowNumber: number;
   mapping: Record<string, string>;
   organizationId: string;
   supplierId: string;
+  unitLookup: ActiveUnitLookup;
 }): Omit<CatalogItemPayload, "catalog_version_id"> {
   const description = mappedText(row, mapping.description);
-  const uom = mappedText(row, mapping.uom);
+  const rawUom = mappedText(row, mapping.uom);
   const tier = normalizeTier(mappedText(row, mapping.tier));
   const cost = Number(mappedText(row, mapping.cost).replace(/[$,]/g, ""));
+  const materialPrice = optionalMoney(row, mapping.material_price, rowNumber);
+  const perTon = optionalMoney(row, mapping.per_ton, rowNumber);
+  const surchargePerLoad = optionalMoney(
+    row,
+    mapping.surcharge_per_load,
+    rowNumber,
+  );
 
   if (!description) {
     throw new Error(`Row ${rowNumber}: description is required.`);
   }
 
-  if (!uom) {
+  if (!rawUom) {
     throw new Error(`Row ${rowNumber}: UOM is required.`);
   }
+
+  const uom = normalizeMaterialUnit(rawUom, unitLookup);
 
   if (!Number.isFinite(cost) || cost < 0) {
     throw new Error(`Row ${rowNumber}: cost must be a valid number.`);
@@ -770,9 +1157,60 @@ function mapCatalogItemRow({
     tier,
     uom,
     cost: Math.round((cost + Number.EPSILON) * 10000) / 10000,
+    material_price: materialPrice,
+    per_ton: perTon,
+    surcharge_per_load: surchargePerLoad,
+    source_plant: mappedText(row, mapping.source_plant) || null,
+    quote_number: mappedText(row, mapping.quote_number) || null,
+    effective_through: mappedText(row, mapping.effective_through) || null,
     raw_row: row,
     is_active: true,
   };
+}
+
+function uniqueItemsByMaterialName(
+  items: ImportedCatalogItem[],
+): ImportedCatalogItem[] {
+  const byName = new Map<string, ImportedCatalogItem>();
+
+  for (const item of items) {
+    byName.set(normalizeMaterialNameKey(item.description), item);
+  }
+
+  return Array.from(byName.values());
+}
+
+function normalizeMaterialNameKey(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function stripExistingMaterialId<T extends { existingId: string | null }>(
+  payload: T,
+): Omit<T, "existingId"> {
+  const { existingId, ...materialPayload } = payload;
+  void existingId;
+
+  return materialPayload;
+}
+
+function optionalMoney(
+  row: CsvRow,
+  column: string | undefined,
+  rowNumber: number,
+): number | null {
+  const value = mappedText(row, column);
+
+  if (!value) {
+    return null;
+  }
+
+  const number = Number(value.replace(/[$,]/g, ""));
+
+  if (!Number.isFinite(number) || number < 0) {
+    throw new Error(`Row ${rowNumber}: ${column} must be a valid number.`);
+  }
+
+  return Math.round((number + Number.EPSILON) * 10000) / 10000;
 }
 
 function normalizeTier(value: string): (typeof MATERIAL_TIERS)[number] {
@@ -783,30 +1221,19 @@ function normalizeTier(value: string): (typeof MATERIAL_TIERS)[number] {
     : "R2";
 }
 
-function normalizeMaterialUnit(value: string): (typeof MATERIAL_UNITS)[number] {
-  const normalized = value.trim().toLowerCase();
-  const unitAliases: Record<string, (typeof MATERIAL_UNITS)[number]> = {
-    tons: "ton",
-    tonne: "ton",
-    tonnes: "ton",
-    cubic_yard: "cy",
-    cubic_yards: "cy",
-    yard: "cy",
-    yards: "cy",
-    lbs: "lbs",
-    lb: "lbs",
-    pound: "lbs",
-    pounds: "lbs",
-    each: "each",
-    ea: "each",
-  };
-  const unit = unitAliases[normalized] ?? normalized;
+function normalizeMaterialUnit(
+  value: string,
+  unitLookup: ActiveUnitLookup,
+): string {
+  const unit = unitLookup.aliases[normalizeUnitAlias(value)];
 
-  if (!MATERIAL_UNITS.includes(unit as (typeof MATERIAL_UNITS)[number])) {
-    throw new Error(`Unsupported UOM "${value}". Use ton, cy, load, bag, sqft, lbs, or each.`);
+  if (!unit) {
+    throw new Error(
+      `Unsupported UOM "${value}". Use an active tenant unit: ${unitLookup.codes.join(", ")}.`,
+    );
   }
 
-  return unit as (typeof MATERIAL_UNITS)[number];
+  return unit;
 }
 
 function mappedText(row: CsvRow, column: string | undefined): string {

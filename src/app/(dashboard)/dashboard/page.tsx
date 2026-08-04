@@ -3,12 +3,12 @@ import { redirect } from "next/navigation";
 import {
   ArrowRight,
   Banknote,
+  CalendarDays,
   Flame,
   Gauge,
   ListTodo,
   MessageSquare,
   Plus,
-  Sparkles,
   TrendingDown,
   Trophy,
   Search,
@@ -81,6 +81,12 @@ export default async function DashboardPage({
       value: kpis.followUpsDue.toString(),
       sub: "Quotes in follow-up",
       icon: ListTodo,
+    },
+    {
+      label: "Jobs starting",
+      value: kpis.jobsStartingSoon.toString(),
+      sub: `Next ${kpis.jobsStartingSoonDays} days`,
+      icon: CalendarDays,
     },
   ];
 
@@ -156,7 +162,7 @@ export default async function DashboardPage({
         </section>
       ) : null}
 
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-7">
         {kpiCards.map((card) => {
           const Icon = card.icon;
 
@@ -175,6 +181,30 @@ export default async function DashboardPage({
             </div>
           );
         })}
+      </section>
+
+      <section className="mt-6">
+        <DashboardPanel
+          icon={CalendarDays}
+          kicker="Schedule"
+          title="Jobs Starting Soon"
+          actionHref="/quotes"
+          actionLabel="View quotes"
+        >
+          <QuoteInsightList
+            quotes={quoteList.jobsStartingSoon}
+            emptyText={`No active quotes have jobs starting in the next ${kpis.jobsStartingSoonDays} days.`}
+            metricLabel="Starts"
+            metric={(quote) =>
+              quote.job_start_date ? formatDate(quote.job_start_date) : "-"
+            }
+            detail={(quote) =>
+              quote.job_end_date
+                ? `Ends ${formatDate(quote.job_end_date)}`
+                : formatStatus(quote.status)
+            }
+          />
+        </DashboardPanel>
       </section>
 
       <section className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
@@ -207,7 +237,9 @@ export default async function DashboardPage({
         >
           <QuoteInsightList
             quotes={quoteList.bigQuotes}
-            emptyText="No open quotes are waiting in the pipeline."
+            emptyText={`No open quotes above ${formatCurrency(
+              kpis.bigQuoteThreshold,
+            )}.`}
             metricLabel="Total"
             metric={(quote) => formatCurrency(quote.total)}
             detail={(quote) => formatStatus(quote.status)}
@@ -215,38 +247,6 @@ export default async function DashboardPage({
         </DashboardPanel>
       </section>
 
-      <section className="mt-6">
-        <div className="glass-panel p-5 sm:p-6">
-          <div className="flex items-center gap-3">
-            <div className="icon-well text-primary">
-              <Sparkles className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Focus
-              </p>
-              <h2 className="text-xl font-semibold">Today&apos;s motion</h2>
-            </div>
-          </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <FocusLink
-              href="/quotes"
-              label="Work follow-ups"
-              value={kpis.followUpsDue.toString()}
-            />
-            <FocusLink
-              href="/quotes"
-              label="Open money"
-              value={formatCurrency(kpis.openValue)}
-            />
-            <FocusLink
-              href="/admin/reports"
-              label="Review trend"
-              value={`${kpis.winRate.toFixed(0)}%`}
-            />
-          </div>
-        </div>
-      </section>
     </>
   );
 }
@@ -389,28 +389,6 @@ function QuoteInsightList({
         </Link>
       ))}
     </div>
-  );
-}
-
-function FocusLink({
-  href,
-  label,
-  value,
-}: {
-  href: string;
-  label: string;
-  value: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="soft-row flex min-h-24 flex-col justify-between p-4 transition hover:border-input hover:bg-secondary/70"
-    >
-      <p className="text-xs font-medium uppercase text-muted-foreground">
-        {label}
-      </p>
-      <p className="break-words font-mono text-xl font-semibold">{value}</p>
-    </Link>
   );
 }
 

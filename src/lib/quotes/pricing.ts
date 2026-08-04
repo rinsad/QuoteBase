@@ -1,6 +1,11 @@
 export type MaterialTier = "R1" | "R2" | "R3" | "R4";
 export type TruckRateKey = "floor" | "standard" | "target" | "premium" | "stretch";
 
+export type QuoteProjectStatusOption = {
+  value: string;
+  label: string;
+};
+
 export type PricingConfig = {
   tier_r1_min: number;
   tier_r1_max: number;
@@ -23,8 +28,11 @@ export type PricingConfig = {
   cc_surcharge_pct?: number;
   overhead_per_ton: number;
   big_quote_threshold?: number;
+  default_followup_max_attempts?: number;
+  jobs_starting_soon_days?: number;
   follow_up_auto_send_enabled?: boolean;
   follow_up_sms_enabled?: boolean;
+  project_status_options?: QuoteProjectStatusOption[];
 };
 
 export type CatalogMarkupRule = {
@@ -54,6 +62,14 @@ export type VehicleCapacity = {
   capacity_cy: number | null;
 };
 
+export type QuoteQuantityBasis = "ton" | "cy" | "load" | "count" | "none";
+
+export type QuoteUnitConversion = {
+  code: string;
+  quoteQuantityBasis: QuoteQuantityBasis;
+  quoteQuantityFactor: number | null;
+};
+
 export type QuoteDraftCalculationInput = {
   costPerUnit: number;
   quantity: number;
@@ -62,6 +78,7 @@ export type QuoteDraftCalculationInput = {
   taxRate: number;
   pricingConfig: PricingConfig;
   vehicleTypes?: VehicleCapacity[];
+  unitConversions?: QuoteUnitConversion[];
   routeDurationSeconds?: number | null;
   deadheadDurationSeconds?: number | null;
   materialUnitPriceOverride?: number | null;
@@ -86,6 +103,9 @@ export type QuoteDraftCalculation = {
   marginFloorWarning: boolean;
   vehicleTypeId: string | null;
   vehicleName: string | null;
+  quoteQuantityBasis: QuoteQuantityBasis;
+  quoteQuantityFactor: number | null;
+  truckCapacityQuantity: number;
   loadCount: number;
   truckingRatePerUnit: number;
   truckingRateKey: TruckRateKey;
@@ -104,6 +124,7 @@ export function calculateQuoteDraft({
   taxRate,
   pricingConfig,
   vehicleTypes = [],
+  unitConversions = [],
   routeDurationSeconds = null,
   deadheadDurationSeconds = null,
   materialUnitPriceOverride = null,
@@ -122,7 +143,11 @@ export function calculateQuoteDraft({
     catalogMarkupPerUnit ?? getTierMarkupPerUnit(tier, pricingConfig);
   const truckRateKey = getTruckRateKey(pricingConfig, truckRateOverride);
   const truckHourlyRate = getTruckHourlyRate(pricingConfig, truckRateKey);
-  const overheadPerUnit = unit === "ton" ? pricingConfig.overhead_per_ton : 0;
+  const unitConversion = resolveUnitConversion(unit, unitConversions);
+  const overheadPerUnit =
+    unitConversion.quoteQuantityBasis === "ton" && unitConversion.quoteQuantityFactor
+      ? pricingConfig.overhead_per_ton * unitConversion.quoteQuantityFactor
+      : 0;
   const suggestedMaterialUnitPrice = costPerUnit + markupPerUnit + overheadPerUnit;
   const materialUnitPrice =
     materialUnitPriceOverride !== null &&
@@ -150,7 +175,11 @@ export function calculateQuoteDraft({
     grossMarginPct !== null &&
     marginFloorPct !== null &&
     grossMarginPct < marginFloorPct;
-  const vehiclePlan = chooseVehiclePlan({ quantity, unit, vehicleTypes });
+  const vehiclePlan = chooseVehiclePlan({
+    quantity,
+    unitConversion,
+    vehicleTypes,
+  });
   const routeSeconds =
     routeDurationSeconds === null ? null : Math.max(0, routeDurationSeconds);
   const deadheadSeconds =
@@ -199,6 +228,9 @@ export function calculateQuoteDraft({
     marginFloorWarning,
     vehicleTypeId: vehiclePlan.vehicleTypeId,
     vehicleName: vehiclePlan.vehicleName,
+    quoteQuantityBasis: unitConversion.quoteQuantityBasis,
+    quoteQuantityFactor: unitConversion.quoteQuantityFactor,
+    truckCapacityQuantity: roundQuantity(vehiclePlan.truckCapacityQuantity),
     loadCount: roundQuantity(vehiclePlan.loadCount),
     truckingRatePerUnit: roundMoney(truckingRatePerUnit),
     truckingRateKey: truckRateKey,
@@ -411,22 +443,41 @@ export function isCodPaymentTerms(paymentTerms: string | null | undefined): bool
 
 function chooseVehiclePlan({
   quantity,
-  unit,
+  unitConversion,
   vehicleTypes,
 }: {
   quantity: number;
-  unit: string;
+  unitConversion: QuoteUnitConversion;
   vehicleTypes: VehicleCapacity[];
 }): {
   vehicleTypeId: string | null;
   vehicleName: string | null;
+  truckCapacityQuantity: number;
   loadCount: number;
 } {
-  if (unit === "load") {
+  const convertedQuantity =
+    unitConversion.quoteQuantityFactor === null
+      ? quantity
+      : quantity * unitConversion.quoteQuantityFactor;
+
+  if (
+    unitConversion.quoteQuantityBasis === "load" ||
+    unitConversion.quoteQuantityBasis === "count"
+  ) {
     return {
       vehicleTypeId: null,
       vehicleName: null,
-      loadCount: Math.max(1, Math.ceil(quantity)),
+      truckCapacityQuantity: convertedQuantity,
+      loadCount: Math.max(1, Math.ceil(convertedQuantity)),
+    };
+  }
+
+  if (unitConversion.quoteQuantityBasis === "none") {
+    return {
+      vehicleTypeId: null,
+      vehicleName: null,
+      truckCapacityQuantity: convertedQuantity,
+      loadCount: 1,
     };
   }
 
@@ -434,7 +485,7 @@ function chooseVehiclePlan({
     .map((vehicle) => ({
       ...vehicle,
       capacity:
-        unit === "cy"
+        unitConversion.quoteQuantityBasis === "cy"
           ? Number(vehicle.capacity_cy ?? 0)
           : Number(vehicle.capacity_tons),
     }))
@@ -446,6 +497,7 @@ function chooseVehiclePlan({
     return {
       vehicleTypeId: null,
       vehicleName: null,
+      truckCapacityQuantity: convertedQuantity,
       loadCount: 1,
     };
   }
@@ -453,9 +505,62 @@ function chooseVehiclePlan({
   return {
     vehicleTypeId: selected.id,
     vehicleName: selected.name,
-    loadCount: Math.max(1, Math.ceil(quantity / selected.capacity)),
+    truckCapacityQuantity: convertedQuantity,
+    loadCount: Math.max(1, Math.ceil(convertedQuantity / selected.capacity)),
   };
 }
+
+function resolveUnitConversion(
+  unit: string,
+  unitConversions: QuoteUnitConversion[],
+): QuoteUnitConversion {
+  const configured = unitConversions.find(
+    (conversion) => conversion.code === unit,
+  );
+
+  if (configured) {
+    return configured;
+  }
+
+  return DEFAULT_UNIT_CONVERSIONS[unit] ?? {
+    code: unit,
+    quoteQuantityBasis: "none",
+    quoteQuantityFactor: null,
+  };
+}
+
+const DEFAULT_UNIT_CONVERSIONS: Record<string, QuoteUnitConversion> = {
+  ton: { code: "ton", quoteQuantityBasis: "ton", quoteQuantityFactor: 1 },
+  metric_ton: {
+    code: "metric_ton",
+    quoteQuantityBasis: "ton",
+    quoteQuantityFactor: 1.10231131,
+  },
+  lbs: { code: "lbs", quoteQuantityBasis: "ton", quoteQuantityFactor: 0.0005 },
+  oz: { code: "oz", quoteQuantityBasis: "ton", quoteQuantityFactor: 0.00003125 },
+  kg: { code: "kg", quoteQuantityBasis: "ton", quoteQuantityFactor: 0.00110231 },
+  g: { code: "g", quoteQuantityBasis: "ton", quoteQuantityFactor: 0.0000011 },
+  cy: { code: "cy", quoteQuantityBasis: "cy", quoteQuantityFactor: 1 },
+  cubic_foot: {
+    code: "cubic_foot",
+    quoteQuantityBasis: "cy",
+    quoteQuantityFactor: 0.03703704,
+  },
+  gallon: {
+    code: "gallon",
+    quoteQuantityBasis: "cy",
+    quoteQuantityFactor: 0.00495113,
+  },
+  liter: {
+    code: "liter",
+    quoteQuantityBasis: "cy",
+    quoteQuantityFactor: 0.00130795,
+  },
+  m3: { code: "m3", quoteQuantityBasis: "cy", quoteQuantityFactor: 1.30795062 },
+  load: { code: "load", quoteQuantityBasis: "load", quoteQuantityFactor: 1 },
+  bag: { code: "bag", quoteQuantityBasis: "count", quoteQuantityFactor: 1 },
+  each: { code: "each", quoteQuantityBasis: "count", quoteQuantityFactor: 1 },
+};
 
 function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;

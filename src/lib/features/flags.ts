@@ -2,13 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const ALWAYS_ON_FEATURES = ["pricing_engine", "quote_creation"] as const;
 
+export const RETIRED_FEATURES = ["google_maps_distance_api"] as const;
+
 export const A81_FEATURE_FLAGS = [
   "pricing_engine",
   "quote_creation",
   "approval_workflow",
   "quoter_integration",
   "slack_notifications",
-  "google_maps_distance_api",
   "competitive_intelligence_input",
   "multi_pit_comparison",
   "auto_plant_selection",
@@ -19,6 +20,12 @@ export type A81FeatureFlag = (typeof A81_FEATURE_FLAGS)[number];
 export function isAlwaysOnFeature(featureName: string): boolean {
   return ALWAYS_ON_FEATURES.includes(
     featureName as (typeof ALWAYS_ON_FEATURES)[number],
+  );
+}
+
+export function isRetiredFeature(featureName: string): boolean {
+  return RETIRED_FEATURES.includes(
+    featureName as (typeof RETIRED_FEATURES)[number],
   );
 }
 

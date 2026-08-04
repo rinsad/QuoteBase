@@ -5,6 +5,7 @@ import { useMemo, useState, useTransition } from "react";
 import { CircleDollarSign, Clock3, FileText, Send, Trophy, XCircle } from "lucide-react";
 
 import { moveQuotePipelineStatus } from "@/app/(dashboard)/quotes/actions";
+import type { QuoteAccountType } from "@/lib/quotes/create-draft";
 import type { QuoteListItem, QuoteStatus } from "@/lib/quotes/quotes";
 
 type PipelineStatus = "draft" | "sent" | "follow_up" | "won" | "lost";
@@ -16,6 +17,22 @@ type PipelineColumn = {
   statuses: QuoteStatus[];
   icon: typeof FileText;
 };
+
+type CategoryView = {
+  key: string;
+  label: string;
+  accountType: QuoteAccountType;
+  projectStatus: BoardProjectStatus;
+};
+
+type BoardProjectStatus = "bid" | "existing_job";
+
+const DEFAULT_CATEGORY_VIEWS: CategoryView[] = [
+  categoryView("contractor", "bid"),
+  categoryView("contractor", "existing_job"),
+  categoryView("non_contractor", "bid"),
+  categoryView("non_contractor", "existing_job"),
+];
 
 const PIPELINE_COLUMNS: PipelineColumn[] = [
   {
@@ -59,14 +76,33 @@ export function QuotePipelineBoard({ quotes }: { quotes: QuoteListItem[] }) {
   const [pendingQuoteId, setPendingQuoteId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<PipelineStatus | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [selectedCategoryKey, setSelectedCategoryKey] = useState(
+    DEFAULT_CATEGORY_VIEWS[0].key,
+  );
   const [isPending, startTransition] = useTransition();
+  const selectedCategory =
+    DEFAULT_CATEGORY_VIEWS.find(
+      (category) => category.key === selectedCategoryKey,
+    ) ??
+    DEFAULT_CATEGORY_VIEWS[0];
+  const categoryQuotes = useMemo(
+    () =>
+      quotes.filter(
+        (quote) =>
+          quote.account_type === selectedCategory.accountType &&
+          quote.project_status === selectedCategory.projectStatus,
+      ),
+    [quotes, selectedCategory.accountType, selectedCategory.projectStatus],
+  );
   const columns = useMemo(
     () =>
       PIPELINE_COLUMNS.map((column) => ({
         ...column,
-        quotes: quotes.filter((quote) => column.statuses.includes(quote.status)),
+        quotes: categoryQuotes.filter((quote) =>
+          column.statuses.includes(quote.status),
+        ),
       })),
-    [quotes],
+    [categoryQuotes],
   );
 
   function handleDrop(toStatus: PipelineStatus, quoteId: string) {
@@ -87,6 +123,38 @@ export function QuotePipelineBoard({ quotes }: { quotes: QuoteListItem[] }) {
 
   return (
     <div>
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">
+            Category board
+          </p>
+          <h3 className="text-xl font-semibold">{selectedCategory.label}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Showing one quote category at a time so follow-up and pipeline work
+            stay focused.
+          </p>
+        </div>
+        <div className="w-full lg:max-w-sm">
+          <label
+            htmlFor="quote-category-board"
+            className="text-sm font-medium text-muted-foreground"
+          >
+            Board
+          </label>
+          <select
+            id="quote-category-board"
+            value={selectedCategory.key}
+            onChange={(event) => setSelectedCategoryKey(event.target.value)}
+            className="soft-control mt-2 h-12 w-full rounded-full bg-card px-4 font-semibold text-foreground"
+          >
+            {DEFAULT_CATEGORY_VIEWS.map((category) => (
+              <option key={category.key} value={category.key}>
+                {category.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
       {message ? (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">
           {message}
@@ -145,7 +213,7 @@ export function QuotePipelineBoard({ quotes }: { quotes: QuoteListItem[] }) {
                   ))
                 ) : (
                   <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-                    Drop quotes here
+                    No quotes in this category stage
                   </div>
                 )}
               </div>
@@ -189,6 +257,14 @@ function PipelineCard({
           {formatStatus(quote.status)}
         </span>
       </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span className="soft-chip bg-card text-muted-foreground ring-border">
+          {formatAccountType(quote.account_type)}
+        </span>
+        <span className="soft-chip bg-card text-muted-foreground ring-border">
+          {formatProjectStatus(quote.project_status)}
+        </span>
+      </div>
       <div className="mt-3 flex items-center justify-between gap-3 text-xs">
         <span className="min-w-0 truncate text-muted-foreground">
           {quote.job_site_city || quote.job_site_name}
@@ -210,6 +286,28 @@ function formatStatus(status: string) {
     .split("_")
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatAccountType(value: QuoteAccountType) {
+  return value === "contractor" ? "Contractor" : "Non-contractor";
+}
+
+function formatProjectStatus(value: QuoteListItem["project_status"]) {
+  return formatStatus(value);
+}
+
+function categoryView(
+  accountType: QuoteAccountType,
+  projectStatus: BoardProjectStatus,
+): CategoryView {
+  return {
+    key: `${accountType}_${projectStatus}`,
+    label: `${formatAccountType(accountType)} + ${formatProjectStatus(
+      projectStatus,
+    )}`,
+    accountType,
+    projectStatus,
+  };
 }
 
 function formatCurrency(value: number) {

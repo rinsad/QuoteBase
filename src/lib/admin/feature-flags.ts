@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { isRetiredFeature } from "@/lib/features/flags";
 
 export type AdminFeatureFlag = {
   id: string;
@@ -33,14 +34,16 @@ export async function getAdminFeatureFlags(
     .returns<FeatureFlagRecord[]>();
 
   return (
-    data?.map((flag) => ({
-      id: flag.id,
-      feature_name: flag.feature_name,
-      is_enabled: flag.is_enabled,
-      config: flag.config,
-      updated_at: flag.updated_at,
-      updated_by: relationOne(flag.users),
-    })) ?? []
+    data
+      ?.filter((flag) => !isRetiredFeature(flag.feature_name))
+      .map((flag) => ({
+        id: flag.id,
+        feature_name: flag.feature_name,
+        is_enabled: flag.is_enabled,
+        config: flag.config,
+        updated_at: flag.updated_at,
+        updated_by: relationOne(flag.users),
+      })) ?? []
   );
 }
 

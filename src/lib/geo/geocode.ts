@@ -11,19 +11,21 @@ export type GeocodedCoordinate = {
   longitude: number;
 };
 
-type GoogleGeocodeResponse = {
-  status?: unknown;
-  results?: Array<{
+type MapboxGeocodeResponse = {
+  features?: Array<{
     geometry?: {
-      location?: {
-        lat?: unknown;
-        lng?: unknown;
+      coordinates?: unknown;
+    };
+    properties?: {
+      coordinates?: {
+        latitude?: unknown;
+        longitude?: unknown;
       };
     };
   }>;
 };
 
-const GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json";
+const MAPBOX_GEOCODE_URL = "https://api.mapbox.com/search/geocode/v6/forward";
 const GEOCODE_TIMEOUT_MS = 10000;
 
 export async function geocodeJobSiteAddress({
@@ -36,19 +38,23 @@ export async function geocodeJobSiteAddress({
   const street = line1?.trim();
   const normalizedCity = city.trim();
   const normalizedState = state.trim().toUpperCase();
-  const googleMapsApiKey = apiKey?.trim() || process.env.GOOGLE_MAPS_API_KEY;
+  const mapboxAccessToken = apiKey?.trim();
 
-  if (!googleMapsApiKey || !street || !normalizedCity || normalizedState.length !== 2) {
+  if (!mapboxAccessToken || !street || !normalizedCity || normalizedState.length !== 2) {
     return null;
   }
 
   const address = [street, normalizedCity, county?.trim(), normalizedState, "USA"]
     .filter(Boolean)
     .join(", ");
-  const url = new URL(GOOGLE_GEOCODE_URL);
-  url.searchParams.set("address", address);
-  url.searchParams.set("components", `country:US|administrative_area:${normalizedState}`);
-  url.searchParams.set("key", googleMapsApiKey);
+  const url = new URL(MAPBOX_GEOCODE_URL);
+  url.searchParams.set("q", address);
+  url.searchParams.set("access_token", mapboxAccessToken);
+  url.searchParams.set("country", "us");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("types", "address");
+  url.searchParams.set("language", "en");
+  url.searchParams.set("permanent", "true");
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), GEOCODE_TIMEOUT_MS);
@@ -63,7 +69,7 @@ export async function geocodeJobSiteAddress({
       return null;
     }
 
-    return parseGoogleGeocodeResponse(await response.json());
+    return parseMapboxGeocodeResponse(await response.json());
   } catch {
     return null;
   } finally {
@@ -71,18 +77,32 @@ export async function geocodeJobSiteAddress({
   }
 }
 
-function parseGoogleGeocodeResponse(
+function parseMapboxGeocodeResponse(
   payload: unknown,
 ): GeocodedCoordinate | null {
-  const response = payload as GoogleGeocodeResponse;
+  const response = payload as MapboxGeocodeResponse;
 
-  if (response.status !== "OK" || !Array.isArray(response.results)) {
+  if (!Array.isArray(response.features)) {
     return null;
   }
 
-  const location = response.results[0]?.geometry?.location;
-  const latitude = location?.lat;
-  const longitude = location?.lng;
+  const feature = response.features[0];
+  const propertiesCoordinates = feature?.properties?.coordinates;
+  const geometryCoordinates = feature?.geometry?.coordinates;
+  const latitude =
+    typeof propertiesCoordinates?.latitude === "number"
+      ? propertiesCoordinates.latitude
+      : Array.isArray(geometryCoordinates) &&
+          typeof geometryCoordinates[1] === "number"
+        ? geometryCoordinates[1]
+        : null;
+  const longitude =
+    typeof propertiesCoordinates?.longitude === "number"
+      ? propertiesCoordinates.longitude
+      : Array.isArray(geometryCoordinates) &&
+          typeof geometryCoordinates[0] === "number"
+        ? geometryCoordinates[0]
+        : null;
 
   if (typeof latitude !== "number" || typeof longitude !== "number") {
     return null;
