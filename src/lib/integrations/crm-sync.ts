@@ -130,7 +130,7 @@ function customer(externalId: string, name: string, companyName: string | null, 
 function isCustomer(value: ExternalCustomer | null): value is ExternalCustomer { return value !== null; }
 function firstContact(value: unknown): string | null { const first = Array.isArray(value) ? value[0] : value; return nullable(recordValue(first).value || first); }
 function uniqueName(base: string, provider: string, used: Set<string>): string { if (!used.has(base.toLowerCase())) return base; let candidate = `${base} (${provider})`; let number = 2; while (used.has(candidate.toLowerCase())) candidate = `${base} (${provider} ${number++})`; return candidate; }
-async function requestJson(url: URL, headers: Record<string, string>, init: RequestInit = {}): Promise<Record<string, unknown>> { const response = await fetch(url, { ...init, headers: { Accept: "application/json", ...headers, ...(init.headers ?? {}) }, signal: AbortSignal.timeout(30_000), cache: "no-store" }); if (!response.ok) throw new Error(`CRM request failed (${response.status}) at ${url.hostname}.`); return recordValue(await response.json()); }
+async function requestJson(url: URL, headers: Record<string, string>, init: RequestInit = {}): Promise<Record<string, unknown>> { const response = await fetch(url, { ...init, headers: { Accept: "application/json", ...headers, ...(init.headers ?? {}) }, signal: AbortSignal.timeout(30_000), cache: "no-store" }); const payload: unknown = await response.json(); if (!response.ok) { const providerMessage = safeProviderError(payload); throw new Error(`CRM request failed (${response.status}) at ${url.hostname}${providerMessage ? `: ${providerMessage}` : "."}`); } return recordValue(payload); }
 function assertProviderUrl(provider: CrmProvider, value: string): void { const host = new URL(value).hostname; const suffixes: Record<CrmProvider, string[]> = { pipedrive: ["pipedrive.com"], salesforce: ["salesforce.com", "force.com"], hubspot: ["hubapi.com"], zoho: ["zohoapis.com", "zohoapis.eu", "zohoapis.in", "zohoapis.com.au", "zohoapis.jp"] }; if (!suffixes[provider].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) throw new Error("Configured CRM API URL is not allowed."); }
 function requiredConfigString(config: Record<string, unknown> | null, key: string): string { return required(stringValue(config?.[key]), key); }
 function required(value: string | undefined, label: string): string { if (!value) throw new Error(`${label} is required.`); return value; }
@@ -139,3 +139,9 @@ function arrayValue(value: unknown): unknown[] { return Array.isArray(value) ? v
 function stringValue(value: unknown): string { return typeof value === "string" || typeof value === "number" ? String(value) : ""; }
 function numberValue(value: unknown, fallback: number): number { return typeof value === "number" ? value : fallback; }
 function nullable(value: unknown): string | null { return stringValue(value) || null; }
+function safeProviderError(value: unknown): string {
+  const candidate = Array.isArray(value) ? recordValue(value[0]) : recordValue(value);
+  const code = stringValue(candidate.error) || stringValue(candidate.errorCode);
+  const description = stringValue(candidate.error_description) || stringValue(candidate.message);
+  return [code, description].filter(Boolean).join(" — ").replace(/[\r\n]/g, " ").slice(0, 300);
+}
