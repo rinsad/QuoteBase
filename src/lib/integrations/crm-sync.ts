@@ -7,6 +7,11 @@ import type { createClient } from "@/lib/supabase/server";
 type SupabaseClient = NonNullable<Awaited<ReturnType<typeof createClient>>>;
 type IntegrationRow = { id: string; is_enabled: boolean; config: Record<string, unknown> | null; credentials_encrypted: string | null };
 type ExternalCustomer = { externalId: string; name: string; companyName: string | null; contactName: string | null; email: string | null; phone: string | null };
+const SALESFORCE_TEST_CONTACTS = [
+  { FirstName: "SFS Maya", LastName: "Lopez", Email: "sfs.maya@example.com", Phone: "+1 555-0101" },
+  { FirstName: "SFS Evan", LastName: "Brooks", Email: "sfs.evan@example.com", Phone: "+1 555-0102" },
+  { FirstName: "SFS John", LastName: "Carter", Email: "sfs.john@example.com", Phone: "+1 555-0103" },
+] as const;
 
 export async function syncCrmCustomers({ user, supabase, provider }: { user: AppUser; supabase: SupabaseClient; provider: CrmProvider }): Promise<{ synced: number }> {
   const { data: integration, error } = await supabase.from("organization_integrations").select("id, is_enabled, config, credentials_encrypted").eq("organization_id", user.organization_id).eq("provider", provider).maybeSingle<IntegrationRow>();
@@ -36,6 +41,30 @@ export async function syncCrmCustomers({ user, supabase, provider }: { user: App
   if (updateError) throw new Error(updateError.message);
   await logAction({ user, action: `integration.${provider}.customers_synced`, targetTable: "organization_integrations", targetId: integration.id, before: null, after, metadata: { provider, synced_count: rows.length } });
   return { synced: rows.length };
+}
+
+export async function createSalesforceTestContacts({ user, supabase }: { user: AppUser; supabase: SupabaseClient }): Promise<{ created: number; skipped: number }> {
+  const { data: integration, error } = await supabase.from("organization_integrations").select("id, is_enabled, config, credentials_encrypted").eq("organization_id", user.organization_id).eq("provider", "salesforce").maybeSingle<IntegrationRow>();
+  if (error || !integration) throw new Error(error?.message ?? "Salesforce is not configured.");
+  if (!integration.is_enabled) throw new Error("Salesforce is disabled.");
+  const credentials = decryptSecretPayload<CrmCredentials>(integration.credentials_encrypted);
+  if (!credentials) throw new Error("Salesforce credentials are missing.");
+  const loginUrl = requiredConfigString(integration.config, "api_url");
+  assertProviderUrl("salesforce", loginUrl);
+  const { accessToken, instanceUrl, versionUrl } = await getSalesforceSession(loginUrl, credentials);
+  const emails = SALESFORCE_TEST_CONTACTS.map((contact) => `'${contact.Email}'`).join(",");
+  const query = `SELECT Id, Email FROM Contact WHERE Email IN (${emails})`;
+  const existing = await requestJson(new URL(`${versionUrl}/query?q=${encodeURIComponent(query)}`, instanceUrl), { Authorization: `Bearer ${accessToken}` });
+  const existingEmails = new Set(arrayValue(existing.records).map((item) => stringValue(recordValue(item).Email).toLowerCase()));
+  let created = 0;
+  let skipped = 0;
+  for (const contact of SALESFORCE_TEST_CONTACTS) {
+    if (existingEmails.has(contact.Email.toLowerCase())) { skipped += 1; continue; }
+    await requestJson(new URL(`${versionUrl}/sobjects/Contact`, instanceUrl), { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, { method: "POST", body: JSON.stringify(contact) });
+    created += 1;
+  }
+  await logAction({ user, action: "integration.salesforce.test_contacts_created", targetTable: "organization_integrations", targetId: integration.id, before: null, after: { created, skipped }, metadata: { provider: "salesforce", created_count: created, skipped_count: skipped } });
+  return { created, skipped };
 }
 
 async function fetchCustomers(provider: CrmProvider, apiUrl: string, credentials: CrmCredentials): Promise<ExternalCustomer[]> {
@@ -70,13 +99,18 @@ async function fetchHubSpot(apiUrl: string, token: string): Promise<ExternalCust
 }
 
 async function fetchSalesforce(loginUrl: string, credentials: CrmCredentials): Promise<ExternalCustomer[]> {
+  const { accessToken, instanceUrl, versionUrl } = await getSalesforceSession(loginUrl, credentials);
+  const query = "SELECT Id, FirstName, LastName, Email, Phone, Account.Name FROM Contact WHERE IsDeleted = false"; let nextUrl = `${versionUrl}/query?q=${encodeURIComponent(query)}`; const output: ExternalCustomer[] = [];
+  for (let page = 0; nextUrl && page < 20; page += 1) { const body = await requestJson(new URL(nextUrl, instanceUrl), { Authorization: `Bearer ${accessToken}` }); output.push(...arrayValue(body.records).map((item) => mapSalesforce(recordValue(item))).filter(isCustomer)); nextUrl = stringValue(body.nextRecordsUrl); }
+  return output;
+}
+
+async function getSalesforceSession(loginUrl: string, credentials: CrmCredentials): Promise<{ accessToken: string; instanceUrl: string; versionUrl: string }> {
   const form = new URLSearchParams({ grant_type: "client_credentials", client_id: required(credentials.clientId, "Salesforce client ID"), client_secret: required(credentials.clientSecret, "Salesforce client secret") });
   const token = await requestJson(new URL("/services/oauth2/token", loginUrl), { "Content-Type": "application/x-www-form-urlencoded" }, { method: "POST", body: form.toString() });
   const accessToken = required(stringValue(token.access_token), "Salesforce access token response"); const instanceUrl = required(stringValue(token.instance_url), "Salesforce instance URL response");
   const versions = await requestJson(new URL("/services/data", instanceUrl), { Authorization: `Bearer ${accessToken}` }); const latest = arrayValue(versions).map(recordValue).at(-1); const versionUrl = stringValue(latest?.url) || "/services/data/v61.0";
-  const query = "SELECT Id, FirstName, LastName, Email, Phone, Account.Name FROM Contact WHERE IsDeleted = false"; let nextUrl = `${versionUrl}/query?q=${encodeURIComponent(query)}`; const output: ExternalCustomer[] = [];
-  for (let page = 0; nextUrl && page < 20; page += 1) { const body = await requestJson(new URL(nextUrl, instanceUrl), { Authorization: `Bearer ${accessToken}` }); output.push(...arrayValue(body.records).map((item) => mapSalesforce(recordValue(item))).filter(isCustomer)); nextUrl = stringValue(body.nextRecordsUrl); }
-  return output;
+  return { accessToken, instanceUrl, versionUrl };
 }
 
 async function fetchZoho(apiUrl: string, credentials: CrmCredentials): Promise<ExternalCustomer[]> {

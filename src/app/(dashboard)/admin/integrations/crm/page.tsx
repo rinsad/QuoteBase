@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { DatabaseZap, ShieldCheck } from "lucide-react";
 
-import { saveCrmIntegration, syncCrmIntegration } from "@/app/(dashboard)/admin/integrations/crm/actions";
+import { saveCrmIntegration, seedSalesforceTestContacts, syncCrmIntegration } from "@/app/(dashboard)/admin/integrations/crm/actions";
 import { Button } from "@/components/ui/button";
 import { CRM_PROVIDER_DETAILS, getAdminCrmIntegrations } from "@/lib/integrations/crm";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
-export default async function CrmIntegrationsPage({ searchParams }: { searchParams: Promise<{ saved?: string; synced?: string; count?: string }> }) {
+export default async function CrmIntegrationsPage({ searchParams }: { searchParams: Promise<{ saved?: string; synced?: string; count?: string; seeded?: string; skipped?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (user.role !== "admin") redirect("/dashboard");
@@ -16,6 +16,7 @@ export default async function CrmIntegrationsPage({ searchParams }: { searchPara
     <div className="mb-5"><p className="text-sm font-semibold uppercase text-muted-foreground">Integrations</p><h1 className="mt-1 text-3xl font-semibold tracking-normal sm:text-4xl">CRM customer sources</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">Enable one or several CRMs. Customers synchronized from enabled sources become available in the quote customer search.</p></div>
     {params.saved ? <div className="mb-5 rounded-md border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><strong>{CRM_PROVIDER_DETAILS[params.saved as keyof typeof CRM_PROVIDER_DETAILS]?.label ?? "CRM"} settings saved.</strong></div> : null}
     {params.synced ? <div className="mb-5 rounded-md border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><strong>{CRM_PROVIDER_DETAILS[params.synced as keyof typeof CRM_PROVIDER_DETAILS]?.label ?? "CRM"} synchronized {params.count ?? "0"} customers.</strong></div> : null}
+    {params.seeded ? <div className="mb-5 rounded-md border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><strong>Created {params.seeded} Salesforce test contacts; {params.skipped ?? "0"} already existed.</strong></div> : null}
     <div className="mb-6 grid gap-4 sm:grid-cols-3"><Status label="Enabled CRMs" value={String(integrations.filter((item) => item.isEnabled).length)} /><Status label="Available providers" value={String(integrations.length)} /><Status label="Credential storage" value="Encrypted" /></div>
     <section className="grid gap-5 xl:grid-cols-2">
       {integrations.map((integration) => {
@@ -30,7 +31,7 @@ export default async function CrmIntegrationsPage({ searchParams }: { searchPara
             {details.credentialFields.map((field) => <Field key={field.key} name={credentialInputName(field.key)} label={field.label} type="password" defaultValue="" required={false} placeholder={integration.credentialsLast4[field.key] ? `Saved ending ${integration.credentialsLast4[field.key]}; leave blank to keep` : "Not configured"} />)}
             {integration.provider === "salesforce" ? <p className="text-xs leading-5 text-muted-foreground">Uses OAuth 2.0 Client Credentials Flow. Configure a Salesforce Run As user with API access and read access to Contacts and Accounts.</p> : null}
           </div>
-          <div className="mt-5 flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-xs text-muted-foreground"><ShieldCheck className="size-4"/>Secrets are encrypted</span><div className="flex gap-2"><Button type="submit" formAction={syncCrmIntegration} variant="outline" disabled={!integration.isEnabled}>Sync now</Button><Button type="submit">Save {details.label}</Button></div></div>
+          <div className="mt-5 flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-xs text-muted-foreground"><ShieldCheck className="size-4"/>Secrets are encrypted</span><div className="flex flex-wrap justify-end gap-2">{integration.provider === "salesforce" ? <Button type="submit" formAction={seedSalesforceTestContacts} variant="outline" disabled={!integration.isEnabled}>Create SFS test contacts</Button> : null}<Button type="submit" formAction={syncCrmIntegration} variant="outline" disabled={!integration.isEnabled}>Sync now</Button><Button type="submit">Save {details.label}</Button></div></div>
         </form>;
       })}
     </section>

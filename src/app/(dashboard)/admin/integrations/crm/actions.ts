@@ -7,7 +7,7 @@ import { z } from "zod";
 import { logAction } from "@/lib/audit/log-action";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { CRM_PROVIDERS, crmCredentialsLast4, encryptCrmCredentials, type CrmCredentials, type CrmProvider } from "@/lib/integrations/crm";
-import { syncCrmCustomers } from "@/lib/integrations/crm-sync";
+import { createSalesforceTestContacts, syncCrmCustomers } from "@/lib/integrations/crm-sync";
 import { decryptSecretPayload } from "@/lib/security/secret-box";
 import { createClient } from "@/lib/supabase/server";
 
@@ -57,6 +57,16 @@ export async function syncCrmIntegration(formData: FormData): Promise<void> {
   const result = await syncCrmCustomers({ user, supabase, provider });
   revalidatePath("/admin/integrations/crm"); revalidatePath("/quotes/new"); revalidatePath("/customers");
   redirect(`/admin/integrations/crm?synced=${provider}&count=${result.synced}`);
+}
+
+export async function seedSalesforceTestContacts(): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (user.role !== "admin") throw new Error("Only admins can create Salesforce test contacts.");
+  const supabase = await createClient();
+  if (!supabase) throw new Error("Supabase is not configured for this workspace.");
+  const result = await createSalesforceTestContacts({ user, supabase });
+  redirect(`/admin/integrations/crm?seeded=${result.created}&skipped=${result.skipped}`);
 }
 
 function validateCredentials(provider: CrmProvider, enabled: boolean, credentials: CrmCredentials): void {
