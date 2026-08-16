@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { DatabaseZap, ShieldCheck } from "lucide-react";
 
-import { saveCrmIntegration, seedSalesforceTestContacts, syncCrmIntegration } from "@/app/(dashboard)/admin/integrations/crm/actions";
+import { saveCrmIntegration, syncCrmIntegration } from "@/app/(dashboard)/admin/integrations/crm/actions";
 import { Button } from "@/components/ui/button";
 import { CRM_PROVIDER_DETAILS, getAdminCrmIntegrations } from "@/lib/integrations/crm";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -31,7 +31,7 @@ export default async function CrmIntegrationsPage({ searchParams }: { searchPara
             {details.credentialFields.map((field) => <Field key={field.key} name={credentialInputName(field.key)} label={field.label} type="password" defaultValue="" required={false} placeholder={integration.credentialsLast4[field.key] ? `Saved ending ${integration.credentialsLast4[field.key]}; leave blank to keep` : "Not configured"} />)}
             {integration.provider === "salesforce" ? <p className="text-xs leading-5 text-muted-foreground">Uses OAuth 2.0 Client Credentials Flow. Configure a Salesforce Run As user with API access and read access to Contacts and Accounts.</p> : null}
           </div>
-          <div className="mt-5 flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-xs text-muted-foreground"><ShieldCheck className="size-4"/>Secrets are encrypted</span><div className="flex flex-wrap justify-end gap-2">{integration.provider === "salesforce" ? <Button type="submit" formAction={seedSalesforceTestContacts} variant="outline" disabled={!integration.isEnabled}>Create SFS test contacts</Button> : null}<Button type="submit" formAction={syncCrmIntegration} variant="outline" disabled={!integration.isEnabled}>Sync now</Button><Button type="submit">Save {details.label}</Button></div></div>
+          <div className="mt-5 flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-xs text-muted-foreground"><ShieldCheck className="size-4"/>Secrets are encrypted</span><div className="flex flex-wrap justify-end gap-2">{integration.provider === "salesforce" ? <Button type="submit" formAction="/api/admin/integrations/salesforce/test-contacts" formMethod="post" variant="outline" disabled={!integration.isEnabled}>Create SFS test contacts</Button> : null}<Button type="submit" formAction={syncCrmIntegration} variant="outline" disabled={!integration.isEnabled}>Sync now</Button><Button type="submit">Save {details.label}</Button></div></div>
         </form>;
       })}
     </section>
