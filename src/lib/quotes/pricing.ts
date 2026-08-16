@@ -33,6 +33,7 @@ export type PricingConfig = {
   follow_up_auto_send_enabled?: boolean;
   follow_up_sms_enabled?: boolean;
   project_status_options?: QuoteProjectStatusOption[];
+  quote_recommendation_count?: number;
 };
 
 export type CatalogMarkupRule = {
@@ -80,7 +81,9 @@ export type QuoteDraftCalculationInput = {
   vehicleTypes?: VehicleCapacity[];
   unitConversions?: QuoteUnitConversion[];
   routeDurationSeconds?: number | null;
+  routeDistanceMiles?: number | null;
   deadheadDurationSeconds?: number | null;
+  truckingProfile?: TruckingProfile | null;
   materialUnitPriceOverride?: number | null;
   truckRateOverride?: TruckRateKey | null;
   materialMinimumOverride?: number | null;
@@ -110,6 +113,9 @@ export type QuoteDraftCalculation = {
   truckingRatePerUnit: number;
   truckingRateKey: TruckRateKey;
   truckingHourlyRate: number;
+  truckingProfileId: string | null;
+  truckingProfileName: string | null;
+  truckingRecommendation: TruckingRecommendation | null;
   truckingSubtotal: number;
   feesSubtotal: number;
   taxTotal: number;
@@ -126,7 +132,9 @@ export function calculateQuoteDraft({
   vehicleTypes = [],
   unitConversions = [],
   routeDurationSeconds = null,
+  routeDistanceMiles = null,
   deadheadDurationSeconds = null,
+  truckingProfile = null,
   materialUnitPriceOverride = null,
   truckRateOverride = null,
   materialMinimumOverride = null,
@@ -186,18 +194,29 @@ export function calculateQuoteDraft({
     deadheadDurationSeconds === null ? 0 : Math.max(0, deadheadDurationSeconds);
   const roundTripSeconds =
     routeSeconds === null ? null : routeSeconds * 2 + deadheadSeconds;
+  const truckingRecommendation =
+    truckingProfile && routeDistanceMiles !== null
+      ? calculateTruckingRecommendation({
+          oneWayMiles: Math.max(0, routeDistanceMiles),
+          truckCapacity: vehiclePlan.truckCapacityQuantity,
+          loadCount: vehiclePlan.loadCount,
+          profile: truckingProfile,
+        })
+      : null;
+  const effectiveTruckHourlyRate =
+    truckingRecommendation?.hourlyRate ?? truckHourlyRate;
   const rawTruckingSubtotal =
-    roundTripSeconds === null
-      ? truckHourlyRate * vehiclePlan.loadCount
-      : truckHourlyRate * (roundTripSeconds / 3600) * vehiclePlan.loadCount;
+    truckingRecommendation?.subtotal ??
+    (roundTripSeconds === null
+      ? effectiveTruckHourlyRate * vehiclePlan.loadCount
+      : effectiveTruckHourlyRate * (roundTripSeconds / 3600) * vehiclePlan.loadCount);
   const truckingMinimum = resolveMinimumOverride(
     truckingMinimumOverride,
     pricingConfig.trucking_minimum ?? 0,
   );
-  const truckingSubtotal = Math.max(
-    rawTruckingSubtotal,
-    truckingMinimum * vehiclePlan.loadCount,
-  );
+  const truckingSubtotal = truckingRecommendation
+    ? rawTruckingSubtotal
+    : Math.max(rawTruckingSubtotal, truckingMinimum * vehiclePlan.loadCount);
   const truckingRatePerUnit = quantity > 0 ? truckingSubtotal / quantity : 0;
   const loadFeesSubtotal =
     (pricingConfig.fuel_surcharge_per_load +
@@ -234,7 +253,10 @@ export function calculateQuoteDraft({
     loadCount: roundQuantity(vehiclePlan.loadCount),
     truckingRatePerUnit: roundMoney(truckingRatePerUnit),
     truckingRateKey: truckRateKey,
-    truckingHourlyRate: roundMoney(truckHourlyRate),
+    truckingHourlyRate: roundMoney(effectiveTruckHourlyRate),
+    truckingProfileId: truckingProfile?.id ?? null,
+    truckingProfileName: truckingProfile?.name ?? null,
+    truckingRecommendation,
     truckingSubtotal: roundMoney(truckingSubtotal),
     feesSubtotal: roundMoney(feesSubtotal),
     taxTotal: roundMoney(taxTotal),
@@ -467,7 +489,7 @@ function chooseVehiclePlan({
     return {
       vehicleTypeId: null,
       vehicleName: null,
-      truckCapacityQuantity: convertedQuantity,
+      truckCapacityQuantity: Math.max(convertedQuantity, 1),
       loadCount: Math.max(1, Math.ceil(convertedQuantity)),
     };
   }
@@ -476,7 +498,7 @@ function chooseVehiclePlan({
     return {
       vehicleTypeId: null,
       vehicleName: null,
-      truckCapacityQuantity: convertedQuantity,
+      truckCapacityQuantity: Math.max(convertedQuantity, 1),
       loadCount: 1,
     };
   }
@@ -497,7 +519,7 @@ function chooseVehiclePlan({
     return {
       vehicleTypeId: null,
       vehicleName: null,
-      truckCapacityQuantity: convertedQuantity,
+      truckCapacityQuantity: Math.max(convertedQuantity, 1),
       loadCount: 1,
     };
   }
@@ -505,7 +527,7 @@ function chooseVehiclePlan({
   return {
     vehicleTypeId: selected.id,
     vehicleName: selected.name,
-    truckCapacityQuantity: convertedQuantity,
+    truckCapacityQuantity: selected.capacity,
     loadCount: Math.max(1, Math.ceil(convertedQuantity / selected.capacity)),
   };
 }
@@ -569,3 +591,8 @@ function roundMoney(value: number): number {
 function roundQuantity(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
+import {
+  calculateTruckingRecommendation,
+  type TruckingProfile,
+  type TruckingRecommendation,
+} from "@/lib/quotes/trucking";

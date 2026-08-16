@@ -41,7 +41,7 @@ const createQuoteSchema = z
     job_site_id: z.string().regex(UUID_PATTERN),
     quote_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     expires_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    account_type: z.enum(["contractor", "non_contractor"]).default("contractor"),
+    account_type: z.string().regex(/^[a-z0-9_]{1,80}$/).default("contractor"),
     project_status: z
       .string()
       .regex(/^[a-z0-9_]{1,60}$/)

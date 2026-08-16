@@ -70,6 +70,12 @@ export async function updatePricingConfig(formData: FormData) {
       formData.get("follow_up_auto_send_enabled") === "on",
     follow_up_sms_enabled: formData.get("follow_up_sms_enabled") === "on",
     project_status_options: parseProjectStatusOptions(formData),
+    quote_recommendation_count: requiredIntegerInRange(
+      formData,
+      "quote_recommendation_count",
+      0,
+      10,
+    ),
   };
   const payload = { ...basePayload, ...extendedPayload };
 
@@ -212,7 +218,8 @@ function isMissingFollowUpColumnError(message: string): boolean {
     message.includes("jobs_starting_soon_days") ||
     message.includes("follow_up_auto_send_enabled") ||
     message.includes("follow_up_sms_enabled") ||
-    message.includes("project_status_options")
+    message.includes("project_status_options") ||
+    message.includes("quote_recommendation_count")
   );
 }
 

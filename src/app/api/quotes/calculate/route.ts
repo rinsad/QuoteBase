@@ -139,7 +139,7 @@ export async function POST(request: Request) {
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(id, supplier_id, name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", parsed.value.material_id)

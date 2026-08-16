@@ -16,6 +16,10 @@ import {
   type TruckRateKey,
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
+import {
+  normalizeTruckingProfile,
+  type TruckingProfile,
+} from "@/lib/quotes/trucking";
 
 export type PlantSelectionMaterial = {
   id: string;
@@ -29,11 +33,15 @@ export type PlantSelectionMaterial = {
   cost_per_unit: number;
   supplier_plants:
     | {
+        id: string;
+        supplier_id: string;
         name: string;
         latitude: number | null;
         longitude: number | null;
       }
     | {
+        id: string;
+        supplier_id: string;
         name: string;
         latitude: number | null;
         longitude: number | null;
@@ -53,6 +61,7 @@ export type PlantRecommendation = {
   routeDistance: DistanceEstimate | null;
   deadheadDistance: DistanceEstimate | null;
   selectionReason: string;
+  truckingProfile: TruckingProfile | null;
 };
 
 type YardRecord = {
@@ -62,8 +71,12 @@ type YardRecord = {
   longitude: number | null;
 };
 
-const SMALL_QUOTE_MATERIAL_WEIGHT = 0.55;
-const SMALL_QUOTE_TRUCKING_WEIGHT = 0.45;
+type TruckingProfileAssignment = {
+  trucking_profile_id: string;
+  supplier_id: string | null;
+  plant_id: string | null;
+};
+
 
 export async function selectBestPlantForQuote({
   supabase,
@@ -111,11 +124,13 @@ export async function selectBestPlantForQuote({
     yardsResult,
     multiPitComparisonEnabled,
     autoPlantSelectionEnabled,
+    truckingProfilesResult,
+    truckingAssignmentsResult,
   ] = await Promise.all([
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(id, supplier_id, name, latitude, longitude)",
       )
       .eq("organization_id", organizationId)
       .eq("name", requestedMaterial.name)
@@ -141,7 +156,25 @@ export async function selectBestPlantForQuote({
       featureName: "auto_plant_selection",
       defaultValue: true,
     }),
+    supabase
+      .from("trucking_profiles")
+      .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, time_adjustment_bands")
+      .eq("organization_id", organizationId)
+      .eq("is_active", true),
+    supabase
+      .from("trucking_profile_assignments")
+      .select("trucking_profile_id, supplier_id, plant_id")
+      .eq("organization_id", organizationId)
+      .eq("is_active", true)
+      .returns<TruckingProfileAssignment[]>(),
   ]);
+
+  const truckingProfiles = new Map(
+    (truckingProfilesResult.data ?? []).map((profile) => [
+      profile.id,
+      normalizeTruckingProfile(profile),
+    ]),
+  );
 
   const candidates = multiPitComparisonEnabled && materialsResult.data?.length
     ? materialsResult.data
@@ -166,6 +199,14 @@ export async function selectBestPlantForQuote({
         manualRouteDistanceMiles,
         manualDeadheadDistanceMiles,
         catalogMarkupRules,
+        truckingProfile: resolveTruckingProfile({
+          plantId:
+            relationOne(material.supplier_plants)?.id ?? material.supplier_id,
+          supplierId:
+            relationOne(material.supplier_plants)?.supplier_id ?? null,
+          profiles: truckingProfiles,
+          assignments: truckingAssignmentsResult.data ?? [],
+        }),
       }),
     ),
   );
@@ -228,6 +269,7 @@ async function buildRecommendation({
   manualRouteDistanceMiles,
   manualDeadheadDistanceMiles,
   catalogMarkupRules,
+  truckingProfile,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -246,6 +288,7 @@ async function buildRecommendation({
   manualRouteDistanceMiles: number | null;
   manualDeadheadDistanceMiles: number | null;
   catalogMarkupRules: CatalogMarkupRule[];
+  truckingProfile: TruckingProfile | null;
 }): Promise<PlantRecommendation> {
   const supplier = relationOne(material.supplier_plants);
   const supplierCoordinates = {
@@ -289,7 +332,9 @@ async function buildRecommendation({
     vehicleTypes,
     unitConversions,
     routeDurationSeconds: routeDistance?.durationSeconds ?? null,
+    routeDistanceMiles: routeDistance?.distanceMiles ?? null,
     deadheadDurationSeconds: deadheadDistance?.durationSeconds ?? null,
+    truckingProfile,
     truckRateOverride,
     paymentTerms,
     catalogMarkupRule: resolveCatalogMarkupRule(material, catalogMarkupRules),
@@ -302,6 +347,7 @@ async function buildRecommendation({
     routeDistance,
     deadheadDistance,
     selectionReason: selectionReason(calculation.loadCount),
+    truckingProfile,
   };
 }
 
@@ -361,8 +407,10 @@ function applyMaterialUnitPriceOverride({
       vehicleTypes,
       unitConversions,
       routeDurationSeconds: recommendation.routeDistance?.durationSeconds ?? null,
+      routeDistanceMiles: recommendation.routeDistance?.distanceMiles ?? null,
       deadheadDurationSeconds:
         recommendation.deadheadDistance?.durationSeconds ?? null,
+      truckingProfile: recommendation.truckingProfile,
       materialUnitPriceOverride,
       truckRateOverride,
       materialMinimumOverride,
@@ -374,6 +422,29 @@ function applyMaterialUnitPriceOverride({
       ),
     }),
   };
+}
+
+function resolveTruckingProfile({
+  plantId,
+  supplierId,
+  profiles,
+  assignments,
+}: {
+  plantId: string;
+  supplierId: string | null;
+  profiles: Map<string, TruckingProfile>;
+  assignments: TruckingProfileAssignment[];
+}): TruckingProfile | null {
+  const assignment =
+    assignments.find((candidate) => candidate.plant_id === plantId) ??
+    assignments.find(
+      (candidate) => supplierId !== null && candidate.supplier_id === supplierId,
+    ) ??
+    assignments.find(
+      (candidate) => candidate.plant_id === null && candidate.supplier_id === null,
+    );
+
+  return assignment ? profiles.get(assignment.trucking_profile_id) ?? null : null;
 }
 
 async function getNearestYardDistance({
@@ -415,60 +486,22 @@ function compareRecommendations(
   left: PlantRecommendation,
   right: PlantRecommendation,
 ): number {
-  const loads = Math.max(left.calculation.loadCount, right.calculation.loadCount);
   const leftRouteMiles = routeMiles(left);
   const rightRouteMiles = routeMiles(right);
 
-  if (loads <= 1) {
-    return (
-      deliveredCost(left) - deliveredCost(right) ||
-      leftRouteMiles - rightRouteMiles
-    );
-  }
-
-  if (loads <= 3) {
-    return (
-      smallQuoteScore(left) - smallQuoteScore(right) ||
-      deliveredCost(left) - deliveredCost(right) ||
-      leftRouteMiles - rightRouteMiles
-    );
-  }
-
   return (
-    left.calculation.materialSubtotal - right.calculation.materialSubtotal ||
-    left.calculation.total - right.calculation.total ||
-    leftRouteMiles - rightRouteMiles
-  );
-}
-
-function deliveredCost(recommendation: PlantRecommendation): number {
-  return recommendation.calculation.total;
-}
-
-function smallQuoteScore(recommendation: PlantRecommendation): number {
-  return (
-    recommendation.calculation.materialSubtotal * SMALL_QUOTE_MATERIAL_WEIGHT +
-    recommendation.calculation.truckingSubtotal * SMALL_QUOTE_TRUCKING_WEIGHT
+    leftRouteMiles - rightRouteMiles ||
+    left.calculation.truckingSubtotal - right.calculation.truckingSubtotal ||
+    left.calculation.total - right.calculation.total
   );
 }
 
 function routeMiles(recommendation: PlantRecommendation): number {
-  return (
-    (recommendation.routeDistance?.distanceMiles ?? Number.MAX_SAFE_INTEGER) +
-    (recommendation.deadheadDistance?.distanceMiles ?? 0)
-  );
+  return recommendation.routeDistance?.distanceMiles ?? Number.MAX_SAFE_INTEGER;
 }
 
 function selectionReason(loadCount: number): string {
-  if (loadCount <= 1) {
-    return "Zone 1: lowest delivered total wins, including round-trip trucking and nearest-yard deadhead.";
-  }
-
-  if (loadCount <= 3) {
-    return "Zone 2: weighted material and trucking economics win, with delivered total and route distance as tie-breakers.";
-  }
-
-  return "Zone 3: material economics win, with delivered total and route distance as tie-breakers.";
+  return `Closest available plant wins first; trucking cost and delivered total break ties (${loadCount} load${loadCount === 1 ? "" : "s"}).`;
 }
 
 function relationOne<T>(value: T | T[] | null): T | null {

@@ -122,7 +122,13 @@ function AdminMenu({ role }: { role: "admin" | "account_manager" }) {
               label: "Materials",
               nested: true,
             },
-            { href: "/admin/pricing", label: "Pricing rules" },
+            { href: "/admin/pricing", label: "Materials & services pricing" },
+            {
+              href: "/admin/trucking-profiles",
+              label: "Trucking profiles",
+              nested: true,
+            },
+            { href: "/admin/customer-types", label: "Customer types" },
             { href: "/admin/units", label: "Units" },
             { href: "/admin/tax-rates", label: "Tax rates" },
             { href: "/admin/yards", label: "Yards" },
@@ -132,6 +138,7 @@ function AdminMenu({ role }: { role: "admin" | "account_manager" }) {
         <NavGroup
           title="Workspace"
           links={[
+            { href: "/admin/integrations/crm", label: "CRM customers" },
             { href: "/admin/settings", label: "Settings" },
             { href: "/assets", label: "Assets" },
             { href: "/admin/onboarding", label: "Onboarding" },

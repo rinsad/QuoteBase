@@ -4,9 +4,12 @@ import { useActionState, useMemo, useState, useTransition } from "react";
 import {
   Award,
   BrainCircuit,
+  Check,
+  ChevronDown,
   FilePlus2,
   MapPin,
   PackageOpen,
+  Search,
   TrendingUp,
   UserRound,
 } from "lucide-react";
@@ -22,6 +25,7 @@ import {
   type MapboxAddressSelection,
 } from "@/components/mapbox-address-search";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   calculateQuoteDraft,
   type CatalogMarkupRule,
@@ -178,8 +182,9 @@ export function QuoteDraftForm({
   const defaultExpiresAt = localDateInputValue(addDays(new Date(), 30));
   const [quoteDate, setQuoteDate] = useState(defaultQuoteDate);
   const [expiresAt, setExpiresAt] = useState(defaultExpiresAt);
-  const [isExpirationManual, setIsExpirationManual] = useState(false);
   const [customerId, setCustomerId] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false);
   const [jobSites, setJobSites] = useState(context.jobSites);
   const [materialId, setMaterialId] = useState("");
   const [taxRateId, setTaxRateId] = useState("");
@@ -206,6 +211,16 @@ export function QuoteDraftForm({
     () => buildMaterialChoices(context.materials),
     [context.materials],
   );
+  const filteredCustomers = useMemo(() => {
+    const query = normalizeMaterialLabel(customerSearch);
+    if (!query) return context.customers;
+
+    return context.customers.filter((customer) =>
+      [customer.company_name, customer.name, customer.contact_name, customer.email, crmProviderLabel(customer.crm_provider)]
+        .filter(Boolean)
+        .some((value) => normalizeMaterialLabel(String(value)).includes(query)),
+    );
+  }, [context.customers, customerSearch]);
   const normalizedMaterialSearch = normalizeMaterialLabel(materialSearch);
   const typedMaterialMatch = normalizedMaterialSearch
     ? materialChoices.find(
@@ -291,15 +306,22 @@ export function QuoteDraftForm({
             material,
             jobSite: selectedJobSite ?? null,
           }),
+          routeDistanceMiles: estimatedRouteMiles(material, selectedJobSite),
+          truckingProfile: material.trucking_profile,
           paymentTerms,
           catalogMarkupRule: material.catalog_markup_rule,
         }),
       }))
       .sort((left, right) => {
+        const leftDistance = estimatedRouteMiles(left.material, selectedJobSite);
+        const rightDistance = estimatedRouteMiles(right.material, selectedJobSite);
+
         return (
-          left.calculation.total - right.calculation.total ||
-          left.calculation.materialSubtotal -
-            right.calculation.materialSubtotal
+          (leftDistance ?? Number.MAX_SAFE_INTEGER) -
+            (rightDistance ?? Number.MAX_SAFE_INTEGER) ||
+          left.calculation.truckingSubtotal -
+            right.calculation.truckingSubtotal ||
+          left.calculation.total - right.calculation.total
         );
       });
     const selectedOption = rankedOptions.find(
@@ -364,6 +386,11 @@ export function QuoteDraftForm({
                   material: line.material,
                   jobSite: selectedJobSite ?? null,
                 }),
+                routeDistanceMiles: estimatedRouteMiles(
+                  line.material,
+                  selectedJobSite,
+                ),
+                truckingProfile: line.material.trucking_profile,
                 paymentTerms,
                 catalogMarkupRule: line.material.catalog_markup_rule,
               }),
@@ -482,6 +509,7 @@ export function QuoteDraftForm({
     const nextCustomer = context.customers.find(
       (customer) => customer.id === nextCustomerId,
     );
+    setCustomerSearch(nextCustomer ? customerDisplayLabel(nextCustomer) : "");
     setPaymentTerms(nextCustomer?.payment_terms ?? "COD");
 
     if (
@@ -691,22 +719,61 @@ export function QuoteDraftForm({
               required
               error={state.fieldErrors.customer_id}
             >
-              <select
-                name="customer_id"
-                className="soft-control w-full"
-                value={customerId}
-                onChange={(event) => handleCustomerChange(event.target.value)}
-                aria-invalid={Boolean(state.fieldErrors.customer_id)}
-                required
+              <div
+                className="relative"
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) setIsCustomerPickerOpen(false);
+                }}
               >
-                <option value="">Select customer...</option>
-                {context.customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.company_name ?? customer.name}
-                    {customer.contact_name ? ` - ${customer.contact_name}` : ""}
-                  </option>
-                ))}
-              </select>
+                <input type="hidden" name="customer_id" value={customerId} readOnly required />
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    className="soft-control w-full px-10"
+                    value={customerSearch}
+                    placeholder="Type a customer name, contact, email, or CRM..."
+                    role="combobox"
+                    aria-expanded={isCustomerPickerOpen}
+                    aria-controls="quote-customer-options"
+                    aria-invalid={Boolean(state.fieldErrors.customer_id)}
+                    autoComplete="off"
+                    onFocus={() => setIsCustomerPickerOpen(true)}
+                    onChange={(event) => {
+                      const nextSearch = event.target.value;
+                      if (customerId) handleCustomerChange("");
+                      setCustomerSearch(nextSearch);
+                      setIsCustomerPickerOpen(true);
+                    }}
+                  />
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                </div>
+                {isCustomerPickerOpen ? (
+                  <div id="quote-customer-options" role="listbox" className="absolute z-40 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl">
+                    {filteredCustomers.length ? filteredCustomers.map((customer) => (
+                      <button
+                        key={customer.id}
+                        type="button"
+                        role="option"
+                        aria-selected={customer.id === customerId}
+                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-secondary"
+                        onClick={() => {
+                          handleCustomerChange(customer.id);
+                          setIsCustomerPickerOpen(false);
+                        }}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">{customerDisplayLabel(customer)}</span>
+                          <span className="block truncate text-xs text-muted-foreground">{crmProviderLabel(customer.crm_provider)}{customer.email ? ` · ${customer.email}` : ""}</span>
+                        </span>
+                        {customer.id === customerId ? <Check className="size-4 text-primary" /> : null}
+                      </button>
+                    )) : (
+                      <p className="px-3 py-5 text-center text-sm text-muted-foreground">No matching customers in QuoteBase or configured CRMs.</p>
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </Field>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field
@@ -714,19 +781,18 @@ export function QuoteDraftForm({
                 required
                 error={state.fieldErrors.quote_date}
               >
-                <input
+                <DatePicker
                   name="quote_date"
-                  type="date"
                   className="soft-control w-full"
                   value={quoteDate}
-                  onChange={(event) => {
-                    const nextQuoteDate = event.target.value;
+                  onChange={(nextQuoteDate) => {
 
                     setQuoteDate(nextQuoteDate);
-
-                    if (!isExpirationManual && nextQuoteDate) {
-                      setExpiresAt(localDateInputValue(addDaysFromInput(nextQuoteDate, 30)));
-                    }
+                    setExpiresAt(
+                      nextQuoteDate
+                        ? localDateInputValue(addDaysFromInput(nextQuoteDate, 30))
+                        : "",
+                    );
                   }}
                   aria-invalid={Boolean(state.fieldErrors.quote_date)}
                   required
@@ -737,15 +803,11 @@ export function QuoteDraftForm({
                 required
                 error={state.fieldErrors.expires_at}
               >
-                <input
+                <DatePicker
                   name="expires_at"
-                  type="date"
                   className="soft-control w-full"
                   value={expiresAt}
-                  onChange={(event) => {
-                    setExpiresAt(event.target.value);
-                    setIsExpirationManual(true);
-                  }}
+                  onChange={setExpiresAt}
                   aria-invalid={Boolean(state.fieldErrors.expires_at)}
                   required
                 />
@@ -753,19 +815,22 @@ export function QuoteDraftForm({
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field
-                label="Account type"
+                label="Customer Type"
                 required
                 error={state.fieldErrors.account_type}
               >
                 <select
                   name="account_type"
                   className="soft-control w-full"
-                  defaultValue="contractor"
+                  defaultValue={context.customerTypes.find((type) => type.code === "contractor")?.code ?? context.customerTypes[0]?.code ?? ""}
                   aria-invalid={Boolean(state.fieldErrors.account_type)}
                   required
                 >
-                  <option value="contractor">Contractor</option>
-                  <option value="non_contractor">Non-contractor</option>
+                  {context.customerTypes.map((customerType) => (
+                    <option key={customerType.id} value={customerType.code}>
+                      {customerType.name}
+                    </option>
+                  ))}
                 </select>
               </Field>
               <Field
@@ -794,9 +859,8 @@ export function QuoteDraftForm({
                 optional
                 error={state.fieldErrors.job_start_date}
               >
-                <input
+                <DatePicker
                   name="job_start_date"
-                  type="date"
                   className="soft-control w-full"
                   aria-invalid={Boolean(state.fieldErrors.job_start_date)}
                 />
@@ -806,9 +870,8 @@ export function QuoteDraftForm({
                 optional
                 error={state.fieldErrors.job_end_date}
               >
-                <input
+                <DatePicker
                   name="job_end_date"
-                  type="date"
                   className="soft-control w-full"
                   aria-invalid={Boolean(state.fieldErrors.job_end_date)}
                 />
@@ -1173,6 +1236,7 @@ export function QuoteDraftForm({
               <SupplierSourcingTable
                 recommendation={recommendation}
                 selectedJobSite={selectedJobSite ?? null}
+                recommendationCount={context.pricingConfig?.quote_recommendation_count ?? 3}
                 onAddOption={addLineForOption}
               />
             ) : (
@@ -1527,13 +1591,19 @@ function QuoteLinesTable({
 function SupplierSourcingTable({
   recommendation,
   selectedJobSite,
+  recommendationCount,
   onAddOption,
 }: {
   recommendation: Recommendation;
   selectedJobSite: NewQuoteContext["jobSites"][number] | null;
+  recommendationCount: number;
   onAddOption: (option: Recommendation["options"][number]) => void;
 }) {
-  const topOptions = recommendation.options.slice(0, 3);
+  const topOptions = recommendation.options.slice(0, recommendationCount);
+
+  if (!recommendationCount) {
+    return null;
+  }
 
   return (
     <div className="rounded-[18px] border border-white/70 bg-white/65 p-4">
@@ -1541,8 +1611,8 @@ function SupplierSourcingTable({
         <div>
           <p className="text-sm font-semibold">Best pricing options</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Top 3 supplier, plant, and material matches ranked by delivered
-            quote total using plant and job-site coordinates for trucking.
+            Closest supplier, plant, and material matches ranked by distance
+            first, then trucking cost.
           </p>
         </div>
         <span className="soft-chip bg-[#ecf2ed] text-[#3d6652] ring-[#d7ded5]">
@@ -1573,7 +1643,7 @@ function SupplierSourcingTable({
                     <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-muted-foreground ring-1 ring-border">
                       {isRecommended ? "Use" : `#${index + 1}`}
                     </span>
-                    <h3 className="truncate text-sm font-semibold">
+                    <h3 className="break-words text-sm font-semibold">
                       {supplierCompanyName(option.material)} /{" "}
                       {plantName(option.material)}
                     </h3>
@@ -1583,7 +1653,7 @@ function SupplierSourcingTable({
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-2 truncate text-sm font-medium">
+                  <p className="mt-2 break-words text-sm font-medium">
                     {option.material.name}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -1602,28 +1672,20 @@ function SupplierSourcingTable({
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <OptionMetric label="Distance" value={formatDistance(routeMiles)} />
                   <OptionMetric
-                    label="Trucking"
-                    value={formatCurrency(option.calculation.truckingSubtotal)}
-                  />
-                  <OptionMetric
-                    label="Buy"
+                    label="Supplier unit cost"
                     value={formatCurrency(option.material.cost_per_unit)}
                   />
                   <OptionMetric
-                    label="Material"
-                    value={formatCurrency(option.calculation.materialSubtotal)}
-                  />
-                  <OptionMetric
-                    label="Total"
-                    value={formatCurrency(option.calculation.total)}
+                    label="Recommended trucking"
+                    value={
+                      option.calculation.truckingRecommendation
+                        ? `${formatCurrency(option.calculation.truckingRecommendation.ratePerCapacityUnit)}/${option.calculation.quoteQuantityBasis === "cy" ? "CY" : "ton"}`
+                        : formatCurrency(option.calculation.truckingSubtotal)
+                    }
                     strong
-                  />
-                  <OptionMetric
-                    label="Rank"
-                    value={isRecommended ? "Use" : `#${index + 1}`}
                   />
                 </div>
                 <Button
@@ -1658,7 +1720,8 @@ function OptionMetric({
         {label}
       </p>
       <p
-        className={`mt-1 truncate font-mono text-xs ${
+        title={value}
+        className={`mt-1 break-words font-mono text-xs leading-5 ${
           strong ? "font-semibold text-foreground" : "text-foreground"
         }`}
       >
@@ -2086,4 +2149,21 @@ function localDateInputValue(date: Date): string {
   const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
+}
+
+function customerDisplayLabel(customer: NewQuoteContext["customers"][number]): string {
+  const company = customer.company_name ?? customer.name;
+  return customer.contact_name ? `${company} - ${customer.contact_name}` : company;
+}
+
+function crmProviderLabel(provider: NewQuoteContext["customers"][number]["crm_provider"]): string {
+  const labels = {
+    quotebase: "QuoteBase",
+    pipedrive: "Pipedrive",
+    salesforce: "Salesforce",
+    hubspot: "HubSpot",
+    zoho: "Zoho",
+  } satisfies Record<NewQuoteContext["customers"][number]["crm_provider"], string>;
+
+  return labels[provider];
 }

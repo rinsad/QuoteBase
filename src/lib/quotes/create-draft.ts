@@ -26,7 +26,7 @@ import type { createClient } from "@/lib/supabase/server";
 
 type SupabaseClient = NonNullable<Awaited<ReturnType<typeof createClient>>>;
 
-export type QuoteAccountType = "contractor" | "non_contractor";
+export type QuoteAccountType = string;
 export type QuoteProjectStatus = string;
 
 export type CreateQuoteDraftInput = {
@@ -141,7 +141,7 @@ export async function createQuoteDraftRecord({
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(name, latitude, longitude)",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(id, supplier_id, name, latitude, longitude)",
       )
       .eq("organization_id", user.organization_id)
       .in(
@@ -402,6 +402,14 @@ export async function createQuoteDraftRecord({
       load_count: line.calculation.loadCount,
       trucking_rate_per_unit: line.calculation.truckingRatePerUnit,
       trucking_subtotal: line.calculation.truckingSubtotal,
+      trucking_profile_id: line.calculation.truckingProfileId,
+      trucking_calculation: line.calculation.truckingRecommendation
+        ? {
+            formula_version: "distance_profile_v1",
+            profile_name: line.calculation.truckingProfileName,
+            ...line.calculation.truckingRecommendation,
+          }
+        : null,
       fees_subtotal: line.calculation.feesSubtotal,
       line_total: line.calculation.total,
       is_active: true,
@@ -471,6 +479,9 @@ export async function createQuoteDraftRecord({
           line.recommendation.deadheadDistance?.distanceMiles ?? null,
         deadhead_distance_source:
           line.recommendation.deadheadDistance?.source ?? null,
+        trucking_profile_id: line.calculation.truckingProfileId,
+        trucking_profile_name: line.calculation.truckingProfileName,
+        trucking_calculation: line.calculation.truckingRecommendation,
       })),
       new_customer: false,
       plant_override: input.useSelectedPlant,

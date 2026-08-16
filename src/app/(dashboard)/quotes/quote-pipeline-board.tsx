@@ -7,6 +7,11 @@ import { CircleDollarSign, Clock3, FileText, Send, Trophy, XCircle } from "lucid
 import { moveQuotePipelineStatus } from "@/app/(dashboard)/quotes/actions";
 import type { QuoteAccountType } from "@/lib/quotes/create-draft";
 import type { QuoteListItem, QuoteStatus } from "@/lib/quotes/quotes";
+import {
+  SemanticIcon,
+  semanticToneClasses,
+  type SemanticTone,
+} from "@/components/ui/semantic-accent";
 
 type PipelineStatus = "draft" | "sent" | "follow_up" | "won" | "lost";
 
@@ -16,6 +21,7 @@ type PipelineColumn = {
   subtitle: string;
   statuses: QuoteStatus[];
   icon: typeof FileText;
+  tone: SemanticTone;
 };
 
 type CategoryView = {
@@ -41,6 +47,7 @@ const PIPELINE_COLUMNS: PipelineColumn[] = [
     subtitle: "Intake and approval",
     statuses: ["draft", "pending_approval", "changes_requested", "approved", "rejected"],
     icon: FileText,
+    tone: "blue",
   },
   {
     key: "sent",
@@ -48,6 +55,7 @@ const PIPELINE_COLUMNS: PipelineColumn[] = [
     subtitle: "With customer",
     statuses: ["sent", "viewed"],
     icon: Send,
+    tone: "cyan",
   },
   {
     key: "follow_up",
@@ -55,6 +63,7 @@ const PIPELINE_COLUMNS: PipelineColumn[] = [
     subtitle: "Needs touch",
     statuses: ["follow_up"],
     icon: Clock3,
+    tone: "amber",
   },
   {
     key: "won",
@@ -62,6 +71,7 @@ const PIPELINE_COLUMNS: PipelineColumn[] = [
     subtitle: "Closed revenue",
     statuses: ["won", "accepted"],
     icon: Trophy,
+    tone: "emerald",
   },
   {
     key: "lost",
@@ -69,6 +79,7 @@ const PIPELINE_COLUMNS: PipelineColumn[] = [
     subtitle: "Closed loss",
     statuses: ["lost", "declined"],
     icon: XCircle,
+    tone: "rose",
   },
 ];
 
@@ -80,11 +91,21 @@ export function QuotePipelineBoard({ quotes }: { quotes: QuoteListItem[] }) {
     DEFAULT_CATEGORY_VIEWS[0].key,
   );
   const [isPending, startTransition] = useTransition();
+  const categoryViews = useMemo(() => {
+    const categories = new Map(DEFAULT_CATEGORY_VIEWS.map((category) => [category.key, category]));
+
+    for (const quote of quotes) {
+      const category = categoryView(quote.account_type, quote.project_status as BoardProjectStatus);
+      categories.set(category.key, category);
+    }
+
+    return Array.from(categories.values());
+  }, [quotes]);
   const selectedCategory =
-    DEFAULT_CATEGORY_VIEWS.find(
+    categoryViews.find(
       (category) => category.key === selectedCategoryKey,
     ) ??
-    DEFAULT_CATEGORY_VIEWS[0];
+    categoryViews[0];
   const categoryQuotes = useMemo(
     () =>
       quotes.filter(
@@ -147,7 +168,7 @@ export function QuotePipelineBoard({ quotes }: { quotes: QuoteListItem[] }) {
             onChange={(event) => setSelectedCategoryKey(event.target.value)}
             className="soft-control mt-2 h-12 w-full rounded-full bg-card px-4 font-semibold text-foreground"
           >
-            {DEFAULT_CATEGORY_VIEWS.map((category) => (
+            {categoryViews.map((category) => (
               <option key={category.key} value={category.key}>
                 {category.label}
               </option>
@@ -181,15 +202,13 @@ export function QuotePipelineBoard({ quotes }: { quotes: QuoteListItem[] }) {
                   handleDrop(column.key, quoteId);
                 }
               }}
-              className={`min-h-[420px] rounded-lg border bg-background p-3 transition ${
+              className={`min-h-[420px] rounded-lg border border-l-[3px] bg-background p-3 transition ${semanticToneClasses[column.tone].accent} ${
                 isDragOver ? "border-primary ring-2 ring-primary/20" : "border-border"
               }`}
             >
               <div className="flex items-start justify-between gap-3 border-b border-border pb-3">
                 <div className="flex items-center gap-3">
-                  <div className="icon-well text-primary">
-                    <Icon className="size-4" />
-                  </div>
+                  <SemanticIcon icon={Icon} tone={column.tone} size="sm" />
                   <div>
                     <h3 className="text-sm font-semibold">{column.title}</h3>
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -289,7 +308,10 @@ function formatStatus(status: string) {
 }
 
 function formatAccountType(value: QuoteAccountType) {
-  return value === "contractor" ? "Contractor" : "Non-contractor";
+  return value
+    .split("_")
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function formatProjectStatus(value: QuoteListItem["project_status"]) {

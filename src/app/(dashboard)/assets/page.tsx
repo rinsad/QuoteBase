@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { uploadLibraryAsset } from "@/app/(dashboard)/assets/actions";
 import { WorkspaceNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
+import { SemanticIcon } from "@/components/ui/semantic-accent";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { listQuoteAssets } from "@/lib/quotes/assets";
 
@@ -68,9 +69,7 @@ export default async function AssetLibraryPage({
             className="glass-panel p-5 sm:p-6"
           >
             <div className="flex items-center gap-3">
-              <div className="icon-well text-primary">
-                <Upload className="size-5" />
-              </div>
+              <SemanticIcon icon={Upload} tone="blue" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
                   Reusable attachment
@@ -123,9 +122,7 @@ export default async function AssetLibraryPage({
 
           <section className="glass-panel p-5 sm:p-6">
             <div className="flex items-center gap-3">
-              <div className="icon-well text-primary">
-                <FolderOpen className="size-5" />
-              </div>
+              <SemanticIcon icon={FolderOpen} tone="amber" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
                   Tenant assets
@@ -143,9 +140,11 @@ export default async function AssetLibraryPage({
 
                   return (
                     <article key={asset.id} className="soft-row flex gap-3 p-4">
-                      <div className="icon-well shrink-0 text-primary">
-                        <Icon className="size-4" />
-                      </div>
+                      <SemanticIcon
+                        icon={Icon}
+                        tone={asset.asset_type === "photo" ? "violet" : "cyan"}
+                        size="sm"
+                      />
                       <div className="min-w-0">
                         <h3 className="truncate text-sm font-semibold">
                           {asset.title}

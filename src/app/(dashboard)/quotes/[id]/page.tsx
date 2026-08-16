@@ -33,6 +33,11 @@ import {
   updateQuoteItemQuantity,
 } from "@/app/(dashboard)/quotes/[id]/actions";
 import { Button } from "@/components/ui/button";
+import {
+  SemanticIcon,
+  semanticToneClasses,
+  type SemanticTone,
+} from "@/components/ui/semantic-accent";
 import { QuoteNav } from "@/components/app-nav";
 import { QuoteStatusListener } from "@/components/quote-status-listener";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -215,7 +220,7 @@ export default async function QuoteDetailPage({
                 </dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Account type</dt>
+                <dt className="text-muted-foreground">Customer Type</dt>
                 <dd className="mt-1 font-semibold">
                   {formatAccountType(quote.account_type)}
                 </dd>
@@ -510,6 +515,7 @@ export default async function QuoteDetailPage({
           <div className="grid gap-4 sm:grid-cols-2">
             <InfoCard
               icon={Building2}
+              tone="blue"
               label="Customer"
               title={quote.customer.name}
               detail={[
@@ -522,18 +528,21 @@ export default async function QuoteDetailPage({
             />
             <InfoCard
               icon={MapPin}
+              tone="emerald"
               label="Job site"
               title={quote.job_site.name}
               detail={`${quote.job_site.city}, ${quote.job_site.state}`}
             />
             <InfoCard
               icon={UserRound}
+              tone="violet"
               label="Owner"
               title={quote.requested_by.full_name}
               detail={quote.requested_by.email}
             />
             <InfoCard
               icon={ClipboardList}
+              tone="amber"
               label="Tax"
               title={
                 quote.tax_rate
@@ -769,19 +778,23 @@ export default async function QuoteDetailPage({
 
 function InfoCard({
   icon: Icon,
+  tone,
   label,
   title,
   detail,
 }: {
   icon: typeof Building2;
+  tone: SemanticTone;
   label: string;
   title: string;
   detail: string;
 }) {
+  const colors = semanticToneClasses[tone];
+
   return (
-    <div className="glass-tile min-h-40 p-5">
-      <Icon className="size-5 text-blue-700" />
-      <p className="mt-5 text-xs font-medium uppercase text-muted-foreground">
+    <div className={`glass-tile min-h-40 border-l-[3px] p-5 ${colors.accent}`}>
+      <SemanticIcon icon={Icon} tone={tone} />
+      <p className={`mt-5 text-xs font-semibold uppercase ${colors.label}`}>
         {label}
       </p>
       <p className="mt-2 text-sm font-semibold">{title}</p>
@@ -1007,7 +1020,10 @@ function formatDate(value: string) {
 }
 
 function formatAccountType(value: string) {
-  return value === "contractor" ? "Contractor" : "Non-contractor";
+  return value
+    .split("_")
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function formatProjectStatus(value: string) {

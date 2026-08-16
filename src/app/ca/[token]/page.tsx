@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { submitCreditApplication } from "@/app/ca/[token]/actions";
+import { DatePicker } from "@/components/ui/date-picker";
 import { getCreditApplicationByToken } from "@/lib/quotes/credit-applications";
 
 export default async function CreditApplicationPage({
@@ -330,14 +331,20 @@ function Field({
         {label}
         {required ? <span className="text-rose-600"> *</span> : null}
       </span>
-      <input
-        name={name}
-        type={type}
-        required={required}
-        className={`mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100 ${
-          compact ? "h-10" : "h-12"
-        }`}
-      />
+      {type === "date" ? (
+        <DatePicker
+          name={name}
+          required={required}
+          className={`mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100 ${compact ? "h-10" : "h-12"}`}
+        />
+      ) : (
+        <input
+          name={name}
+          type={type}
+          required={required}
+          className={`mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100 ${compact ? "h-10" : "h-12"}`}
+        />
+      )}
     </label>
   );
 }

@@ -16,6 +16,11 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
+import {
+  SemanticIcon,
+  semanticToneClasses,
+  type SemanticTone,
+} from "@/components/ui/semantic-accent";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import {
   normalizeSearchQuery,
@@ -51,42 +56,49 @@ export default async function DashboardPage({
       value: formatCurrency(kpis.quotedValue),
       sub: `${quoteList.counts.total} active quotes`,
       icon: Banknote,
+      tone: "blue" as const,
     },
     {
       label: "Open",
       value: formatCurrency(kpis.openValue),
       sub: `${quoteList.counts.sent + quoteList.counts.followUp} in market`,
       icon: MessageSquare,
+      tone: "cyan" as const,
     },
     {
       label: "Won",
       value: formatCurrency(kpis.wonValue),
       sub: `${quoteList.counts.won} closed won`,
       icon: Trophy,
+      tone: "emerald" as const,
     },
     {
       label: "Lost",
       value: formatCurrency(kpis.lostValue),
       sub: `${quoteList.counts.lost} closed lost`,
       icon: TrendingDown,
+      tone: "rose" as const,
     },
     {
       label: "Win rate",
       value: `${kpis.winRate.toFixed(0)}%`,
       sub: "Won / decided",
       icon: Gauge,
+      tone: "violet" as const,
     },
     {
       label: "Follow-ups due",
       value: kpis.followUpsDue.toString(),
       sub: "Quotes in follow-up",
       icon: ListTodo,
+      tone: "amber" as const,
     },
     {
       label: "Jobs starting",
       value: kpis.jobsStartingSoon.toString(),
       sub: `Next ${kpis.jobsStartingSoonDays} days`,
       icon: CalendarDays,
+      tone: "indigo" as const,
     },
   ];
 
@@ -167,12 +179,15 @@ export default async function DashboardPage({
           const Icon = card.icon;
 
           return (
-            <div key={card.label} className="glass-tile min-h-32 p-4">
+            <div
+              key={card.label}
+              className={`glass-tile min-h-32 border-l-[3px] p-4 ${semanticToneClasses[card.tone].accent}`}
+            >
               <div className="flex items-start justify-between gap-3">
                 <p className="text-xs font-medium uppercase text-muted-foreground">
                   {card.label}
                 </p>
-                <Icon className="size-4 text-primary" />
+                <SemanticIcon icon={Icon} tone={card.tone} size="sm" />
               </div>
               <p className="mt-4 break-words font-mono text-2xl font-semibold">
                 {card.value}
@@ -190,6 +205,7 @@ export default async function DashboardPage({
           title="Jobs Starting Soon"
           actionHref="/quotes"
           actionLabel="View quotes"
+          tone="indigo"
         >
           <QuoteInsightList
             quotes={quoteList.jobsStartingSoon}
@@ -214,6 +230,7 @@ export default async function DashboardPage({
           title="Hot Quotes"
           actionHref="/quotes"
           actionLabel="Open pipeline"
+          tone="amber"
         >
           <QuoteInsightList
             quotes={quoteList.hotQuotes}
@@ -234,6 +251,7 @@ export default async function DashboardPage({
           title="Big Quotes"
           actionHref="/quotes"
           actionLabel="View board"
+          tone="emerald"
         >
           <QuoteInsightList
             quotes={quoteList.bigQuotes}
@@ -307,6 +325,7 @@ function DashboardPanel({
   title,
   actionHref,
   actionLabel,
+  tone,
   children,
 }: {
   icon: LucideIcon;
@@ -314,15 +333,14 @@ function DashboardPanel({
   title: string;
   actionHref: string;
   actionLabel: string;
+  tone: SemanticTone;
   children: ReactNode;
 }) {
   return (
     <div className="glass-panel overflow-hidden">
       <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/60 px-4 py-3">
         <div className="flex items-center gap-3">
-          <div className="icon-well text-primary">
-            <Icon className="size-5" />
-          </div>
+          <SemanticIcon icon={Icon} tone={tone} />
           <div>
             <p className="text-sm font-medium text-muted-foreground">{kicker}</p>
             <h2 className="text-xl font-semibold">{title}</h2>

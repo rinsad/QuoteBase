@@ -15,6 +15,7 @@ import {
 import { updateMaterialPrice } from "@/app/(dashboard)/admin/material-prices/actions";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   getAdminMaterialPrices,
   type AdminMaterialPrice,
@@ -423,9 +424,8 @@ function MaterialPriceSlideOver({
               <span className="text-sm font-medium text-muted-foreground">
                 Price date
               </span>
-              <input
+              <DatePicker
                 name="price_date"
-                type="date"
                 defaultValue={today()}
                 className="soft-control mt-2 w-full"
                 required

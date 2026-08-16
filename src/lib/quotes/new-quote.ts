@@ -1,4 +1,6 @@
 import type { AppUser } from "@/lib/auth/current-user";
+import type { CustomerType } from "@/lib/admin/customer-types";
+import { CRM_PROVIDERS, type CrmProvider } from "@/lib/integrations/crm";
 import { getQuoteUnitConversions } from "@/lib/admin/units";
 import {
   calculateQuoteDraft,
@@ -12,6 +14,10 @@ import {
   type VehicleCapacity,
 } from "@/lib/quotes/pricing";
 import { createClient } from "@/lib/supabase/server";
+import {
+  normalizeTruckingProfile,
+  type TruckingProfile,
+} from "@/lib/quotes/trucking";
 
 export type QuoteCustomerOption = {
   id: string;
@@ -22,6 +28,7 @@ export type QuoteCustomerOption = {
   email: string | null;
   address: Record<string, unknown>;
   payment_terms: string | null;
+  crm_provider: "quotebase" | "pipedrive" | "salesforce" | "hubspot" | "zoho";
   quote_history: QuoteCustomerQuoteHistory[];
 };
 
@@ -48,6 +55,7 @@ export type QuoteJobSiteOption = {
 export type QuoteMaterialOption = {
   id: string;
   supplier_id: string;
+  parent_supplier_id: string | null;
   supplier_catalog_version_id: string | null;
   supplier_catalog_item_id: string | null;
   catalog_sku: string | null;
@@ -61,6 +69,7 @@ export type QuoteMaterialOption = {
   tier: MaterialTier;
   unit: string;
   cost_per_unit: number;
+  trucking_profile: TruckingProfile | null;
 };
 
 export type QuoteTaxRateOption = {
@@ -84,35 +93,55 @@ export type NewQuoteContext = {
   unitConversions: QuoteUnitConversion[];
   pricingConfig: PricingConfig | null;
   projectStatusOptions: QuoteProjectStatusOption[];
+  customerTypes: CustomerType[];
   sampleCalculation: ReturnType<typeof calculateQuoteDraft> | null;
 };
 
 type MaterialRecord = Omit<
   QuoteMaterialOption,
   | "catalog_markup_rule"
+  | "parent_supplier_id"
   | "supplier_name"
   | "supplier_parent_company"
   | "supplier_latitude"
   | "supplier_longitude"
+  | "trucking_profile"
 > & {
   supplier_plants:
     | {
+        id: string;
         name: string;
         latitude: number | null;
         longitude: number | null;
-        suppliers: { name: string } | { name: string }[] | null;
+        suppliers: { id: string; name: string } | { id: string; name: string }[] | null;
       }
     | {
+        id: string;
         name: string;
         latitude: number | null;
         longitude: number | null;
-        suppliers: { name: string } | { name: string }[] | null;
+        suppliers: { id: string; name: string } | { id: string; name: string }[] | null;
       }[]
     | null;
 };
 
 type QuoteHistoryRecord = QuoteCustomerQuoteHistory & {
   customer_id: string;
+};
+
+type TruckingProfileRecord = {
+  id: string;
+  name: string;
+  average_speed_mph: number;
+  hourly_rate: number;
+  round_trip_factor: number;
+  time_adjustment_bands: unknown;
+};
+
+type TruckingProfileAssignmentRecord = {
+  trucking_profile_id: string;
+  supplier_id: string | null;
+  plant_id: string | null;
 };
 
 const BASE_PRICING_SELECT =
@@ -123,7 +152,7 @@ const DEFAULT_PROJECT_STATUS_OPTIONS: QuoteProjectStatusOption[] = [
   { value: "existing_job", label: "Existing job" },
 ];
 
-const EXTENDED_PRICING_SELECT = `${BASE_PRICING_SELECT}, big_quote_threshold, default_followup_max_attempts, jobs_starting_soon_days, follow_up_auto_send_enabled, follow_up_sms_enabled, project_status_options`;
+const EXTENDED_PRICING_SELECT = `${BASE_PRICING_SELECT}, big_quote_threshold, default_followup_max_attempts, jobs_starting_soon_days, follow_up_auto_send_enabled, follow_up_sms_enabled, project_status_options, quote_recommendation_count`;
 
 export async function getNewQuoteContext(
   user: AppUser,
@@ -145,6 +174,10 @@ export async function getNewQuoteContext(
     quoteHistoryResult,
     markupRulesResult,
     unitConversions,
+    customerTypesResult,
+    crmIntegrationsResult,
+    truckingProfilesResult,
+    truckingAssignmentsResult,
   ] = await Promise.all([
     supabase
       .from("feature_flags")
@@ -154,7 +187,7 @@ export async function getNewQuoteContext(
       .single<{ is_enabled: boolean }>(),
     supabase
       .from("customers")
-      .select("id, name, company_name, contact_name, phone, email, address, payment_terms")
+      .select("id, name, company_name, contact_name, phone, email, address, payment_terms, crm_provider")
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
       .order("name", { ascending: true })
@@ -171,7 +204,7 @@ export async function getNewQuoteContext(
     supabase
       .from("materials")
       .select(
-        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_sku, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(name, latitude, longitude, suppliers(name))",
+        "id, supplier_id, supplier_catalog_version_id, supplier_catalog_item_id, catalog_sku, catalog_category, name, tier, unit, cost_per_unit, supplier_plants!inner(id, name, latitude, longitude, suppliers(id, name))",
       )
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
@@ -212,6 +245,32 @@ export async function getNewQuoteContext(
       supabase,
       organizationId: user.organization_id,
     }),
+    supabase
+      .from("customer_types")
+      .select("id, name, code, is_active")
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .order("name")
+      .returns<CustomerType[]>(),
+    supabase
+      .from("organization_integrations")
+      .select("provider")
+      .eq("organization_id", user.organization_id)
+      .eq("is_enabled", true)
+      .in("provider", [...CRM_PROVIDERS])
+      .returns<Array<{ provider: CrmProvider }>>(),
+    supabase
+      .from("trucking_profiles")
+      .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, time_adjustment_bands")
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .returns<TruckingProfileRecord[]>(),
+    supabase
+      .from("trucking_profile_assignments")
+      .select("trucking_profile_id, supplier_id, plant_id")
+      .eq("organization_id", user.organization_id)
+      .eq("is_active", true)
+      .returns<TruckingProfileAssignmentRecord[]>(),
   ]);
   const quoteHistoryByCustomer = new Map<string, QuoteCustomerQuoteHistory[]>();
 
@@ -235,6 +294,12 @@ export async function getNewQuoteContext(
     ? normalizePricingConfig(pricingConfigResult)
     : null;
   const markupRules = normalizeCatalogMarkupRules(markupRulesResult.data ?? []);
+  const truckingProfiles = new Map(
+    (truckingProfilesResult.data ?? []).map((profile) => [
+      profile.id,
+      normalizeTruckingProfile(profile),
+    ]),
+  );
   const firstMaterial = materialsResult.data?.[0];
   const firstTaxRate = taxRatesResult.data?.[0];
   const sampleCalculation =
@@ -257,7 +322,12 @@ export async function getNewQuoteContext(
     competitiveIntelligenceEnabled:
       competitiveIntelligenceFlag.data?.is_enabled ?? false,
     customers:
-      customersResult.data?.map((customer) => ({
+      customersResult.data?.filter((customer) =>
+        customer.crm_provider === "quotebase" ||
+        (crmIntegrationsResult.data ?? []).some(
+          (integration) => integration.provider === customer.crm_provider,
+        ),
+      ).map((customer) => ({
         ...customer,
         address: customer.address ?? {},
         quote_history: quoteHistoryByCustomer.get(customer.id) ?? [],
@@ -280,6 +350,7 @@ export async function getNewQuoteContext(
         return {
           id: material.id,
           supplier_id: material.supplier_id,
+          parent_supplier_id: supplier?.id ?? null,
           supplier_catalog_version_id: material.supplier_catalog_version_id,
           supplier_catalog_item_id: material.supplier_catalog_item_id,
           catalog_sku: material.catalog_sku,
@@ -299,6 +370,12 @@ export async function getNewQuoteContext(
           tier: material.tier,
           unit: material.unit,
           cost_per_unit: Number(material.cost_per_unit),
+          trucking_profile: resolveMaterialTruckingProfile({
+            plantId: plant?.id ?? material.supplier_id,
+            supplierId: supplier?.id ?? null,
+            profiles: truckingProfiles,
+            assignments: truckingAssignmentsResult.data ?? [],
+          }),
         };
       }) ?? [],
     taxRates:
@@ -312,8 +389,32 @@ export async function getNewQuoteContext(
     projectStatusOptions: normalizeProjectStatusOptions(
       pricingConfig?.project_status_options,
     ),
+    customerTypes: customerTypesResult.data ?? [],
     sampleCalculation,
   };
+}
+
+function resolveMaterialTruckingProfile({
+  plantId,
+  supplierId,
+  profiles,
+  assignments,
+}: {
+  plantId: string;
+  supplierId: string | null;
+  profiles: Map<string, TruckingProfile>;
+  assignments: TruckingProfileAssignmentRecord[];
+}): TruckingProfile | null {
+  const assignment =
+    assignments.find((candidate) => candidate.plant_id === plantId) ??
+    assignments.find(
+      (candidate) => supplierId !== null && candidate.supplier_id === supplierId,
+    ) ??
+    assignments.find(
+      (candidate) => candidate.plant_id === null && candidate.supplier_id === null,
+    );
+
+  return assignment ? profiles.get(assignment.trucking_profile_id) ?? null : null;
 }
 
 async function getQuotePricingConfig(
@@ -418,6 +519,10 @@ export function normalizePricingConfig(config: PricingConfig): PricingConfig {
     project_status_options: normalizeProjectStatusOptions(
       config.project_status_options,
     ),
+    quote_recommendation_count:
+      config.quote_recommendation_count === undefined
+        ? 3
+        : Number(config.quote_recommendation_count),
   };
 }
 
@@ -433,6 +538,7 @@ function emptyContext(): NewQuoteContext {
     unitConversions: [],
     pricingConfig: null,
     projectStatusOptions: DEFAULT_PROJECT_STATUS_OPTIONS,
+    customerTypes: [],
     sampleCalculation: null,
   };
 }

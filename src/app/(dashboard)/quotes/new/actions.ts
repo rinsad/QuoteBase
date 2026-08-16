@@ -370,7 +370,7 @@ function parseQuoteForm(
   }
 
   if (!accountType) {
-    fieldErrors.account_type = "Select contractor or non-contractor.";
+    fieldErrors.account_type = "Select a customer type.";
   }
 
   if (!projectStatus) {
@@ -567,7 +567,7 @@ function requiredAccountType(
 ): QuoteAccountType | "" {
   const value = getString(formData, key);
 
-  return value === "contractor" || value === "non_contractor" ? value : "";
+  return /^[a-z0-9_]{1,80}$/.test(value) ? value : "";
 }
 
 function requiredProjectStatus(

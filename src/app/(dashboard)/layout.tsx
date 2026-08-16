@@ -55,6 +55,7 @@ const primaryNav: NavItem[] = [
       { label: "Plants", href: "/admin/plants", nested: true },
       { label: "Materials", href: "/admin/material-prices", nested: true },
       { label: "Pricing rules", href: "/admin/pricing" },
+      { label: "Customer types", href: "/admin/customer-types" },
       { label: "Units", href: "/admin/units" },
       { label: "Tax rates", href: "/admin/tax-rates" },
       { label: "Vehicle types", href: "/admin/vehicle-types" },
@@ -66,6 +67,7 @@ const primaryNav: NavItem[] = [
     href: "/admin/integrations/gmail",
     icon: Zap,
     children: [
+      { label: "CRM customers", href: "/admin/integrations/crm", adminOnly: true },
       { label: "Gmail", href: "/admin/integrations/gmail" },
       { label: "OpenAI", href: "/admin/integrations/openai", adminOnly: true },
       { label: "Slack", href: "/admin/integrations/slack", adminOnly: true },

@@ -11,8 +11,6 @@ import {
 } from "@/lib/admin/pricing";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
-const defaultTruckRateOptions = ["standard", "target", "premium", "stretch"];
-
 export default async function AdminPricingPage({
   searchParams,
 }: {
@@ -54,7 +52,7 @@ export default async function AdminPricingPage({
                   Admin
                 </p>
                 <h1 className="truncate text-lg font-semibold">
-                  Pricing Rules
+                  Materials &amp; Services Pricing
                 </h1>
               </div>
             </div>
@@ -79,16 +77,21 @@ export default async function AdminPricingPage({
                 Quote Engine
               </p>
               <h2 className="accent-title text-3xl font-semibold tracking-normal">
-                Pricing rules
+                Materials &amp; services pricing
               </h2>
               </div>
             </div>
-            <Link href="/admin/pricing?edit=rules" className="mac-button-primary h-10 px-4">
-              Edit pricing
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link href="/admin/trucking-profiles" className="mac-link h-10 px-4">
+                Trucking profiles
+              </Link>
+              <Link href="/admin/pricing?edit=rules" className="mac-button-primary h-10 px-4">
+                Edit pricing
+              </Link>
+            </div>
           </div>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">
-            These values control draft quote calculations for this organization.
+            Configure material pricing, trucking profiles, minimums, and service fees for this organization.
             Every change is recorded in the audit log.
           </p>
         </section>
@@ -120,11 +123,6 @@ export default async function AdminPricingPage({
               label="R4 markup"
               value={`${formatMoney(pricing.tier_r4_min)}-${formatMoney(pricing.tier_r4_max)}`}
               group="Tier markups"
-            />
-            <PricingSummaryRow
-              label="Default truck rate"
-              value={formatLabel(pricing.default_truck_rate)}
-              group="Trucking"
             />
             <PricingSummaryRow
               label="Material minimum"
@@ -235,6 +233,12 @@ function PricingRulesSlideOver({
             name="default_followup_max_attempts"
             value={pricing.default_followup_max_attempts ?? 5}
           />
+          <input type="hidden" name="truck_floor_rate" value={pricing.truck_floor_rate} />
+          <input type="hidden" name="truck_standard_rate" value={pricing.truck_standard_rate} />
+          <input type="hidden" name="truck_target_rate" value={pricing.truck_target_rate} />
+          <input type="hidden" name="truck_premium_rate" value={pricing.truck_premium_rate} />
+          <input type="hidden" name="truck_stretch_rate" value={pricing.truck_stretch_rate} />
+          <input type="hidden" name="default_truck_rate" value={pricing.default_truck_rate} />
           <section className="soft-row p-4">
             <h3 className="text-sm font-semibold">Tier dollar markups</h3>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -270,33 +274,6 @@ function PricingRulesSlideOver({
           </section>
 
           <section className="soft-row p-4">
-            <h3 className="text-sm font-semibold">Trucking rates</h3>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <MoneyField name="truck_floor_rate" label="Floor $/hr" value={pricing.truck_floor_rate} />
-              <MoneyField name="truck_standard_rate" label="Standard $/hr" value={pricing.truck_standard_rate} />
-              <MoneyField name="truck_target_rate" label="Target $/hr" value={pricing.truck_target_rate} />
-              <MoneyField name="truck_premium_rate" label="Premium $/hr" value={pricing.truck_premium_rate} />
-              <MoneyField name="truck_stretch_rate" label="Stretch $/hr" value={pricing.truck_stretch_rate} />
-              <label className="block">
-                <span className="text-sm font-medium text-muted-foreground">
-                  Default rate
-                </span>
-                <select
-                  name="default_truck_rate"
-                  className="soft-control mt-2 w-full"
-                  defaultValue={pricing.default_truck_rate}
-                >
-                  {defaultTruckRateOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {formatLabel(option)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </section>
-
-          <section className="soft-row p-4">
             <h3 className="text-sm font-semibold">Minimums and fees</h3>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <MoneyField name="material_minimum" label="Material minimum" value={pricing.material_minimum ?? 0} />
@@ -322,6 +299,24 @@ function PricingRulesSlideOver({
 
           <section className="soft-row p-4">
             <h3 className="text-sm font-semibold">Quote intake options</h3>
+            <label className="mt-4 block">
+              <span className="text-sm font-medium text-muted-foreground">
+                Supplier recommendations shown
+              </span>
+              <input
+                name="quote_recommendation_count"
+                type="number"
+                min={0}
+                max={10}
+                step={1}
+                defaultValue={pricing.quote_recommendation_count ?? 3}
+                className="soft-control mt-2 w-full"
+                required
+              />
+              <span className="mt-2 block text-xs leading-5 text-muted-foreground">
+                Choose 1–10 recommendations, or 0 to hide the recommendation panel.
+              </span>
+            </label>
             <label className="mt-4 block">
               <span className="text-sm font-medium text-muted-foreground">
                 Project status options
@@ -461,13 +456,6 @@ function CheckboxField({
       {label}
     </label>
   );
-}
-
-function formatLabel(value: string) {
-  return value
-    .split("_")
-    .map((part) => part[0]?.toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function formatMoney(value: number) {

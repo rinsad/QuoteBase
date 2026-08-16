@@ -22,6 +22,7 @@ import {
 import { CrmDealBoard } from "@/app/(dashboard)/customers/crm-deal-board";
 import { CrmLeadImportForm } from "@/app/(dashboard)/customers/crm-lead-import-form";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { SemanticIcon } from "@/components/ui/semantic-accent";
 import { getCrmLiteSummary, type CrmCompany } from "@/lib/customers/crm";
 import {
   getCustomerDeskSummary,
@@ -98,9 +99,7 @@ export default async function CustomersPage({
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div className="flex items-center gap-3">
-                  <div className="icon-well text-primary">
-                    <BriefcaseBusiness className="size-5" />
-                  </div>
+                  <SemanticIcon icon={BriefcaseBusiness} tone="violet" />
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">
                       CRM-lite
@@ -166,9 +165,7 @@ export default async function CustomersPage({
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div className="flex items-center gap-3">
-                  <div className="icon-well text-primary">
-                    <Building2 className="size-5" />
-                  </div>
+                  <SemanticIcon icon={Building2} tone="blue" />
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">
                       Customer desk

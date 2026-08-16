@@ -5,6 +5,7 @@ import { CalendarDays, MapPinned, Save, X } from "lucide-react";
 import { saveTaxRate } from "@/app/(dashboard)/admin/tax-rates/actions";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import { getAdminTaxRates, type AdminTaxRate } from "@/lib/admin/tax-rates";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
@@ -204,9 +205,8 @@ function TaxRateSlideOver({
             <span className="text-sm font-medium text-muted-foreground">
               Effective date
             </span>
-            <input
+            <DatePicker
               name="effective_date"
-              type="date"
               defaultValue={taxRate?.effective_date ?? today()}
               className="soft-control mt-2 w-full"
               required

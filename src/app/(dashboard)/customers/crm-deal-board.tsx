@@ -19,6 +19,7 @@ import {
   type CrmEditFormState,
 } from "@/app/(dashboard)/customers/actions";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import type { CrmDeal } from "@/lib/customers/crm";
 
 type DealStage = CrmDeal["stage"];
@@ -422,15 +423,25 @@ function CrmField({
       <span className="text-sm font-medium text-muted-foreground">
         {label}
       </span>
-      <input
-        name={name}
-        type={type}
-        defaultValue={defaultValue}
-        required={required}
-        step={type === "number" ? "0.01" : undefined}
-        className="soft-control mt-2 w-full"
-        aria-invalid={Boolean(error)}
-      />
+      {type === "date" ? (
+        <DatePicker
+          name={name}
+          defaultValue={defaultValue}
+          required={required}
+          className="soft-control mt-2 w-full"
+          aria-invalid={Boolean(error)}
+        />
+      ) : (
+        <input
+          name={name}
+          type={type}
+          defaultValue={defaultValue}
+          required={required}
+          step={type === "number" ? "0.01" : undefined}
+          className="soft-control mt-2 w-full"
+          aria-invalid={Boolean(error)}
+        />
+      )}
       {error ? (
         <span className="mt-1 block text-xs font-medium text-destructive">
           {error}
