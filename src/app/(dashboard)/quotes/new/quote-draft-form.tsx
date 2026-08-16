@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState, useTransition } from "react";
+import { useActionState, useMemo, useState, useTransition, type FormEvent } from "react";
 import {
   Award,
   BrainCircuit,
@@ -9,9 +9,11 @@ import {
   FilePlus2,
   MapPin,
   PackageOpen,
+  Plus,
   Search,
   TrendingUp,
   UserRound,
+  X,
 } from "lucide-react";
 
 import {
@@ -185,6 +187,10 @@ export function QuoteDraftForm({
   const [customerId, setCustomerId] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
   const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false);
+  const [customers, setCustomers] = useState(context.customers);
+  const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
+  const [customerFeedback, setCustomerFeedback] = useState<string | null>(null);
+  const [isSavingCustomer, startSavingCustomer] = useTransition();
   const [jobSites, setJobSites] = useState(context.jobSites);
   const [materialId, setMaterialId] = useState("");
   const [taxRateId, setTaxRateId] = useState("");
@@ -213,14 +219,14 @@ export function QuoteDraftForm({
   );
   const filteredCustomers = useMemo(() => {
     const query = normalizeMaterialLabel(customerSearch);
-    if (!query) return context.customers;
+    if (!query) return customers;
 
-    return context.customers.filter((customer) =>
+    return customers.filter((customer) =>
       [customer.company_name, customer.name, customer.contact_name, customer.email, crmProviderLabel(customer.crm_provider)]
         .filter(Boolean)
         .some((value) => normalizeMaterialLabel(String(value)).includes(query)),
     );
-  }, [context.customers, customerSearch]);
+  }, [customers, customerSearch]);
   const normalizedMaterialSearch = normalizeMaterialLabel(materialSearch);
   const typedMaterialMatch = normalizedMaterialSearch
     ? materialChoices.find(
@@ -242,7 +248,7 @@ export function QuoteDraftForm({
       county: siteCounty,
       state: siteState,
     });
-  const selectedCustomer = context.customers.find(
+  const selectedCustomer = customers.find(
     (customer) => customer.id === customerId,
   );
   const calculationTaxRate = selectedTaxRate?.rate ?? 0;
@@ -506,7 +512,7 @@ export function QuoteDraftForm({
 
   function handleCustomerChange(nextCustomerId: string) {
     setCustomerId(nextCustomerId);
-    const nextCustomer = context.customers.find(
+    const nextCustomer = customers.find(
       (customer) => customer.id === nextCustomerId,
     );
     setCustomerSearch(nextCustomer ? customerDisplayLabel(nextCustomer) : "");
@@ -521,6 +527,33 @@ export function QuoteDraftForm({
     }
   }
 
+  function handleCreateCustomer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    setCustomerFeedback(null);
+    startSavingCustomer(async () => {
+      const response = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.fromEntries(formData.entries())),
+      });
+      const payload: unknown = await response.json();
+      const createdCustomer = readCreatedQuoteCustomer(payload);
+      if (!response.ok || !createdCustomer) {
+        setCustomerFeedback(readApiError(payload) || "Could not save customer.");
+        return;
+      }
+      setCustomers((current) => [createdCustomer, ...current.filter((customer) => customer.id !== createdCustomer.id)]);
+      setCustomerId(createdCustomer.id);
+      setCustomerSearch(customerDisplayLabel(createdCustomer));
+      setPaymentTerms(createdCustomer.payment_terms ?? "COD");
+      setIsCustomerPickerOpen(false);
+      setIsAddCustomerOpen(false);
+      form.reset();
+    });
+  }
+
   function handleJobSiteChange(nextSiteId: string) {
     setJobSiteId(nextSiteId);
     const site = jobSites.find((item) => item.id === nextSiteId);
@@ -531,7 +564,7 @@ export function QuoteDraftForm({
 
     if (!customerId) {
       setCustomerId(site.customer_id);
-      const siteCustomer = context.customers.find(
+      const siteCustomer = customers.find(
         (customer) => customer.id === site.customer_id,
       );
       setPaymentTerms(siteCustomer?.payment_terms ?? "COD");
@@ -656,6 +689,7 @@ export function QuoteDraftForm({
   }
 
   return (
+    <>
     <form
       action={formAction}
       className="grid gap-6 lg:grid-cols-[0.72fr_0.28fr]"
@@ -714,6 +748,21 @@ export function QuoteDraftForm({
             title="Who is this quote for?"
           />
           <div className="mt-5 grid gap-4">
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 rounded-full"
+                onClick={() => {
+                  setCustomerFeedback(null);
+                  setIsCustomerPickerOpen(false);
+                  setIsAddCustomerOpen(true);
+                }}
+              >
+                <Plus className="size-4" />
+                Add customer
+              </Button>
+            </div>
             <Field
               label="Customer"
               required
@@ -1492,7 +1541,54 @@ export function QuoteDraftForm({
         </section>
       </aside>
     </form>
+    {isAddCustomerOpen ? (
+      <div className="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto bg-foreground/45 p-4 pt-[8vh] backdrop-blur-sm">
+        <form
+          className="glass-panel w-full max-w-2xl p-5 shadow-2xl sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-quote-customer-title"
+          onSubmit={handleCreateCustomer}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Quote customer</p>
+              <h2 id="add-quote-customer-title" className="mt-1 text-2xl font-semibold">Add customer</h2>
+              <p className="mt-2 text-sm text-muted-foreground">The new customer will be selected automatically.</p>
+            </div>
+            <Button type="button" variant="ghost" size="icon" aria-label="Close add customer" onClick={() => setIsAddCustomerOpen(false)}>
+              <X className="size-4" />
+            </Button>
+          </div>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <ModalField label="Customer name" name="name" required />
+            <ModalField label="Company" name="company_name" />
+            <ModalField label="Contact name" name="contact_name" />
+            <ModalField label="Email" name="email" type="email" />
+            <ModalField label="Phone" name="phone" />
+            <ModalField label="Address" name="address" />
+            <label>
+              <span className="text-sm font-medium text-muted-foreground">Payment terms</span>
+              <select name="payment_terms" defaultValue="COD" className="soft-control mt-2 w-full">
+                <option value="COD">COD</option>
+                <option value="Net30">Net30</option>
+              </select>
+            </label>
+          </div>
+          {customerFeedback ? <p className="mt-4 text-sm font-medium text-destructive">{customerFeedback}</p> : null}
+          <div className="mt-6 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setIsAddCustomerOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={isSavingCustomer}>{isSavingCustomer ? "Saving..." : "Save and select"}</Button>
+          </div>
+        </form>
+      </div>
+    ) : null}
+    </>
   );
+}
+
+function ModalField({ label, name, type = "text", required = false }: { label: string; name: string; type?: "text" | "email"; required?: boolean }) {
+  return <label><span className="text-sm font-medium text-muted-foreground">{label}{required ? <span className="ml-1 text-destructive">Required</span> : null}</span><input name={name} type={type} required={required} maxLength={type === "email" ? 254 : 240} className="soft-control mt-2 w-full" /></label>;
 }
 
 function stepPanelClass(isActive: boolean): string {
@@ -2149,6 +2245,32 @@ function localDateInputValue(date: Date): string {
   const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
+}
+
+function readCreatedQuoteCustomer(payload: unknown): NewQuoteContext["customers"][number] | null {
+  if (!isRecord(payload) || !isRecord(payload.data) || !isRecord(payload.data.customer)) return null;
+  const customer = payload.data.customer;
+  if (typeof customer.id !== "string" || typeof customer.name !== "string") return null;
+  return {
+    id: customer.id,
+    name: customer.name,
+    company_name: typeof customer.company_name === "string" ? customer.company_name : null,
+    contact_name: typeof customer.contact_name === "string" ? customer.contact_name : null,
+    phone: typeof customer.phone === "string" ? customer.phone : null,
+    email: typeof customer.email === "string" ? customer.email : null,
+    address: isRecord(customer.address) ? customer.address : {},
+    payment_terms: typeof customer.payment_terms === "string" ? customer.payment_terms : "COD",
+    crm_provider: "quotebase",
+    quote_history: [],
+  };
+}
+
+function readApiError(payload: unknown): string {
+  return isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string" ? payload.error.message : "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function customerDisplayLabel(customer: NewQuoteContext["customers"][number]): string {
