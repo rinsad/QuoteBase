@@ -32,7 +32,12 @@ export async function saveCrmIntegration(formData: FormData): Promise<void> {
   const { data: before } = await supabase.from("organization_integrations").select("id, provider, is_enabled, config, credentials_encrypted, credentials_last4").eq("organization_id", user.organization_id).eq("provider", parsed.data.provider).maybeSingle<ExistingIntegration>();
   let previousCredentials: CrmCredentials = {};
   try { previousCredentials = decryptSecretPayload<CrmCredentials>(before?.credentials_encrypted ?? null) ?? {}; } catch { throw new Error("Saved credentials cannot be decrypted. Re-enter all credentials for this CRM."); }
-  const credentials: CrmCredentials = { accessToken: parsed.data.access_token || previousCredentials.accessToken, clientId: parsed.data.client_id || previousCredentials.clientId, clientSecret: parsed.data.client_secret || previousCredentials.clientSecret, refreshToken: parsed.data.refresh_token || previousCredentials.refreshToken };
+  const credentials: CrmCredentials = {
+    accessToken: parsed.data.access_token || previousCredentials.accessToken,
+    clientId: parsed.data.client_id || previousCredentials.clientId,
+    clientSecret: parsed.data.client_secret || previousCredentials.clientSecret,
+    refreshToken: parsed.data.provider === "salesforce" ? undefined : parsed.data.refresh_token || previousCredentials.refreshToken,
+  };
   validateApiUrl(parsed.data.provider, parsed.data.api_url);
   validateCredentials(parsed.data.provider, parsed.data.is_enabled, credentials);
   const { data: after, error } = await supabase.from("organization_integrations").upsert({ organization_id: user.organization_id, provider: parsed.data.provider, is_enabled: parsed.data.is_enabled, config: { api_url: parsed.data.api_url, account_identifier: parsed.data.account_identifier, sync_customers: true }, credentials_encrypted: Object.values(credentials).some(Boolean) ? encryptCrmCredentials(credentials) : null, credentials_last4: crmCredentialsLast4(credentials), updated_by: user.id, updated_at: new Date().toISOString() }, { onConflict: "organization_id,provider" }).select("id, provider, is_enabled, config, credentials_last4, updated_at").single<Record<string, unknown>>();
@@ -57,7 +62,8 @@ export async function syncCrmIntegration(formData: FormData): Promise<void> {
 function validateCredentials(provider: CrmProvider, enabled: boolean, credentials: CrmCredentials): void {
   if (!enabled) return;
   if ((provider === "pipedrive" || provider === "hubspot") && !credentials.accessToken) throw new Error("An access token is required when this CRM is enabled.");
-  if ((provider === "salesforce" || provider === "zoho") && (!credentials.clientId || !credentials.clientSecret || !credentials.refreshToken)) throw new Error("Client ID, client secret, and refresh token are required when this CRM is enabled.");
+  if (provider === "salesforce" && (!credentials.clientId || !credentials.clientSecret)) throw new Error("Client ID and client secret are required when Salesforce is enabled.");
+  if (provider === "zoho" && (!credentials.clientId || !credentials.clientSecret || !credentials.refreshToken)) throw new Error("Client ID, client secret, and refresh token are required when Zoho is enabled.");
 }
 
 function validateApiUrl(provider: CrmProvider, value: string): void {

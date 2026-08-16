@@ -57,6 +57,7 @@ export async function saveCustomerType(formData: FormData): Promise<void> {
   });
   revalidatePath("/admin/customer-types");
   revalidatePath("/quotes/new");
+  revalidatePath("/quotes");
   redirect("/admin/customer-types?saved=1");
 }
 

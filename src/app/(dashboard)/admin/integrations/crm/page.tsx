@@ -28,6 +28,7 @@ export default async function CrmIntegrationsPage({ searchParams }: { searchPara
             <Field name="api_url" label="API URL" defaultValue={integration.apiUrl} />
             <Field name="account_identifier" label="Account / tenant identifier" defaultValue={integration.accountIdentifier} required={false} />
             {details.credentialFields.map((field) => <Field key={field.key} name={credentialInputName(field.key)} label={field.label} type="password" defaultValue="" required={false} placeholder={integration.credentialsLast4[field.key] ? `Saved ending ${integration.credentialsLast4[field.key]}; leave blank to keep` : "Not configured"} />)}
+            {integration.provider === "salesforce" ? <p className="text-xs leading-5 text-muted-foreground">Uses OAuth 2.0 Client Credentials Flow. Configure a Salesforce Run As user with API access and read access to Contacts and Accounts.</p> : null}
           </div>
           <div className="mt-5 flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-xs text-muted-foreground"><ShieldCheck className="size-4"/>Secrets are encrypted</span><div className="flex gap-2"><Button type="submit" formAction={syncCrmIntegration} variant="outline" disabled={!integration.isEnabled}>Sync now</Button><Button type="submit">Save {details.label}</Button></div></div>
         </form>;

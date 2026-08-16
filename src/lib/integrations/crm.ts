@@ -22,7 +22,7 @@ export type AdminCrmIntegration = {
 
 export const CRM_PROVIDER_DETAILS: Record<CrmProvider, { label: string; defaultApiUrl: string; credentialFields: Array<{ key: keyof CrmCredentials; label: string }> }> = {
   pipedrive: { label: "Pipedrive", defaultApiUrl: "https://api.pipedrive.com/v1", credentialFields: [{ key: "accessToken", label: "API token" }] },
-  salesforce: { label: "Salesforce", defaultApiUrl: "https://login.salesforce.com", credentialFields: [{ key: "clientId", label: "Client ID" }, { key: "clientSecret", label: "Client secret" }, { key: "refreshToken", label: "Refresh token" }] },
+  salesforce: { label: "Salesforce", defaultApiUrl: "https://login.salesforce.com", credentialFields: [{ key: "clientId", label: "Consumer key / Client ID" }, { key: "clientSecret", label: "Consumer secret / Client secret" }] },
   hubspot: { label: "HubSpot", defaultApiUrl: "https://api.hubapi.com", credentialFields: [{ key: "accessToken", label: "Private app access token" }] },
   zoho: { label: "Zoho", defaultApiUrl: "https://www.zohoapis.com/crm/v7", credentialFields: [{ key: "clientId", label: "Client ID" }, { key: "clientSecret", label: "Client secret" }, { key: "refreshToken", label: "Refresh token" }] },
 };

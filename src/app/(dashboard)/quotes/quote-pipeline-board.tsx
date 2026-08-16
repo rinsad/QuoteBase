@@ -5,7 +5,9 @@ import { useMemo, useState, useTransition } from "react";
 import { CircleDollarSign, Clock3, FileText, Send, Trophy, XCircle } from "lucide-react";
 
 import { moveQuotePipelineStatus } from "@/app/(dashboard)/quotes/actions";
+import type { CustomerType } from "@/lib/admin/customer-types";
 import type { QuoteAccountType } from "@/lib/quotes/create-draft";
+import type { QuoteProjectStatusOption } from "@/lib/quotes/pricing";
 import type { QuoteListItem, QuoteStatus } from "@/lib/quotes/quotes";
 import {
   SemanticIcon,
@@ -28,17 +30,8 @@ type CategoryView = {
   key: string;
   label: string;
   accountType: QuoteAccountType;
-  projectStatus: BoardProjectStatus;
+  projectStatus: string;
 };
-
-type BoardProjectStatus = "bid" | "existing_job";
-
-const DEFAULT_CATEGORY_VIEWS: CategoryView[] = [
-  categoryView("contractor", "bid"),
-  categoryView("contractor", "existing_job"),
-  categoryView("non_contractor", "bid"),
-  categoryView("non_contractor", "existing_job"),
-];
 
 const PIPELINE_COLUMNS: PipelineColumn[] = [
   {
@@ -83,24 +76,55 @@ const PIPELINE_COLUMNS: PipelineColumn[] = [
   },
 ];
 
-export function QuotePipelineBoard({ quotes }: { quotes: QuoteListItem[] }) {
+export function QuotePipelineBoard({
+  quotes,
+  customerTypes,
+  projectStatusOptions,
+}: {
+  quotes: QuoteListItem[];
+  customerTypes: CustomerType[];
+  projectStatusOptions: QuoteProjectStatusOption[];
+}) {
   const [pendingQuoteId, setPendingQuoteId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<PipelineStatus | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [selectedCategoryKey, setSelectedCategoryKey] = useState(
-    DEFAULT_CATEGORY_VIEWS[0].key,
-  );
   const [isPending, startTransition] = useTransition();
   const categoryViews = useMemo(() => {
-    const categories = new Map(DEFAULT_CATEGORY_VIEWS.map((category) => [category.key, category]));
+    const customerTypeLabels = new Map(
+      customerTypes.map((customerType) => [customerType.code, customerType.name]),
+    );
+    const projectStatusLabels = new Map(
+      projectStatusOptions.map((status) => [status.value, status.label]),
+    );
+    const configuredCategories = customerTypes.flatMap((customerType) =>
+      projectStatusOptions.map((projectStatus) =>
+        categoryView(
+          customerType.code,
+          projectStatus.value,
+          customerType.name,
+          projectStatus.label,
+        ),
+      ),
+    );
+    const categories = new Map(
+      configuredCategories.map((category) => [category.key, category]),
+    );
 
     for (const quote of quotes) {
-      const category = categoryView(quote.account_type, quote.project_status as BoardProjectStatus);
+      const category = categoryView(
+        quote.account_type,
+        quote.project_status,
+        customerTypeLabels.get(quote.account_type),
+        projectStatusLabels.get(quote.project_status),
+      );
       categories.set(category.key, category);
     }
 
     return Array.from(categories.values());
-  }, [quotes]);
+  }, [customerTypes, projectStatusOptions, quotes]);
+  const [selectedCategoryKey, setSelectedCategoryKey] = useState(
+    categoryViews[0]?.key ?? "",
+  );
   const selectedCategory =
     categoryViews.find(
       (category) => category.key === selectedCategoryKey,
@@ -320,13 +344,13 @@ function formatProjectStatus(value: QuoteListItem["project_status"]) {
 
 function categoryView(
   accountType: QuoteAccountType,
-  projectStatus: BoardProjectStatus,
+  projectStatus: string,
+  accountTypeLabel = formatAccountType(accountType),
+  projectStatusLabel = formatProjectStatus(projectStatus),
 ): CategoryView {
   return {
-    key: `${accountType}_${projectStatus}`,
-    label: `${formatAccountType(accountType)} + ${formatProjectStatus(
-      projectStatus,
-    )}`,
+    key: `${accountType}::${projectStatus}`,
+    label: `${accountTypeLabel} + ${projectStatusLabel}`,
     accountType,
     projectStatus,
   };

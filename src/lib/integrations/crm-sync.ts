@@ -70,7 +70,7 @@ async function fetchHubSpot(apiUrl: string, token: string): Promise<ExternalCust
 }
 
 async function fetchSalesforce(loginUrl: string, credentials: CrmCredentials): Promise<ExternalCustomer[]> {
-  const form = new URLSearchParams({ grant_type: "refresh_token", client_id: required(credentials.clientId, "Salesforce client ID"), client_secret: required(credentials.clientSecret, "Salesforce client secret"), refresh_token: required(credentials.refreshToken, "Salesforce refresh token") });
+  const form = new URLSearchParams({ grant_type: "client_credentials", client_id: required(credentials.clientId, "Salesforce client ID"), client_secret: required(credentials.clientSecret, "Salesforce client secret") });
   const token = await requestJson(new URL("/services/oauth2/token", loginUrl), { "Content-Type": "application/x-www-form-urlencoded" }, { method: "POST", body: form.toString() });
   const accessToken = required(stringValue(token.access_token), "Salesforce access token response"); const instanceUrl = required(stringValue(token.instance_url), "Salesforce instance URL response");
   const versions = await requestJson(new URL("/services/data", instanceUrl), { Authorization: `Bearer ${accessToken}` }); const latest = arrayValue(versions).map(recordValue).at(-1); const versionUrl = stringValue(latest?.url) || "/services/data/v61.0";

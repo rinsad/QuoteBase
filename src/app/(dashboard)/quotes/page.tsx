@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import { QuotePipelineBoard } from "@/app/(dashboard)/quotes/quote-pipeline-board";
 import { QuoteNav } from "@/components/app-nav";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { getQuotePipelineConfiguration } from "@/lib/quotes/pipeline";
 import { getQuoteList } from "@/lib/quotes/quotes";
 
 export default async function QuotesPage() {
@@ -14,7 +15,10 @@ export default async function QuotesPage() {
     redirect("/login");
   }
 
-  const summary = await getQuoteList(user);
+  const [summary, pipelineConfiguration] = await Promise.all([
+    getQuoteList(user),
+    getQuotePipelineConfiguration(user.organization_id),
+  ]);
 
   return (
     <main className="app-background">
@@ -57,7 +61,11 @@ export default async function QuotesPage() {
 
           <div className="mt-6">
             {summary.quotes.length ? (
-              <QuotePipelineBoard quotes={summary.quotes} />
+              <QuotePipelineBoard
+                quotes={summary.quotes}
+                customerTypes={pipelineConfiguration.customerTypes}
+                projectStatusOptions={pipelineConfiguration.projectStatusOptions}
+              />
             ) : (
               <div className="soft-row px-4 py-10 text-center">
                 <p className="text-sm font-medium">No quotes yet.</p>

@@ -36,17 +36,18 @@ The connector reads contacts through `/crm/v3/objects/contacts` and requests fir
 
 ## Salesforce
 
-QuoteBase uses Salesforce OAuth refresh-token authentication.
+QuoteBase uses Salesforce OAuth 2.0 Client Credentials Flow for server-to-server synchronization. Salesforce issues a short-lived access token for the configured execution user; no refresh token or interactive user authorization is required.
 
-1. In Salesforce Setup, create an External Client App or Connected App.
-2. Enable OAuth and grant `api` plus `refresh_token`/`offline_access` scopes.
-3. Set a callback URL controlled by your organization during the authorization step.
-4. Complete the Salesforce authorization-code flow once to obtain a refresh token.
-5. Copy the consumer/client ID, client secret, and refresh token into QuoteBase.
-6. Use `https://login.salesforce.com` for production or `https://test.salesforce.com` for a sandbox.
-7. Enable Salesforce, save, and select **Sync now**.
+1. In Salesforce Setup, create an External Client App and enable OAuth.
+2. Grant the `Manage user data via APIs (api)` scope.
+3. Enable **Client Credentials Flow** in the app and its OAuth policies.
+4. Assign a **Run As / Execution User** that has API access and read permission for Contact and Account records. Use a dedicated integration user where possible.
+5. In the app settings, copy the **Consumer Key** and **Consumer Secret**. Never share or commit the secret.
+6. In QuoteBase, enter the Consumer Key as **Consumer key / Client ID** and the Consumer Secret as **Consumer secret / Client secret**.
+7. Use `https://login.salesforce.com` for production or `https://test.salesforce.com` for a sandbox.
+8. Enable Salesforce, save, and select **Sync now**.
 
-The connector refreshes an access token, discovers the newest available REST API version, and queries active Contact records with their Account name. Salesforce refresh tokens should be protected and may be revoked by the tenant’s session policies.
+The connector requests a new access token for each synchronization, discovers the newest available REST API version, and queries active Contact records with their Account name. The callback URL is not used by this flow, although Salesforce may still require one when OAuth is enabled.
 
 ## Zoho CRM
 
