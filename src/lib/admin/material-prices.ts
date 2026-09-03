@@ -4,6 +4,9 @@ export type AdminMaterialPrice = {
   id: string;
   supplier_id: string;
   supplier_name: string;
+  supplier_parent_id: string;
+  supplier_parent_name: string;
+  plant_name: string;
   name: string;
   tier: "R1" | "R2" | "R3" | "R4";
   unit: string;
@@ -51,17 +54,24 @@ type MaterialRecord = Omit<
   "supplier_name" | "trucking_profile_id" | "trucking_profile_name"
 > & {
   supplier_plants:
-    | { name: string; suppliers: { name: string } | { name: string }[] | null }
     | {
+        id: string;
         name: string;
-        suppliers: { name: string } | { name: string }[] | null;
+        supplier_id: string;
+        suppliers:
+          { id: string; name: string } | { id: string; name: string }[] | null;
+      }
+    | {
+        id: string;
+        name: string;
+        supplier_id: string;
+        suppliers:
+          { id: string; name: string } | { id: string; name: string }[] | null;
       }[]
     | null;
 };
 
-export async function getAdminMaterialPrices(
-  organizationId: string,
-): Promise<{
+export async function getAdminMaterialPrices(organizationId: string): Promise<{
   materials: AdminMaterialPrice[];
   history: MaterialPriceHistoryEntry[];
   summary: MaterialPriceSummary;
@@ -70,41 +80,51 @@ export async function getAdminMaterialPrices(
   const supabase = await createClient();
 
   if (!supabase) {
-    return { materials: [], history: [], summary: emptySummary(), truckingProfiles: [] };
+    return {
+      materials: [],
+      history: [],
+      summary: emptySummary(),
+      truckingProfiles: [],
+    };
   }
 
-  const [materialsResult, historyResult, profilesResult, assignmentsResult] = await Promise.all([
-    supabase
-      .from("materials")
-      .select(
-        "id, supplier_id, name, tier, unit, cost_per_unit, last_price_update, minimum_order_quantity, catalog_material_price, catalog_per_ton, catalog_surcharge_per_load, catalog_source_plant, catalog_quote_number, catalog_effective_through, is_active, supplier_plants(name, suppliers(name))",
-      )
-      .eq("organization_id", organizationId)
-      .eq("is_active", true)
-      .order("name", { ascending: true })
-      .returns<MaterialRecord[]>(),
-    supabase
-      .from("material_price_history")
-      .select("id, material_id, old_price, new_price, changed_at, notes, users(full_name, email)")
-      .eq("organization_id", organizationId)
-      .order("changed_at", { ascending: false })
-      .limit(12),
-    supabase
-      .from("trucking_profiles")
-      .select("id, name")
-      .eq("organization_id", organizationId)
-      .eq("is_active", true)
-      .order("name"),
-    supabase
-      .from("trucking_profile_assignments")
-      .select("material_id, trucking_profile_id")
-      .eq("organization_id", organizationId)
-      .not("material_id", "is", null)
-      .eq("is_active", true),
-  ]);
+  const [materialsResult, historyResult, profilesResult, assignmentsResult] =
+    await Promise.all([
+      supabase
+        .from("materials")
+        .select(
+          "id, supplier_id, name, tier, unit, cost_per_unit, last_price_update, minimum_order_quantity, catalog_material_price, catalog_per_ton, catalog_surcharge_per_load, catalog_source_plant, catalog_quote_number, catalog_effective_through, is_active, supplier_plants(id, name, supplier_id, suppliers(id, name))",
+        )
+        .eq("organization_id", organizationId)
+        .eq("is_active", true)
+        .order("name", { ascending: true })
+        .returns<MaterialRecord[]>(),
+      supabase
+        .from("material_price_history")
+        .select(
+          "id, material_id, old_price, new_price, changed_at, notes, users(full_name, email)",
+        )
+        .eq("organization_id", organizationId)
+        .order("changed_at", { ascending: false })
+        .limit(12),
+      supabase
+        .from("trucking_profiles")
+        .select("id, name")
+        .eq("organization_id", organizationId)
+        .eq("is_active", true)
+        .order("name"),
+      supabase
+        .from("trucking_profile_assignments")
+        .select("material_id, trucking_profile_id")
+        .eq("organization_id", organizationId)
+        .not("material_id", "is", null)
+        .eq("is_active", true),
+    ]);
 
   const truckingProfiles = profilesResult.data ?? [];
-  const profileNames = new Map(truckingProfiles.map((profile) => [profile.id, profile.name]));
+  const profileNames = new Map(
+    truckingProfiles.map((profile) => [profile.id, profile.name]),
+  );
   const assignmentsByMaterial = new Map(
     (assignmentsResult.data ?? []).map((assignment) => [
       assignment.material_id,
@@ -114,40 +134,47 @@ export async function getAdminMaterialPrices(
 
   const materials =
     materialsResult.data?.map((material) => {
-        const plant = Array.isArray(material.supplier_plants)
-          ? material.supplier_plants[0]
-          : material.supplier_plants;
-        const supplier = Array.isArray(plant?.suppliers)
-          ? plant?.suppliers[0]
-          : plant?.suppliers;
+      const plant = Array.isArray(material.supplier_plants)
+        ? material.supplier_plants[0]
+        : material.supplier_plants;
+      const supplier = Array.isArray(plant?.suppliers)
+        ? plant?.suppliers[0]
+        : plant?.suppliers;
 
-        const truckingProfileId = assignmentsByMaterial.get(material.id) ?? null;
+      const truckingProfileId = assignmentsByMaterial.get(material.id) ?? null;
 
-        return {
-          ...material,
-          supplier_name: [supplier?.name, plant?.name].filter(Boolean).join(" / ") || "Unknown plant",
-          cost_per_unit: Number(material.cost_per_unit),
-          minimum_order_quantity:
-            material.minimum_order_quantity === null
-              ? null
-              : Number(material.minimum_order_quantity),
-          catalog_material_price:
-            material.catalog_material_price === null
-              ? null
-              : Number(material.catalog_material_price),
-          catalog_per_ton:
-            material.catalog_per_ton === null
-              ? null
-              : Number(material.catalog_per_ton),
-          catalog_surcharge_per_load:
-            material.catalog_surcharge_per_load === null
-              ? null
-              : Number(material.catalog_surcharge_per_load),
-          trucking_profile_id: truckingProfileId,
-          trucking_profile_name:
-            truckingProfileId === null ? null : profileNames.get(truckingProfileId) ?? null,
-        };
-      }) ?? [];
+      return {
+        ...material,
+        supplier_parent_id: supplier?.id ?? "",
+        supplier_parent_name: supplier?.name ?? "Unknown supplier",
+        plant_name: plant?.name ?? "Unknown plant",
+        supplier_name:
+          [supplier?.name, plant?.name].filter(Boolean).join(" / ") ||
+          "Unknown plant",
+        cost_per_unit: Number(material.cost_per_unit),
+        minimum_order_quantity:
+          material.minimum_order_quantity === null
+            ? null
+            : Number(material.minimum_order_quantity),
+        catalog_material_price:
+          material.catalog_material_price === null
+            ? null
+            : Number(material.catalog_material_price),
+        catalog_per_ton:
+          material.catalog_per_ton === null
+            ? null
+            : Number(material.catalog_per_ton),
+        catalog_surcharge_per_load:
+          material.catalog_surcharge_per_load === null
+            ? null
+            : Number(material.catalog_surcharge_per_load),
+        trucking_profile_id: truckingProfileId,
+        trucking_profile_name:
+          truckingProfileId === null
+            ? null
+            : (profileNames.get(truckingProfileId) ?? null),
+      };
+    }) ?? [];
 
   return {
     materials,

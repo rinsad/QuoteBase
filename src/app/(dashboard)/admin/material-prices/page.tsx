@@ -42,6 +42,8 @@ export default async function AdminMaterialPricesPage({
 }: {
   searchParams: Promise<{
     material?: string;
+    supplier?: string;
+    plant?: string;
     dir?: string;
     saved?: string;
     sort?: string;
@@ -64,14 +66,37 @@ export default async function AdminMaterialPricesPage({
     searchParams,
     getAdminMaterialPrices(user.organization_id),
   ]);
-  const selected =
-    params.material
-      ? (data.materials.find((material) => material.id === params.material) ??
-        null)
-      : null;
+  const selected = params.material
+    ? (data.materials.find((material) => material.id === params.material) ??
+      null)
+    : null;
   const sortKey = parseSortKey(params.sort);
   const sortDir: SortDir = params.dir === "desc" ? "desc" : "asc";
-  const sortedMaterials = sortMaterials(data.materials, sortKey, sortDir);
+  const supplierFilter = params.supplier ?? "";
+  const plantFilter = params.plant ?? "";
+  const supplierOptions = uniqueOptions(
+    data.materials.map((material) => ({
+      id: material.supplier_parent_id,
+      name: material.supplier_parent_name,
+    })),
+  );
+  const plantOptions = uniqueOptions(
+    data.materials
+      .filter(
+        (material) =>
+          !supplierFilter || material.supplier_parent_id === supplierFilter,
+      )
+      .map((material) => ({
+        id: material.supplier_id,
+        name: material.plant_name,
+      })),
+  );
+  const filteredMaterials = data.materials.filter(
+    (material) =>
+      (!supplierFilter || material.supplier_parent_id === supplierFilter) &&
+      (!plantFilter || material.supplier_id === plantFilter),
+  );
+  const sortedMaterials = sortMaterials(filteredMaterials, sortKey, sortDir);
 
   return (
     <main className="app-background">
@@ -151,7 +176,9 @@ export default async function AdminMaterialPricesPage({
                     Current Catalog
                   </p>
                   <h2 className="accent-title text-2xl font-semibold tracking-normal">
-                    {data.materials.length} active materials
+                    {filteredMaterials.length === data.materials.length
+                      ? `${data.materials.length} active materials`
+                      : `${filteredMaterials.length} of ${data.materials.length} active materials`}
                   </h2>
                 </div>
                 <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
@@ -161,19 +188,126 @@ export default async function AdminMaterialPricesPage({
               </div>
             </div>
 
+            <form
+              method="get"
+              className="grid gap-3 border-t border-border bg-card/50 px-4 py-4 sm:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_auto_auto] sm:items-end"
+            >
+              <input type="hidden" name="sort" value={sortKey} />
+              <input type="hidden" name="dir" value={sortDir} />
+              <label className="grid gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Supplier
+                </span>
+                <select
+                  name="supplier"
+                  defaultValue={supplierFilter}
+                  className="soft-control w-full py-2 text-sm"
+                >
+                  <option value="">All suppliers</option>
+                  {supplierOptions.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Plant
+                </span>
+                <select
+                  name="plant"
+                  defaultValue={plantFilter}
+                  className="soft-control w-full py-2 text-sm"
+                >
+                  <option value="">All plants</option>
+                  {plantOptions.map((plant) => (
+                    <option key={plant.id} value={plant.id}>
+                      {plant.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button type="submit" className="h-10 rounded-md px-5">
+                Apply filters
+              </Button>
+              {supplierFilter || plantFilter ? (
+                <Link
+                  href="/admin/material-prices"
+                  className="mac-link h-10 justify-center px-4"
+                >
+                  Clear
+                </Link>
+              ) : null}
+            </form>
+
             <div className="master-table-head lg:grid-cols-[minmax(200px,1.1fr)_minmax(160px,0.8fr)_minmax(210px,0.9fr)_135px_minmax(190px,1fr)_130px_90px] lg:gap-4">
-              <SortableHeader label="Material" sortKey="material" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
-              <SortableHeader label="Supplier" sortKey="supplier" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
-              <SortableHeader label="Trucking profile" sortKey="trucking_profile" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
-              <SortableHeader label="Unit price" sortKey="unit_price" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
-              <SortableHeader label="Supplier PDF Info" sortKey="supplier_pdf_info" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
-              <SortableHeader label="Last update" sortKey="last_update" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
+              <SortableHeader
+                label="Material"
+                sortKey="material"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+                supplierFilter={supplierFilter}
+                plantFilter={plantFilter}
+              />
+              <SortableHeader
+                label="Supplier"
+                sortKey="supplier"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+                supplierFilter={supplierFilter}
+                plantFilter={plantFilter}
+              />
+              <SortableHeader
+                label="Trucking profile"
+                sortKey="trucking_profile"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+                supplierFilter={supplierFilter}
+                plantFilter={plantFilter}
+              />
+              <SortableHeader
+                label="Unit price"
+                sortKey="unit_price"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+                supplierFilter={supplierFilter}
+                plantFilter={plantFilter}
+              />
+              <SortableHeader
+                label="Supplier PDF Info"
+                sortKey="supplier_pdf_info"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+                supplierFilter={supplierFilter}
+                plantFilter={plantFilter}
+              />
+              <SortableHeader
+                label="Last update"
+                sortKey="last_update"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+                supplierFilter={supplierFilter}
+                plantFilter={plantFilter}
+              />
               <span>Action</span>
             </div>
 
             <div className="divide-y divide-border">
               {sortedMaterials.map((material) => {
-                const materialHref = buildMaterialPriceHref(material.id, sortKey, sortDir);
+                const materialHref = buildMaterialPriceHref(
+                  material.id,
+                  sortKey,
+                  sortDir,
+                  supplierFilter,
+                  plantFilter,
+                );
 
                 return (
                   <div
@@ -183,15 +317,29 @@ export default async function AdminMaterialPricesPage({
                     }`}
                   >
                     <Link href={materialHref} className="min-w-0">
-                      <h3 className="truncate text-sm font-semibold">{material.name}</h3>
-                      <p className="mt-1 text-xs text-muted-foreground lg:hidden">{material.supplier_name}</p>
+                      <h3 className="truncate text-sm font-semibold">
+                        {material.name}
+                      </h3>
+                      <p className="mt-1 text-xs text-muted-foreground lg:hidden">
+                        {material.supplier_name}
+                      </p>
                     </Link>
-                    <Link href={materialHref} className="hidden min-w-0 truncate text-sm text-muted-foreground lg:block">
+                    <Link
+                      href={materialHref}
+                      className="hidden min-w-0 truncate text-sm text-muted-foreground lg:block"
+                    >
                       {material.supplier_name}
                     </Link>
                     {user.role === "admin" ? (
-                      <form action={updateMaterialTruckingProfile} className="flex min-w-0 items-center gap-2">
-                        <input type="hidden" name="material_id" value={material.id} />
+                      <form
+                        action={updateMaterialTruckingProfile}
+                        className="flex min-w-0 items-center gap-2"
+                      >
+                        <input
+                          type="hidden"
+                          name="material_id"
+                          value={material.id}
+                        />
                         <select
                           name="trucking_profile_id"
                           defaultValue={material.trucking_profile_id ?? ""}
@@ -200,7 +348,9 @@ export default async function AdminMaterialPricesPage({
                         >
                           <option value="">Not assigned</option>
                           {data.truckingProfiles.map((profile) => (
-                            <option key={profile.id} value={profile.id}>{profile.name}</option>
+                            <option key={profile.id} value={profile.id}>
+                              {profile.name}
+                            </option>
                           ))}
                         </select>
                         <button
@@ -217,22 +367,40 @@ export default async function AdminMaterialPricesPage({
                         {material.trucking_profile_name ?? "Not assigned"}
                       </span>
                     )}
-                    <Link href={materialHref} className="font-mono text-sm font-semibold">
+                    <Link
+                      href={materialHref}
+                      className="font-mono text-sm font-semibold"
+                    >
                       {formatCurrency(material.cost_per_unit)}/{material.unit}
                     </Link>
-                    <Link href={materialHref} className="min-w-0 text-xs leading-5 text-muted-foreground">
-                      <p className="truncate">{material.catalog_source_plant ?? "Plant not mapped"}</p>
+                    <Link
+                      href={materialHref}
+                      className="min-w-0 text-xs leading-5 text-muted-foreground"
+                    >
+                      <p className="truncate">
+                        {material.catalog_source_plant ?? "Plant not mapped"}
+                      </p>
                       <p className="truncate">
                         {material.catalog_surcharge_per_load === null
                           ? "No surcharge mapped"
                           : `${formatCurrency(material.catalog_surcharge_per_load)}/load`}
-                        {material.catalog_quote_number ? ` - ${material.catalog_quote_number}` : ""}
+                        {material.catalog_quote_number
+                          ? ` - ${material.catalog_quote_number}`
+                          : ""}
                       </p>
                     </Link>
-                    <Link href={materialHref} className="text-sm text-muted-foreground">
+                    <Link
+                      href={materialHref}
+                      className="text-sm text-muted-foreground"
+                    >
                       {formatDate(material.last_price_update)}
                     </Link>
-                    <Link href={materialHref} className="mac-link h-9 justify-center px-3 text-xs">Update</Link>
+                    <Link
+                      href={materialHref}
+                      className="mac-link h-9 justify-center px-3 text-xs"
+                    >
+                      Update
+                    </Link>
                   </div>
                 );
               })}
@@ -297,16 +465,24 @@ function SortableHeader({
   selectedMaterialId,
   sortDir,
   sortKey,
+  supplierFilter,
+  plantFilter,
 }: {
   activeSort: SortKey;
   label: string;
   selectedMaterialId: string | null;
   sortDir: SortDir;
   sortKey: SortKey;
+  supplierFilter: string;
+  plantFilter: string;
 }) {
   const isActive = activeSort === sortKey;
   const nextDir: SortDir = isActive && sortDir === "asc" ? "desc" : "asc";
-  const Icon = isActive ? (sortDir === "asc" ? ChevronUp : ChevronDown) : ArrowUpDown;
+  const Icon = isActive
+    ? sortDir === "asc"
+      ? ChevronUp
+      : ChevronDown
+    : ArrowUpDown;
   const params = new URLSearchParams({
     dir: nextDir,
     sort: sortKey,
@@ -315,6 +491,8 @@ function SortableHeader({
   if (selectedMaterialId) {
     params.set("material", selectedMaterialId);
   }
+  if (supplierFilter) params.set("supplier", supplierFilter);
+  if (plantFilter) params.set("plant", plantFilter);
 
   return (
     <Link
@@ -339,7 +517,10 @@ function MaterialPriceSlideOver({
   }
 
   return (
-    <aside className="customer-slide-over" aria-label="Selected material price update">
+    <aside
+      className="customer-slide-over"
+      aria-label="Selected material price update"
+    >
       <Link
         href="/admin/material-prices"
         className="customer-slide-backdrop"
@@ -448,14 +629,28 @@ function buildMaterialPriceHref(
   materialId: string,
   sortKey: SortKey,
   sortDir: SortDir,
+  supplierFilter: string,
+  plantFilter: string,
 ) {
   const params = new URLSearchParams({
     dir: sortDir,
     material: materialId,
     sort: sortKey,
   });
+  if (supplierFilter) params.set("supplier", supplierFilter);
+  if (plantFilter) params.set("plant", plantFilter);
 
   return `/admin/material-prices?${params.toString()}`;
+}
+
+function uniqueOptions(options: Array<{ id: string; name: string }>) {
+  return Array.from(
+    new Map(
+      options
+        .filter((option) => option.id)
+        .map((option) => [option.id, option]),
+    ).values(),
+  ).sort((a, b) => compareText(a.name, b.name));
 }
 
 function parseSortKey(value: string | undefined): SortKey {
@@ -467,7 +662,9 @@ function sortMaterials(
   sortKey: SortKey,
   sortDir: SortDir,
 ) {
-  return [...materials].sort((a, b) => compareMaterials(a, b, sortKey, sortDir));
+  return [...materials].sort((a, b) =>
+    compareMaterials(a, b, sortKey, sortDir),
+  );
 }
 
 function compareMaterials(
@@ -482,20 +679,32 @@ function compareMaterials(
     case "supplier":
       return compareText(a.supplier_name, b.supplier_name) * direction;
     case "trucking_profile":
-      return compareText(
-        a.trucking_profile_name ?? "",
-        b.trucking_profile_name ?? "",
-      ) * direction;
+      return (
+        compareText(
+          a.trucking_profile_name ?? "",
+          b.trucking_profile_name ?? "",
+        ) * direction
+      );
     case "unit_price":
       return (a.cost_per_unit - b.cost_per_unit) * direction;
     case "supplier_pdf_info":
       return (
-        compareText(a.catalog_source_plant ?? "", b.catalog_source_plant ?? "") ||
-        compareText(a.catalog_quote_number ?? "", b.catalog_quote_number ?? "") ||
-        compareText(a.name, b.name)
-      ) * direction;
+        (compareText(
+          a.catalog_source_plant ?? "",
+          b.catalog_source_plant ?? "",
+        ) ||
+          compareText(
+            a.catalog_quote_number ?? "",
+            b.catalog_quote_number ?? "",
+          ) ||
+          compareText(a.name, b.name)) * direction
+      );
     case "last_update":
-      return compareNullableDate(a.last_price_update, b.last_price_update, sortDir);
+      return compareNullableDate(
+        a.last_price_update,
+        b.last_price_update,
+        sortDir,
+      );
     case "material":
     default:
       return compareText(a.name, b.name) * direction;
@@ -509,7 +718,11 @@ function compareText(a: string, b: string) {
   });
 }
 
-function compareNullableDate(a: string | null, b: string | null, sortDir: SortDir) {
+function compareNullableDate(
+  a: string | null,
+  b: string | null,
+  sortDir: SortDir,
+) {
   if (!a && !b) {
     return 0;
   }
