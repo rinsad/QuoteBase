@@ -466,7 +466,7 @@ function parseSpreadsheet({
       const plantName =
         currentPlantLabel?.trim() ||
         [supplierName, currentAddress.city].filter(Boolean).join(" ");
-      const plantKey = syncKey(`${supplierKey}|${currentAddress.formatted}`);
+      const plantKey = syncKey(`${supplierKey}|${plantName}`);
       materials.push({
         supplierName,
         supplierKey,
