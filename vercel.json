@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/follow-up-scheduler",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/google-sheets-sync",
+      "schedule": "0 9 * * *"
     }
   ]
 }

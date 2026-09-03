@@ -17,6 +17,13 @@ export type AdminMaterialPrice = {
   catalog_quote_number: string | null;
   catalog_effective_through: string | null;
   is_active: boolean;
+  trucking_profile_id: string | null;
+  trucking_profile_name: string | null;
+};
+
+export type MaterialTruckingProfileOption = {
+  id: string;
+  name: string;
 };
 
 export type MaterialPriceHistoryEntry = {
@@ -39,7 +46,10 @@ export type MaterialPriceSummary = {
   stalePrices: number;
 };
 
-type MaterialRecord = Omit<AdminMaterialPrice, "supplier_name"> & {
+type MaterialRecord = Omit<
+  AdminMaterialPrice,
+  "supplier_name" | "trucking_profile_id" | "trucking_profile_name"
+> & {
   supplier_plants:
     | { name: string; suppliers: { name: string } | { name: string }[] | null }
     | {
@@ -55,14 +65,15 @@ export async function getAdminMaterialPrices(
   materials: AdminMaterialPrice[];
   history: MaterialPriceHistoryEntry[];
   summary: MaterialPriceSummary;
+  truckingProfiles: MaterialTruckingProfileOption[];
 }> {
   const supabase = await createClient();
 
   if (!supabase) {
-    return { materials: [], history: [], summary: emptySummary() };
+    return { materials: [], history: [], summary: emptySummary(), truckingProfiles: [] };
   }
 
-  const [materialsResult, historyResult] = await Promise.all([
+  const [materialsResult, historyResult, profilesResult, assignmentsResult] = await Promise.all([
     supabase
       .from("materials")
       .select(
@@ -78,7 +89,28 @@ export async function getAdminMaterialPrices(
       .eq("organization_id", organizationId)
       .order("changed_at", { ascending: false })
       .limit(12),
+    supabase
+      .from("trucking_profiles")
+      .select("id, name")
+      .eq("organization_id", organizationId)
+      .eq("is_active", true)
+      .order("name"),
+    supabase
+      .from("trucking_profile_assignments")
+      .select("material_id, trucking_profile_id")
+      .eq("organization_id", organizationId)
+      .not("material_id", "is", null)
+      .eq("is_active", true),
   ]);
+
+  const truckingProfiles = profilesResult.data ?? [];
+  const profileNames = new Map(truckingProfiles.map((profile) => [profile.id, profile.name]));
+  const assignmentsByMaterial = new Map(
+    (assignmentsResult.data ?? []).map((assignment) => [
+      assignment.material_id,
+      assignment.trucking_profile_id,
+    ]),
+  );
 
   const materials =
     materialsResult.data?.map((material) => {
@@ -88,6 +120,8 @@ export async function getAdminMaterialPrices(
         const supplier = Array.isArray(plant?.suppliers)
           ? plant?.suppliers[0]
           : plant?.suppliers;
+
+        const truckingProfileId = assignmentsByMaterial.get(material.id) ?? null;
 
         return {
           ...material,
@@ -109,6 +143,9 @@ export async function getAdminMaterialPrices(
             material.catalog_surcharge_per_load === null
               ? null
               : Number(material.catalog_surcharge_per_load),
+          trucking_profile_id: truckingProfileId,
+          trucking_profile_name:
+            truckingProfileId === null ? null : profileNames.get(truckingProfileId) ?? null,
         };
       }) ?? [];
 
@@ -125,6 +162,7 @@ export async function getAdminMaterialPrices(
         changed_by: relationOne(entry.users),
       })) ?? [],
     summary: summarizeMaterials(materials),
+    truckingProfiles,
   };
 }
 

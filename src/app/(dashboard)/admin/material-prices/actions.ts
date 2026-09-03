@@ -117,6 +117,144 @@ export async function updateMaterialPrice(formData: FormData) {
   redirect("/admin/material-prices?saved=1");
 }
 
+export async function updateMaterialTruckingProfile(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (user.role !== "admin") {
+    throw new Error("Only admins can assign trucking profiles to materials.");
+  }
+
+  const supabase = await createClient();
+
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
+
+  const materialId = requiredUuid(formData, "material_id");
+  const profileValue = formData.get("trucking_profile_id");
+  const truckingProfileId =
+    profileValue === ""
+      ? null
+      : typeof profileValue === "string" && UUID_PATTERN.test(profileValue)
+        ? profileValue
+        : undefined;
+
+  if (truckingProfileId === undefined) {
+    throw new Error("Select a valid trucking profile.");
+  }
+
+  const { data: material } = await supabase
+    .from("materials")
+    .select("id, name")
+    .eq("organization_id", user.organization_id)
+    .eq("id", materialId)
+    .eq("is_active", true)
+    .maybeSingle<{ id: string; name: string }>();
+
+  if (!material) {
+    throw new Error("The selected material is not available to this organization.");
+  }
+
+  const { data: profile } = truckingProfileId
+    ? await supabase
+        .from("trucking_profiles")
+        .select("id, name")
+        .eq("organization_id", user.organization_id)
+        .eq("id", truckingProfileId)
+        .eq("is_active", true)
+        .maybeSingle<{ id: string; name: string }>()
+    : { data: null };
+
+  if (truckingProfileId && !profile) {
+    throw new Error("The selected trucking profile is not available to this organization.");
+  }
+
+  const { data: previousAssignments, error: previousAssignmentsError } =
+    await supabase
+      .from("trucking_profile_assignments")
+      .select("id, trucking_profile_id, material_id, is_active")
+      .eq("organization_id", user.organization_id)
+      .eq("material_id", materialId)
+      .eq("is_active", true);
+
+  if (previousAssignmentsError) {
+    throw new Error(previousAssignmentsError.message);
+  }
+
+  const alreadyAssigned =
+    (truckingProfileId === null && (previousAssignments?.length ?? 0) === 0) ||
+    (previousAssignments?.length === 1 &&
+      previousAssignments[0].trucking_profile_id === truckingProfileId);
+
+  if (!alreadyAssigned) {
+    const currentAssignment = previousAssignments?.[0] ?? null;
+    let assignment: Record<string, unknown> | null = null;
+
+    if (currentAssignment && truckingProfileId) {
+      const { data, error } = await supabase
+        .from("trucking_profile_assignments")
+        .update({ trucking_profile_id: truckingProfileId })
+        .eq("organization_id", user.organization_id)
+        .eq("id", currentAssignment.id)
+        .select("id, trucking_profile_id, material_id, is_active")
+        .single<Record<string, unknown>>();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      assignment = data;
+    } else if (currentAssignment) {
+      const { error } = await supabase
+        .from("trucking_profile_assignments")
+        .update({ is_active: false })
+        .eq("organization_id", user.organization_id)
+        .eq("id", currentAssignment.id);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+    } else if (truckingProfileId) {
+      const { data, error } = await supabase
+        .from("trucking_profile_assignments")
+        .insert({
+          organization_id: user.organization_id,
+          trucking_profile_id: truckingProfileId,
+          material_id: materialId,
+          supplier_id: null,
+          plant_id: null,
+        })
+        .select("id, trucking_profile_id, material_id, is_active")
+        .single<Record<string, unknown>>();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      assignment = data;
+    }
+
+    await logAction({
+      user,
+      action: "material.trucking_profile_updated",
+      targetTable: "materials",
+      targetId: materialId,
+      before: { material, assignments: previousAssignments ?? [] },
+      after: { material, profile, assignment },
+      supabase,
+    });
+  }
+
+  revalidatePath("/admin/material-prices");
+  revalidatePath("/admin/trucking-profiles");
+  revalidatePath("/quotes/new");
+  redirect("/admin/material-prices?saved=1&profile_saved=1");
+}
+
 export async function uploadMaterialPriceCsv(formData: FormData) {
   const user = await getCurrentUser();
 

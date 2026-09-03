@@ -8,7 +8,7 @@ export type AdminPricingConfig = PricingConfig & {
 };
 
 const BASE_PRICING_SELECT =
-  "id, tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton, updated_at";
+  "id, default_material_markup_pct, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton, updated_at";
 
 const EXTENDED_PRICING_SELECT = `${BASE_PRICING_SELECT}, big_quote_threshold, default_followup_max_attempts, jobs_starting_soon_days, follow_up_auto_send_enabled, follow_up_sms_enabled, project_status_options, quote_recommendation_count`;
 
@@ -60,14 +60,7 @@ export async function getAdminPricingConfig(
 function normalizePricingConfig(data: AdminPricingConfig): AdminPricingConfig {
   return {
     ...data,
-    tier_r1_min: Number(data.tier_r1_min),
-    tier_r1_max: Number(data.tier_r1_max),
-    tier_r2_min: Number(data.tier_r2_min),
-    tier_r2_max: Number(data.tier_r2_max),
-    tier_r3_min: Number(data.tier_r3_min),
-    tier_r3_max: Number(data.tier_r3_max),
-    tier_r4_min: Number(data.tier_r4_min),
-    tier_r4_max: Number(data.tier_r4_max),
+    default_material_markup_pct: Number(data.default_material_markup_pct),
     truck_floor_rate: Number(data.truck_floor_rate),
     truck_standard_rate: Number(data.truck_standard_rate),
     truck_target_rate: Number(data.truck_target_rate),

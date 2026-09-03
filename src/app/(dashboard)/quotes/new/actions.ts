@@ -449,11 +449,7 @@ function parseLineItems(
         ? item.materialId
         : "";
     const quantity = Number(item.quantity);
-    const materialUnitPriceOverride =
-      item.materialUnitPriceOverride === null ||
-      item.materialUnitPriceOverride === undefined
-        ? null
-        : Number(item.materialUnitPriceOverride);
+    const markupPctOverride = Number(item.markupPctOverride);
 
     if (!materialId) {
       fieldErrors.line_items = `Line ${index + 1} is missing a material.`;
@@ -465,22 +461,15 @@ function parseLineItems(
       return;
     }
 
-    if (
-      materialUnitPriceOverride !== null &&
-      (!Number.isFinite(materialUnitPriceOverride) ||
-        materialUnitPriceOverride <= 0)
-    ) {
-      fieldErrors.line_items = `Line ${index + 1} has an invalid sell price override.`;
+    if (!Number.isFinite(markupPctOverride) || markupPctOverride < 0 || markupPctOverride > 500) {
+      fieldErrors.line_items = `Line ${index + 1} has an invalid markup percentage.`;
       return;
     }
 
     lineItems.push({
       materialId,
       quantity: Math.round((quantity + Number.EPSILON) * 100) / 100,
-      materialUnitPriceOverride:
-        materialUnitPriceOverride === null
-          ? null
-          : Math.round((materialUnitPriceOverride + Number.EPSILON) * 100) / 100,
+      markupPctOverride: Math.round((markupPctOverride + Number.EPSILON) * 100) / 100,
     });
   });
 

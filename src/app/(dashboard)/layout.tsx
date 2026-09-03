@@ -46,7 +46,7 @@ const primaryNav: NavItem[] = [
   { label: "Customers", href: "/customers", icon: Users },
   {
     label: "Masters",
-    href: "/admin/pricing",
+    href: "/admin/suppliers",
     icon: BookOpen,
     adminOnly: true,
     accountManagerAllowed: true,
@@ -54,11 +54,11 @@ const primaryNav: NavItem[] = [
       { label: "Suppliers", href: "/admin/suppliers" },
       { label: "Plants", href: "/admin/plants", nested: true },
       { label: "Materials", href: "/admin/material-prices", nested: true },
-      { label: "Pricing rules", href: "/admin/pricing" },
       { label: "Customer types", href: "/admin/customer-types" },
       { label: "Units", href: "/admin/units" },
       { label: "Tax rates", href: "/admin/tax-rates" },
       { label: "Vehicle types", href: "/admin/vehicle-types" },
+      { label: "Trucking profiles", href: "/admin/trucking-profiles" },
       { label: "Yards", href: "/admin/yards" },
     ],
   },
@@ -69,6 +69,11 @@ const primaryNav: NavItem[] = [
     children: [
       { label: "CRM customers", href: "/admin/integrations/crm", adminOnly: true },
       { label: "Gmail", href: "/admin/integrations/gmail" },
+      {
+        label: "Supplier sheets",
+        href: "/admin/integrations/google-sheets",
+        adminOnly: true,
+      },
       { label: "OpenAI", href: "/admin/integrations/openai", adminOnly: true },
       { label: "Slack", href: "/admin/integrations/slack", adminOnly: true },
       { label: "Mapbox", href: "/admin/integrations/mapbox", adminOnly: true },

@@ -12,7 +12,10 @@ import {
   X,
 } from "lucide-react";
 
-import { updateMaterialPrice } from "@/app/(dashboard)/admin/material-prices/actions";
+import {
+  updateMaterialPrice,
+  updateMaterialTruckingProfile,
+} from "@/app/(dashboard)/admin/material-prices/actions";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -25,7 +28,7 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 const SORT_KEYS = [
   "material",
   "supplier",
-  "tier",
+  "trucking_profile",
   "unit_price",
   "supplier_pdf_info",
   "last_update",
@@ -43,6 +46,7 @@ export default async function AdminMaterialPricesPage({
     saved?: string;
     sort?: string;
     unchanged?: string;
+    profile_saved?: string;
     catalog_imported?: string;
   }>;
 }) {
@@ -98,9 +102,11 @@ export default async function AdminMaterialPricesPage({
           <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
             {params.catalog_imported
               ? `${params.catalog_imported} supplier catalog rows imported.`
-              : params.unchanged
-                ? "No material price change was needed."
-              : "Material price updated."}
+              : params.profile_saved
+                ? "Trucking profile updated."
+                : params.unchanged
+                  ? "No material price change was needed."
+                  : "Material price updated."}
           </div>
         ) : null}
 
@@ -155,97 +161,81 @@ export default async function AdminMaterialPricesPage({
               </div>
             </div>
 
-            <div className="master-table-head lg:grid-cols-[minmax(200px,1.1fr)_minmax(160px,0.8fr)_90px_135px_minmax(190px,1fr)_130px_90px] lg:gap-4">
-              <SortableHeader
-                label="Material"
-                sortKey="material"
-                activeSort={sortKey}
-                sortDir={sortDir}
-                selectedMaterialId={selected?.id ?? null}
-              />
-              <SortableHeader
-                label="Supplier"
-                sortKey="supplier"
-                activeSort={sortKey}
-                sortDir={sortDir}
-                selectedMaterialId={selected?.id ?? null}
-              />
-              <SortableHeader
-                label="Tier"
-                sortKey="tier"
-                activeSort={sortKey}
-                sortDir={sortDir}
-                selectedMaterialId={selected?.id ?? null}
-              />
-              <SortableHeader
-                label="Unit price"
-                sortKey="unit_price"
-                activeSort={sortKey}
-                sortDir={sortDir}
-                selectedMaterialId={selected?.id ?? null}
-              />
-              <SortableHeader
-                label="Supplier PDF Info"
-                sortKey="supplier_pdf_info"
-                activeSort={sortKey}
-                sortDir={sortDir}
-                selectedMaterialId={selected?.id ?? null}
-              />
-              <SortableHeader
-                label="Last update"
-                sortKey="last_update"
-                activeSort={sortKey}
-                sortDir={sortDir}
-                selectedMaterialId={selected?.id ?? null}
-              />
+            <div className="master-table-head lg:grid-cols-[minmax(200px,1.1fr)_minmax(160px,0.8fr)_minmax(210px,0.9fr)_135px_minmax(190px,1fr)_130px_90px] lg:gap-4">
+              <SortableHeader label="Material" sortKey="material" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
+              <SortableHeader label="Supplier" sortKey="supplier" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
+              <SortableHeader label="Trucking profile" sortKey="trucking_profile" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
+              <SortableHeader label="Unit price" sortKey="unit_price" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
+              <SortableHeader label="Supplier PDF Info" sortKey="supplier_pdf_info" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
+              <SortableHeader label="Last update" sortKey="last_update" activeSort={sortKey} sortDir={sortDir} selectedMaterialId={selected?.id ?? null} />
               <span>Action</span>
             </div>
 
             <div className="divide-y divide-border">
-              {sortedMaterials.map((material) => (
-                <Link
-                  key={material.id}
-                  href={buildMaterialPriceHref(material.id, sortKey, sortDir)}
-                  className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[minmax(200px,1.1fr)_minmax(160px,0.8fr)_90px_135px_minmax(190px,1fr)_130px_90px] lg:items-center lg:gap-4 ${
-                    selected?.id === material.id ? "bg-secondary" : ""
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <h3 className="truncate text-sm font-semibold">
-                      {material.name}
-                    </h3>
-                    <p className="mt-1 text-xs text-muted-foreground lg:hidden">
+              {sortedMaterials.map((material) => {
+                const materialHref = buildMaterialPriceHref(material.id, sortKey, sortDir);
+
+                return (
+                  <div
+                    key={material.id}
+                    className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[minmax(200px,1.1fr)_minmax(160px,0.8fr)_minmax(210px,0.9fr)_135px_minmax(190px,1fr)_130px_90px] lg:items-center lg:gap-4 ${
+                      selected?.id === material.id ? "bg-secondary" : ""
+                    }`}
+                  >
+                    <Link href={materialHref} className="min-w-0">
+                      <h3 className="truncate text-sm font-semibold">{material.name}</h3>
+                      <p className="mt-1 text-xs text-muted-foreground lg:hidden">{material.supplier_name}</p>
+                    </Link>
+                    <Link href={materialHref} className="hidden min-w-0 truncate text-sm text-muted-foreground lg:block">
                       {material.supplier_name}
-                    </p>
+                    </Link>
+                    {user.role === "admin" ? (
+                      <form action={updateMaterialTruckingProfile} className="flex min-w-0 items-center gap-2">
+                        <input type="hidden" name="material_id" value={material.id} />
+                        <select
+                          name="trucking_profile_id"
+                          defaultValue={material.trucking_profile_id ?? ""}
+                          className="soft-control min-w-0 flex-1 py-2 text-xs"
+                          aria-label={`Trucking profile for ${material.name}`}
+                        >
+                          <option value="">Not assigned</option>
+                          {data.truckingProfiles.map((profile) => (
+                            <option key={profile.id} value={profile.id}>{profile.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="submit"
+                          className="mac-link size-9 shrink-0 px-0"
+                          aria-label={`Save trucking profile for ${material.name}`}
+                          title="Save trucking profile"
+                        >
+                          <Save className="size-3.5" />
+                        </button>
+                      </form>
+                    ) : (
+                      <span className="truncate text-sm text-muted-foreground">
+                        {material.trucking_profile_name ?? "Not assigned"}
+                      </span>
+                    )}
+                    <Link href={materialHref} className="font-mono text-sm font-semibold">
+                      {formatCurrency(material.cost_per_unit)}/{material.unit}
+                    </Link>
+                    <Link href={materialHref} className="min-w-0 text-xs leading-5 text-muted-foreground">
+                      <p className="truncate">{material.catalog_source_plant ?? "Plant not mapped"}</p>
+                      <p className="truncate">
+                        {material.catalog_surcharge_per_load === null
+                          ? "No surcharge mapped"
+                          : `${formatCurrency(material.catalog_surcharge_per_load)}/load`}
+                        {material.catalog_quote_number ? ` - ${material.catalog_quote_number}` : ""}
+                      </p>
+                    </Link>
+                    <Link href={materialHref} className="text-sm text-muted-foreground">
+                      {formatDate(material.last_price_update)}
+                    </Link>
+                    <Link href={materialHref} className="mac-link h-9 justify-center px-3 text-xs">Update</Link>
                   </div>
-                  <p className="hidden min-w-0 truncate text-sm text-muted-foreground lg:block">
-                    {material.supplier_name}
-                  </p>
-                  <TierBadge tier={material.tier} />
-                  <p className="font-mono text-sm font-semibold">
-                    {formatCurrency(material.cost_per_unit)}/{material.unit}
-                  </p>
-                  <div className="min-w-0 text-xs leading-5 text-muted-foreground">
-                    <p className="truncate">
-                      {material.catalog_source_plant ?? "Plant not mapped"}
-                    </p>
-                    <p className="truncate">
-                      {material.catalog_surcharge_per_load === null
-                        ? "No surcharge mapped"
-                        : `${formatCurrency(material.catalog_surcharge_per_load)}/load`}
-                      {material.catalog_quote_number
-                        ? ` - ${material.catalog_quote_number}`
-                        : ""}
-                    </p>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {formatDate(material.last_price_update)}
-                  </p>
-                  <span className="mac-link h-9 justify-center px-3 text-xs">
-                    Update
-                  </span>
-                </Link>
-              ))}
+                );
+              })}
             </div>
           </section>
         </section>
@@ -370,7 +360,6 @@ function MaterialPriceSlideOver({
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <TierBadge tier={material.tier} />
               <Link
                 href="/admin/material-prices"
                 className="mac-link size-9 px-0"
@@ -492,8 +481,11 @@ function compareMaterials(
   switch (sortKey) {
     case "supplier":
       return compareText(a.supplier_name, b.supplier_name) * direction;
-    case "tier":
-      return compareText(a.tier, b.tier) * direction;
+    case "trucking_profile":
+      return compareText(
+        a.trucking_profile_name ?? "",
+        b.trucking_profile_name ?? "",
+      ) * direction;
     case "unit_price":
       return (a.cost_per_unit - b.cost_per_unit) * direction;
     case "supplier_pdf_info":
@@ -532,23 +524,6 @@ function compareNullableDate(a: string | null, b: string | null, sortDir: SortDi
 
   const direction = sortDir === "asc" ? 1 : -1;
   return (new Date(a).getTime() - new Date(b).getTime()) * direction;
-}
-
-function TierBadge({ tier }: { tier: "R1" | "R2" | "R3" | "R4" }) {
-  const tones = {
-    R1: "bg-slate-100 text-slate-700 ring-slate-200",
-    R2: "bg-blue-50 text-blue-700 ring-blue-100",
-    R3: "bg-amber-50 text-amber-700 ring-amber-100",
-    R4: "bg-purple-50 text-purple-700 ring-purple-100",
-  };
-
-  return (
-    <span
-      className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${tones[tier]}`}
-    >
-      {tier}
-    </span>
-  );
 }
 
 function formatCurrency(value: number) {

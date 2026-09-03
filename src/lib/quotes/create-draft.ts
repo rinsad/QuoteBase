@@ -57,7 +57,7 @@ export type CreateQuoteDraftInput = {
 export type CreateQuoteDraftLineInput = {
   materialId: string;
   quantity: number;
-  materialUnitPriceOverride: number | null;
+  markupPctOverride: number | null;
 };
 
 export type CreatedQuoteDraft = {
@@ -123,7 +123,7 @@ export async function createQuoteDraftRecord({
         {
           materialId: input.materialId,
           quantity: input.quantity,
-          materialUnitPriceOverride: input.materialUnitPriceOverride,
+          markupPctOverride: null,
         },
       ];
   const quoteDates = parseQuoteDates(input.quoteDate, input.expiresAt);
@@ -154,7 +154,7 @@ export async function createQuoteDraftRecord({
     supabase
       .from("pricing_config")
       .select(
-        "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton, default_followup_max_attempts, project_status_options",
+        "default_material_markup_pct, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton, default_followup_max_attempts, project_status_options",
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
@@ -283,7 +283,7 @@ export async function createQuoteDraftRecord({
         vehicleTypes,
         unitConversions,
         useRequestedPlant: input.useSelectedPlant,
-        materialUnitPriceOverride: line.materialUnitPriceOverride,
+        markupPctOverride: line.markupPctOverride,
         truckRateOverride: input.truckRateOverride,
         materialMinimumOverride: input.materialMinimumOverride,
         truckingMinimumOverride: input.truckingMinimumOverride,
@@ -311,7 +311,7 @@ export async function createQuoteDraftRecord({
           recommendation.routeDistance?.durationSeconds ?? null,
         deadheadDurationSeconds:
           recommendation.deadheadDistance?.durationSeconds ?? null,
-        materialUnitPriceOverride: line.materialUnitPriceOverride,
+        markupPctOverride: line.markupPctOverride,
         truckRateOverride: input.truckRateOverride,
         materialMinimumOverride: input.materialMinimumOverride,
         truckingMinimumOverride: input.truckingMinimumOverride,
@@ -461,8 +461,9 @@ export async function createQuoteDraftRecord({
         requested_material_id: line.requestedMaterial.id,
         supplier_catalog_version_id: line.material.supplier_catalog_version_id,
         supplier_catalog_item_id: line.material.supplier_catalog_item_id,
-        catalog_markup_rule_id: line.catalogMarkupRule?.id ?? null,
-        catalog_markup_source: line.calculation.markupSource,
+        markup_pct: line.calculation.markupPct,
+        markup_source: line.calculation.markupSource,
+        markup_per_unit: line.calculation.markupPerUnit,
         quantity: line.input.quantity,
         material_unit_price: line.calculation.materialUnitPrice,
         total: line.calculation.total,
@@ -486,7 +487,7 @@ export async function createQuoteDraftRecord({
       new_customer: false,
       plant_override: input.useSelectedPlant,
       price_override: pricedLines.some(
-        (line) => line.input.materialUnitPriceOverride !== null,
+        (line) => line.input.markupPctOverride !== null && line.input.markupPctOverride !== pricingConfig.default_material_markup_pct,
       ),
       truck_rate_override: input.truckRateOverride,
       material_minimum_override: input.materialMinimumOverride,

@@ -11,6 +11,12 @@ import {
 } from "@/lib/admin/trucking-profiles";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
+const DEFAULT_TIME_ADJUSTMENT_BANDS = [
+  { underMiles: 18, hours: 0.5 },
+  { underMiles: 25, hours: 0.375 },
+  { underMiles: 30, hours: 0.25 },
+];
+
 export default async function TruckingProfilesPage({
   searchParams,
 }: {
@@ -59,20 +65,19 @@ export default async function TruckingProfilesPage({
             </Link>
           </div>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">
-            QuoteBase resolves one complete profile by plant, then supplier, then tenant default. Distance is calculated from the selected plant to the job site.
+            Define the speed, hourly rate, round-trip factor, and short-trip time adjustments used by materials. Assign a profile from the Materials catalog.
           </p>
         </section>
 
         <section className="mt-6 glass-panel overflow-hidden">
-          <div className="master-table-head lg:grid-cols-[1.2fr_1fr_1fr_1fr_90px] lg:gap-4">
-            <span>Profile</span><span>Assignment</span><span>Average speed</span><span>Hourly rate</span><span>Action</span>
+          <div className="master-table-head lg:grid-cols-[1.4fr_1fr_1fr_90px] lg:gap-4">
+            <span>Profile</span><span>Average speed</span><span>Hourly rate</span><span>Action</span>
           </div>
           <div className="divide-y divide-border">
             {data.profiles.map((profile) => (
               <Link key={profile.id} href={`/admin/trucking-profiles?edit=${profile.id}`}
-                className="grid gap-2 px-4 py-4 hover:bg-secondary/70 lg:grid-cols-[1.2fr_1fr_1fr_1fr_90px] lg:items-center lg:gap-4">
+                className="grid gap-2 px-4 py-4 hover:bg-secondary/70 lg:grid-cols-[1.4fr_1fr_1fr_90px] lg:items-center lg:gap-4">
                 <div><p className="text-sm font-semibold">{profile.name}</p><p className="text-xs text-muted-foreground">Round trip × {profile.roundTripFactor}</p></div>
-                <p className="text-sm">{profile.assignmentLabel}</p>
                 <p className="font-mono text-sm">{profile.averageSpeedMph} MPH</p>
                 <p className="font-mono text-sm">{formatCurrency(profile.hourlyRate)}/hr</p>
                 <span className="mac-link h-9 justify-center px-3 text-xs">Edit</span>
@@ -85,26 +90,17 @@ export default async function TruckingProfilesPage({
         <ProfileEditor
           profile={selected}
           open={Boolean(params.new || selected)}
-          suppliers={data.suppliers}
-          plants={data.plants}
         />
       </div>
     </main>
   );
 }
 
-function ProfileEditor({ profile, open, suppliers, plants }: {
+function ProfileEditor({ profile, open }: {
   profile: AdminTruckingProfile | null;
   open: boolean;
-  suppliers: Array<{ id: string; name: string }>;
-  plants: Array<{ id: string; name: string; supplierId: string }>;
 }) {
   if (!open) return null;
-  const assignment = profile?.assignmentScope === "tenant"
-    ? "tenant"
-    : profile?.assignmentScope && profile.assignmentTargetId
-      ? `${profile.assignmentScope}:${profile.assignmentTargetId}`
-      : "tenant";
 
   return (
     <aside className="customer-slide-over" aria-label="Trucking profile editor">
@@ -120,16 +116,23 @@ function ProfileEditor({ profile, open, suppliers, plants }: {
           <NumberField name="average_speed_mph" label="Average speed (MPH)" value={profile?.averageSpeedMph ?? 35} max={100} />
           <NumberField name="hourly_rate" label="Hourly trucking rate" value={profile?.hourlyRate ?? 95} max={10000} />
           <NumberField name="round_trip_factor" label="Round-trip factor" value={profile?.roundTripFactor ?? 2} max={10} />
-          <label className="block"><span className="text-sm font-medium text-muted-foreground">Applies to</span>
-            <select name="assignment" defaultValue={assignment} className="soft-control mt-2 w-full" required>
-              <option value="tenant">Tenant default</option>
-              <optgroup label="Suppliers">{suppliers.map((supplier) => <option key={supplier.id} value={`supplier:${supplier.id}`}>{supplier.name}</option>)}</optgroup>
-              <optgroup label="Plants">{plants.map((plant) => <option key={plant.id} value={`plant:${plant.id}`}>{plant.name}</option>)}</optgroup>
-            </select>
-          </label>
-          <div className="soft-row p-4 text-xs leading-5 text-muted-foreground">
-            Excel time adjustments remain active: +0.50 hr under 18 miles, +0.375 under 25, and +0.25 under 30.
-          </div>
+          <fieldset className="soft-row p-4">
+            <legend className="px-1 text-sm font-semibold">Distance time adjustments</legend>
+            <p className="mb-3 text-xs leading-5 text-muted-foreground">
+              Add dispatch/loading time to short one-way trips. Leave a row blank to omit it.
+            </p>
+            {[0, 1, 2].map((index) => {
+              const band = profile?.timeAdjustmentBands[index];
+              return (
+                <div key={index} className="mb-2 grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2 last:mb-0">
+                  <input name={`band_${index}_under_miles`} type="number" min={0.01} max={1000} step={0.01} defaultValue={band?.underMiles ?? DEFAULT_TIME_ADJUSTMENT_BANDS[index].underMiles} className="soft-control w-full" aria-label={`Distance band ${index + 1} miles`} />
+                  <span className="text-xs text-muted-foreground">miles, add</span>
+                  <input name={`band_${index}_hours`} type="number" min={0} max={24} step={0.001} defaultValue={band?.hours ?? DEFAULT_TIME_ADJUSTMENT_BANDS[index].hours} className="soft-control w-full" aria-label={`Distance band ${index + 1} hours`} />
+                  <span className="text-xs text-muted-foreground">hours</span>
+                </div>
+              );
+            })}
+          </fieldset>
           <Button type="submit" className="h-11 rounded-md"><Save className="size-4" />Save profile</Button>
         </form>
       </div>

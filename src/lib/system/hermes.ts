@@ -95,7 +95,7 @@ export async function getHermesOnboardingSummary(
       href: "/admin/pricing",
       cta: "Review markup",
       checklist: [
-        "Review R1-R4 markup bands.",
+        "Review supplier catalog markup rules.",
         "Confirm trucking defaults.",
         "Check fees and tax rules.",
       ],

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState, useTransition, type FormEvent } from "react";
+import { useActionState, useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
 import {
   Award,
   BrainCircuit,
@@ -30,7 +30,6 @@ import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
   calculateQuoteDraft,
-  type CatalogMarkupRule,
   type QuoteDraftCalculation,
 } from "@/lib/quotes/pricing";
 import type { NewQuoteContext } from "@/lib/quotes/new-quote";
@@ -57,12 +56,26 @@ type QuoteLineDraft = {
   id: string;
   materialId: string;
   quantity: number;
-  materialUnitPriceOverride: number | null;
+  markupPctOverride: number;
   material: NewQuoteContext["materials"][number];
   calculation: QuoteDraftCalculation;
 };
 
 type MaterialOption = NewQuoteContext["materials"][number];
+
+type RemoteCrmCustomer = {
+  externalId: string;
+  name: string;
+  companyName: string | null;
+  contactName: string | null;
+  email: string | null;
+  phone: string | null;
+};
+
+type RemoteCrmSearch = {
+  provider: Exclude<NewQuoteContext["customers"][number]["crm_provider"], "quotebase">;
+  customers: RemoteCrmCustomer[];
+};
 
 type MaterialChoice = {
   key: string;
@@ -188,6 +201,9 @@ export function QuoteDraftForm({
   const [customerSearch, setCustomerSearch] = useState("");
   const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false);
   const [customers, setCustomers] = useState(context.customers);
+  const [remoteCrmSearch, setRemoteCrmSearch] = useState<RemoteCrmSearch | null>(null);
+  const [isSearchingCrm, setIsSearchingCrm] = useState(false);
+  const [isImportingCrmCustomer, startImportingCrmCustomer] = useTransition();
   const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
   const [customerFeedback, setCustomerFeedback] = useState<string | null>(null);
   const [isSavingCustomer, startSavingCustomer] = useTransition();
@@ -195,6 +211,9 @@ export function QuoteDraftForm({
   const [materialId, setMaterialId] = useState("");
   const [taxRateId, setTaxRateId] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [markupPercentage, setMarkupPercentage] = useState(
+    String(context.pricingConfig?.default_material_markup_pct ?? 25),
+  );
   const [jobSiteId, setJobSiteId] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("");
   const [activeStep, setActiveStep] = useState(0);
@@ -222,11 +241,60 @@ export function QuoteDraftForm({
     if (!query) return customers;
 
     return customers.filter((customer) =>
-      [customer.company_name, customer.name, customer.contact_name, customer.email, crmProviderLabel(customer.crm_provider)]
+      [
+        customerDisplayLabel(customer),
+        customer.company_name,
+        customer.name,
+        customer.contact_name,
+        customer.email,
+        crmProviderLabel(customer.crm_provider),
+      ]
         .filter(Boolean)
         .some((value) => normalizeMaterialLabel(String(value)).includes(query)),
     );
   }, [customers, customerSearch]);
+  const remoteCrmCustomers = useMemo(() => {
+    if (!remoteCrmSearch) return [];
+    return remoteCrmSearch.customers.filter((remoteCustomer) =>
+      !customers.some((localCustomer) =>
+        localCustomer.crm_provider === remoteCrmSearch.provider &&
+        ((remoteCustomer.email && localCustomer.email?.toLowerCase() === remoteCustomer.email.toLowerCase()) ||
+          customerDisplayLabel(localCustomer).toLowerCase() === (remoteCustomer.companyName ?? remoteCustomer.name).toLowerCase()),
+      ),
+    );
+  }, [customers, remoteCrmSearch]);
+
+  useEffect(() => {
+    const query = customerSearch.trim();
+    if (query.length < 2 || customerId) {
+      setRemoteCrmSearch(null);
+      setIsSearchingCrm(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setIsSearchingCrm(true);
+      try {
+        const response = await fetch(`/api/customers/crm-search?q=${encodeURIComponent(query)}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const payload: unknown = await response.json();
+        if (!response.ok || !isRecord(payload)) return;
+        const data = isRecord(payload.data) ? payload.data : null;
+        if (!data || typeof data.provider !== "string" || !Array.isArray(data.customers)) return;
+        setRemoteCrmSearch(data as RemoteCrmSearch);
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setRemoteCrmSearch(null);
+      } finally {
+        if (!controller.signal.aborted) setIsSearchingCrm(false);
+      }
+    }, 350);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [customerId, customerSearch]);
   const normalizedMaterialSearch = normalizeMaterialLabel(materialSearch);
   const typedMaterialMatch = normalizedMaterialSearch
     ? materialChoices.find(
@@ -279,12 +347,16 @@ export function QuoteDraftForm({
     ? jobSites.filter((site) => site.customer_id === customerId)
     : jobSites;
   const quantityValue = Number(quantity);
+  const markupPercentageValue = Number(markupPercentage);
   const recommendation = useMemo(() => {
     if (
       !selectedMaterial ||
       !context.pricingConfig ||
       !Number.isFinite(quantityValue) ||
-      quantityValue <= 0
+      quantityValue <= 0 ||
+      !Number.isFinite(markupPercentageValue) ||
+      markupPercentageValue < 0 ||
+      markupPercentageValue > 500
     ) {
       return null;
     }
@@ -315,7 +387,7 @@ export function QuoteDraftForm({
           routeDistanceMiles: estimatedRouteMiles(material, selectedJobSite),
           truckingProfile: material.trucking_profile,
           paymentTerms,
-          catalogMarkupRule: material.catalog_markup_rule,
+          markupPctOverride: markupPercentageValue,
         }),
       }))
       .sort((left, right) => {
@@ -352,6 +424,7 @@ export function QuoteDraftForm({
     context.vehicleTypes,
     calculationTaxRate,
     quantityValue,
+    markupPercentageValue,
     paymentTerms,
     selectedMaterial,
     selectedJobSite,
@@ -368,7 +441,7 @@ export function QuoteDraftForm({
           id: "current",
           materialId: selectedLineOption.material.id,
           quantity: quantityValue,
-          materialUnitPriceOverride: null,
+          markupPctOverride: markupPercentageValue,
           material: selectedLineOption.material,
           calculation: liveCalculation,
         }
@@ -398,7 +471,7 @@ export function QuoteDraftForm({
                 ),
                 truckingProfile: line.material.trucking_profile,
                 paymentTerms,
-                catalogMarkupRule: line.material.catalog_markup_rule,
+                markupPctOverride: line.markupPctOverride,
               }),
             }
           : line,
@@ -418,7 +491,7 @@ export function QuoteDraftForm({
     submitLines.map((line) => ({
       materialId: line.materialId,
       quantity: line.quantity,
-      materialUnitPriceOverride: line.materialUnitPriceOverride,
+      markupPctOverride: line.markupPctOverride,
     })),
   );
   const draftTotals = calculateLineTotals(submitLines);
@@ -525,6 +598,33 @@ export function QuoteDraftForm({
     ) {
       clearSelectedJobSite();
     }
+  }
+
+  function handleCrmCustomerSelection(remoteCustomer: RemoteCrmCustomer) {
+    if (!remoteCrmSearch) return;
+    setCustomerFeedback(null);
+    startImportingCrmCustomer(async () => {
+      const response = await fetch("/api/customers/crm-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: remoteCrmSearch.provider,
+          externalId: remoteCustomer.externalId,
+        }),
+      });
+      const payload: unknown = await response.json();
+      const localCustomer = readCreatedQuoteCustomer(payload);
+      if (!response.ok || !localCustomer) {
+        setCustomerFeedback(readApiError(payload) || "Could not add the CRM customer to QuoteBase.");
+        return;
+      }
+      setCustomers((current) => [localCustomer, ...current.filter((customer) => customer.id !== localCustomer.id)]);
+      setCustomerId(localCustomer.id);
+      setCustomerSearch(customerDisplayLabel(localCustomer));
+      setPaymentTerms(localCustomer.payment_terms ?? "COD");
+      setRemoteCrmSearch(null);
+      setIsCustomerPickerOpen(false);
+    });
   }
 
   function handleCreateCustomer(event: FormEvent<HTMLFormElement>) {
@@ -649,7 +749,7 @@ export function QuoteDraftForm({
             : `${Date.now()}-${lines.length}`,
         materialId: option.material.id,
         quantity: quantityValue,
-        materialUnitPriceOverride: null,
+        markupPctOverride: markupPercentageValue,
         material: option.material,
         calculation: option.calculation,
       },
@@ -799,7 +899,7 @@ export function QuoteDraftForm({
                 </div>
                 {isCustomerPickerOpen ? (
                   <div id="quote-customer-options" role="listbox" className="absolute z-40 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl">
-                    {filteredCustomers.length ? filteredCustomers.map((customer) => (
+                    {filteredCustomers.map((customer) => (
                       <button
                         key={customer.id}
                         type="button"
@@ -817,9 +917,28 @@ export function QuoteDraftForm({
                         </span>
                         {customer.id === customerId ? <Check className="size-4 text-primary" /> : null}
                       </button>
-                    )) : (
+                    ))}
+                    {remoteCrmCustomers.map((customer) => (
+                      <button
+                        key={`${remoteCrmSearch?.provider}:${customer.externalId}`}
+                        type="button"
+                        role="option"
+                        aria-selected={false}
+                        disabled={isImportingCrmCustomer}
+                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-secondary disabled:opacity-60"
+                        onClick={() => handleCrmCustomerSelection(customer)}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">{customer.companyName ?? customer.name}{customer.contactName && customer.contactName !== (customer.companyName ?? customer.name) ? ` - ${customer.contactName}` : ""}</span>
+                          <span className="block truncate text-xs text-muted-foreground">{remoteCrmSearch ? crmProviderLabel(remoteCrmSearch.provider) : "CRM"} · CRM result{customer.email ? ` · ${customer.email}` : ""}</span>
+                        </span>
+                        <Plus className="size-4 text-primary" />
+                      </button>
+                    ))}
+                    {isSearchingCrm ? <p className="px-3 py-2 text-xs text-muted-foreground">Searching the enabled CRM…</p> : null}
+                    {!filteredCustomers.length && !remoteCrmCustomers.length && !isSearchingCrm ? (
                       <p className="px-3 py-5 text-center text-sm text-muted-foreground">No matching customers in QuoteBase or configured CRMs.</p>
-                    )}
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -1281,6 +1400,25 @@ export function QuoteDraftForm({
                 aria-invalid={Boolean(state.fieldErrors.quantity)}
               />
             </Field>
+            <Field label="Material markup" required>
+              <div className="soft-input">
+                <input
+                  name="markup_pct_override"
+                  type="number"
+                  min="0"
+                  max="500"
+                  step="0.01"
+                  className="min-w-0 flex-1 bg-transparent font-mono text-sm outline-none"
+                  value={markupPercentage}
+                  onChange={(event) => setMarkupPercentage(event.target.value)}
+                  required
+                />
+                <span className="text-sm text-muted-foreground">%</span>
+              </div>
+              <span className="mt-2 block text-xs text-muted-foreground">
+                Default: {context.pricingConfig?.default_material_markup_pct ?? 25}% · Customer unit price updates automatically.
+              </span>
+            </Field>
             {recommendation && selectedMaterial ? (
               <SupplierSourcingTable
                 recommendation={recommendation}
@@ -1368,11 +1506,9 @@ export function QuoteDraftForm({
                     unit={selectedMaterial.unit}
                   />
                   <RuleCard
-                    tier={selectedMaterial.tier}
                     markupPct={liveCalculation.markupPct}
                     markupPerUnit={liveCalculation.markupPerUnit}
                     markupSource={liveCalculation.markupSource}
-                    markupRule={selectedMaterial.catalog_markup_rule}
                     pricingConfig={context.pricingConfig}
                   />
                 </>
@@ -1626,7 +1762,7 @@ function QuoteLinesTable({
       <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 bg-muted/70 px-4 py-3 text-xs font-semibold text-muted-foreground">
         <span>Quote lines</span>
         <span className="text-right">Qty</span>
-        <span className="text-right">Margin</span>
+        <span className="text-right">Markup</span>
         <span className="text-right">Total</span>
       </div>
       <div className="divide-y divide-border">
@@ -1661,9 +1797,7 @@ function QuoteLinesTable({
               {line.quantity} {line.material.unit}
             </span>
             <span className="font-mono text-xs">
-              {line.calculation.grossMarginPct === null
-                ? "--"
-                : `${line.calculation.grossMarginPct.toFixed(1)}%`}
+              {line.calculation.markupPct.toFixed(2)}%
             </span>
             <div className="flex items-center justify-end gap-2">
               <span className="font-mono text-xs font-semibold">
@@ -1955,51 +2089,24 @@ function RecommendationCard({
 }
 
 function RuleCard({
-  tier,
   markupPct,
   markupPerUnit,
   markupSource,
-  markupRule,
   pricingConfig,
 }: {
-  tier: NewQuoteContext["materials"][number]["tier"];
   markupPct: number;
   markupPerUnit: number;
   markupSource: QuoteDraftCalculation["markupSource"];
-  markupRule: CatalogMarkupRule | null;
   pricingConfig: NewQuoteContext["pricingConfig"];
 }) {
-  const range = pricingConfig ? tierRange(tier, pricingConfig) : null;
-  const ruleLabel =
-    markupSource === "catalog" && markupRule
-      ? formatCatalogRuleLabel(markupRule)
-      : null;
-
   return (
     <div className="soft-row p-4">
       <p className="text-sm font-semibold">Pricing rules applied</p>
       <div className="mt-3 grid gap-2">
         <MiniMetric
-          label={markupSource === "catalog" ? "Price book markup" : `${tier} dollar markup`}
-          value={
-            ruleLabel
-              ? `${formatCurrency(markupPerUnit)} / unit from ${ruleLabel}`
-              : range
-              ? `${formatCurrency(markupPerUnit)} / unit from ${formatCurrency(
-                  range[0],
-                )}-${formatCurrency(
-                  range[1],
-                )} / unit range`
-              : `${formatCurrency(markupPct)} / unit`
-          }
+          label={markupSource === "quote_override" ? "Quote markup override" : "Default material markup"}
+          value={`${markupPct.toFixed(2)}% · ${formatCurrency(markupPerUnit)} / unit`}
         />
-        {markupRule?.margin_floor_pct !== null &&
-        markupRule?.margin_floor_pct !== undefined ? (
-          <MiniMetric
-            label="Margin floor"
-            value={`${Number(markupRule.margin_floor_pct).toFixed(1)}%`}
-          />
-        ) : null}
         {pricingConfig ? (
           <>
             <MiniMetric
@@ -2160,35 +2267,6 @@ function SummaryRow({
   );
 }
 
-function tierRange(
-  tier: NewQuoteContext["materials"][number]["tier"],
-  pricingConfig: NonNullable<NewQuoteContext["pricingConfig"]>,
-): [number, number] | null {
-  const ranges = {
-    R1: [pricingConfig.tier_r1_min, pricingConfig.tier_r1_max],
-    R2: [pricingConfig.tier_r2_min, pricingConfig.tier_r2_max],
-    R3: [pricingConfig.tier_r3_min, pricingConfig.tier_r3_max],
-    R4: [pricingConfig.tier_r4_min, pricingConfig.tier_r4_max],
-  } satisfies Record<NewQuoteContext["materials"][number]["tier"], [number, number]>;
-
-  return ranges[tier];
-}
-
-function formatCatalogRuleLabel(rule: CatalogMarkupRule): string {
-  const value =
-    rule.markup_type === "percent"
-      ? `${rule.markup_value}% markup`
-      : `${formatCurrency(rule.markup_value)} / unit`;
-  const scope =
-    rule.scope === "item"
-      ? "item rule"
-      : rule.scope === "category"
-        ? "category rule"
-        : "global rule";
-
-  return `${value} ${scope}`;
-}
-
 function calculateLineTotals(lines: QuoteLineDraft[]) {
   return lines.reduce(
     (sum, line) => ({
@@ -2251,6 +2329,9 @@ function readCreatedQuoteCustomer(payload: unknown): NewQuoteContext["customers"
   if (!isRecord(payload) || !isRecord(payload.data) || !isRecord(payload.data.customer)) return null;
   const customer = payload.data.customer;
   if (typeof customer.id !== "string" || typeof customer.name !== "string") return null;
+  const crmProvider = ["quotebase", "pipedrive", "salesforce", "hubspot", "zoho"].includes(String(customer.crm_provider))
+    ? customer.crm_provider as NewQuoteContext["customers"][number]["crm_provider"]
+    : "quotebase";
   return {
     id: customer.id,
     name: customer.name,
@@ -2260,7 +2341,7 @@ function readCreatedQuoteCustomer(payload: unknown): NewQuoteContext["customers"
     email: typeof customer.email === "string" ? customer.email : null,
     address: isRecord(customer.address) ? customer.address : {},
     payment_terms: typeof customer.payment_terms === "string" ? customer.payment_terms : "COD",
-    crm_provider: "quotebase",
+    crm_provider: crmProvider,
     quote_history: [],
   };
 }

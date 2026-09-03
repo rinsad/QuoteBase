@@ -7,14 +7,7 @@ export type QuoteProjectStatusOption = {
 };
 
 export type PricingConfig = {
-  tier_r1_min: number;
-  tier_r1_max: number;
-  tier_r2_min: number;
-  tier_r2_max: number;
-  tier_r3_min: number;
-  tier_r3_max: number;
-  tier_r4_min: number;
-  tier_r4_max: number;
+  default_material_markup_pct: number;
   truck_floor_rate: number;
   truck_standard_rate: number;
   truck_target_rate: number;
@@ -85,6 +78,7 @@ export type QuoteDraftCalculationInput = {
   deadheadDurationSeconds?: number | null;
   truckingProfile?: TruckingProfile | null;
   materialUnitPriceOverride?: number | null;
+  markupPctOverride?: number | null;
   truckRateOverride?: TruckRateKey | null;
   materialMinimumOverride?: number | null;
   truckingMinimumOverride?: number | null;
@@ -97,7 +91,7 @@ export type QuoteDraftCalculationInput = {
 export type QuoteDraftCalculation = {
   markupPerUnit: number;
   markupPct: number;
-  markupSource: "tier" | "catalog";
+  markupSource: "default" | "quote_override";
   markupRuleId: string | null;
   materialUnitPrice: number;
   materialSubtotal: number;
@@ -125,7 +119,6 @@ export type QuoteDraftCalculation = {
 export function calculateQuoteDraft({
   costPerUnit,
   quantity,
-  tier,
   unit,
   taxRate,
   pricingConfig,
@@ -136,19 +129,19 @@ export function calculateQuoteDraft({
   deadheadDurationSeconds = null,
   truckingProfile = null,
   materialUnitPriceOverride = null,
+  markupPctOverride = null,
   truckRateOverride = null,
   materialMinimumOverride = null,
   truckingMinimumOverride = null,
   applyMaterialMinimum = true,
   paymentTerms = null,
   applyCreditCardSurcharge = true,
-  catalogMarkupRule = null,
 }: QuoteDraftCalculationInput): QuoteDraftCalculation {
-  const catalogMarkupPerUnit = catalogMarkupRule
-    ? getCatalogMarkupPerUnit(costPerUnit, catalogMarkupRule)
-    : null;
-  const markupPerUnit =
-    catalogMarkupPerUnit ?? getTierMarkupPerUnit(tier, pricingConfig);
+  const effectiveMarkupPct = markupPctOverride !== null && Number.isFinite(markupPctOverride)
+    ? Math.max(0, markupPctOverride)
+    : pricingConfig.default_material_markup_pct;
+  const isMarkupOverride = markupPctOverride !== null && effectiveMarkupPct !== pricingConfig.default_material_markup_pct;
+  const markupPerUnit = costPerUnit * (effectiveMarkupPct / 100);
   const truckRateKey = getTruckRateKey(pricingConfig, truckRateOverride);
   const truckHourlyRate = getTruckHourlyRate(pricingConfig, truckRateKey);
   const unitConversion = resolveUnitConversion(unit, unitConversions);
@@ -174,15 +167,8 @@ export function calculateQuoteDraft({
     materialSubtotal > 0
       ? ((materialSubtotal - costPerUnit * quantity) / materialSubtotal) * 100
       : null;
-  const marginFloorPct =
-    catalogMarkupRule?.margin_floor_pct === null ||
-    catalogMarkupRule?.margin_floor_pct === undefined
-      ? null
-      : Number(catalogMarkupRule.margin_floor_pct);
-  const marginFloorWarning =
-    grossMarginPct !== null &&
-    marginFloorPct !== null &&
-    grossMarginPct < marginFloorPct;
+  const marginFloorPct = null;
+  const marginFloorWarning = false;
   const vehiclePlan = chooseVehiclePlan({
     quantity,
     unitConversion,
@@ -233,10 +219,9 @@ export function calculateQuoteDraft({
 
   return {
     markupPerUnit: roundMoney(markupPerUnit),
-    // Legacy field name retained for older quote_items rows/API clients.
-    markupPct: roundMoney(markupPerUnit),
-    markupSource: catalogMarkupRule ? "catalog" : "tier",
-    markupRuleId: catalogMarkupRule?.id ?? null,
+    markupPct: roundMoney(effectiveMarkupPct),
+    markupSource: isMarkupOverride ? "quote_override" : "default",
+    markupRuleId: null,
     materialUnitPrice: roundMoney(materialUnitPrice),
     materialSubtotal: roundMoney(materialSubtotal),
     grossMarginPct:
@@ -323,33 +308,6 @@ export function normalizeCatalogMarkupRules(
         rule.markup_value >= 0 &&
         isRuleEffective(rule, today),
     );
-}
-
-function getTierMarkupPerUnit(
-  tier: MaterialTier,
-  pricingConfig: PricingConfig,
-): number {
-  const tiers = {
-    R1: [pricingConfig.tier_r1_min, pricingConfig.tier_r1_max],
-    R2: [pricingConfig.tier_r2_min, pricingConfig.tier_r2_max],
-    R3: [pricingConfig.tier_r3_min, pricingConfig.tier_r3_max],
-    R4: [pricingConfig.tier_r4_min, pricingConfig.tier_r4_max],
-  } satisfies Record<MaterialTier, [number, number]>;
-
-  const [min, max] = tiers[tier];
-
-  return (min + max) / 2;
-}
-
-function getCatalogMarkupPerUnit(
-  costPerUnit: number,
-  rule: CatalogMarkupRule,
-): number {
-  if (rule.markup_type === "percent") {
-    return costPerUnit * (rule.markup_value / 100);
-  }
-
-  return rule.markup_value;
 }
 
 function getRuleSpecificity({

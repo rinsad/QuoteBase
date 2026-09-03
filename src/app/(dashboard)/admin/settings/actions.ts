@@ -9,9 +9,11 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { createClient } from "@/lib/supabase/server";
 
 const tenantSettingsSchema = z.object({
+  default_material_markup_pct: z.coerce.number().min(0).max(500),
   big_quote_threshold: z.coerce.number().positive(),
   jobs_starting_soon_days: z.coerce.number().int().min(1).max(120),
   default_followup_max_attempts: z.coerce.number().int().min(1).max(5),
+  quote_recommendation_count: z.coerce.number().int().min(3).max(5),
 });
 
 export async function updateTenantSettings(formData: FormData): Promise<void> {
@@ -26,11 +28,13 @@ export async function updateTenantSettings(formData: FormData): Promise<void> {
   }
 
   const parsed = tenantSettingsSchema.safeParse({
+    default_material_markup_pct: formData.get("default_material_markup_pct"),
     big_quote_threshold: formData.get("big_quote_threshold"),
     jobs_starting_soon_days: formData.get("jobs_starting_soon_days"),
     default_followup_max_attempts: formData.get(
       "default_followup_max_attempts",
     ),
+    quote_recommendation_count: formData.get("quote_recommendation_count"),
   });
 
   if (!parsed.success) {
@@ -48,7 +52,7 @@ export async function updateTenantSettings(formData: FormData): Promise<void> {
   const { data: before, error: beforeError } = await supabase
     .from("pricing_config")
     .select(
-      "id, big_quote_threshold, jobs_starting_soon_days, default_followup_max_attempts",
+      "id, default_material_markup_pct, big_quote_threshold, jobs_starting_soon_days, default_followup_max_attempts, quote_recommendation_count",
     )
     .eq("organization_id", user.organization_id)
     .maybeSingle<Record<string, unknown>>();
@@ -65,7 +69,7 @@ export async function updateTenantSettings(formData: FormData): Promise<void> {
     })
     .eq("organization_id", user.organization_id)
     .select(
-      "id, big_quote_threshold, jobs_starting_soon_days, default_followup_max_attempts",
+      "id, default_material_markup_pct, big_quote_threshold, jobs_starting_soon_days, default_followup_max_attempts, quote_recommendation_count",
     )
     .single<Record<string, unknown>>();
 
@@ -78,13 +82,14 @@ export async function updateTenantSettings(formData: FormData): Promise<void> {
     action: "tenant_settings.updated",
     targetTable: "pricing_config",
     targetId: typeof after.id === "string" ? after.id : undefined,
-    before,
-    after,
+    before: { settings: before },
+    after: { settings: after },
     supabase,
   });
 
   revalidatePath("/admin/settings");
   revalidatePath("/admin/pricing");
+  revalidatePath("/admin/trucking-profiles");
   revalidatePath("/dashboard");
   revalidatePath("/quotes");
   redirect("/admin/settings?saved=1");

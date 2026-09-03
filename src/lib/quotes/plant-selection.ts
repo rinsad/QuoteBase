@@ -73,8 +73,7 @@ type YardRecord = {
 
 type TruckingProfileAssignment = {
   trucking_profile_id: string;
-  supplier_id: string | null;
-  plant_id: string | null;
+  material_id: string;
 };
 
 
@@ -90,6 +89,7 @@ export async function selectBestPlantForQuote({
   unitConversions = [],
   useRequestedPlant = false,
   materialUnitPriceOverride = null,
+  markupPctOverride = null,
   truckRateOverride = null,
   materialMinimumOverride = null,
   truckingMinimumOverride = null,
@@ -110,6 +110,7 @@ export async function selectBestPlantForQuote({
   unitConversions?: QuoteUnitConversion[];
   useRequestedPlant?: boolean;
   materialUnitPriceOverride?: number | null;
+  markupPctOverride?: number | null;
   truckRateOverride?: TruckRateKey | null;
   materialMinimumOverride?: number | null;
   truckingMinimumOverride?: number | null;
@@ -163,8 +164,9 @@ export async function selectBestPlantForQuote({
       .eq("is_active", true),
     supabase
       .from("trucking_profile_assignments")
-      .select("trucking_profile_id, supplier_id, plant_id")
+      .select("trucking_profile_id, material_id")
       .eq("organization_id", organizationId)
+      .not("material_id", "is", null)
       .eq("is_active", true)
       .returns<TruckingProfileAssignment[]>(),
   ]);
@@ -200,10 +202,7 @@ export async function selectBestPlantForQuote({
         manualDeadheadDistanceMiles,
         catalogMarkupRules,
         truckingProfile: resolveTruckingProfile({
-          plantId:
-            relationOne(material.supplier_plants)?.id ?? material.supplier_id,
-          supplierId:
-            relationOne(material.supplier_plants)?.supplier_id ?? null,
+          materialId: material.id,
           profiles: truckingProfiles,
           assignments: truckingAssignmentsResult.data ?? [],
         }),
@@ -227,6 +226,7 @@ export async function selectBestPlantForQuote({
       vehicleTypes,
       unitConversions,
       materialUnitPriceOverride,
+      markupPctOverride,
       truckRateOverride,
       materialMinimumOverride,
       truckingMinimumOverride,
@@ -243,6 +243,7 @@ export async function selectBestPlantForQuote({
     vehicleTypes,
     unitConversions,
     materialUnitPriceOverride,
+    markupPctOverride,
     truckRateOverride,
     materialMinimumOverride,
     truckingMinimumOverride,
@@ -367,6 +368,7 @@ function applyMaterialUnitPriceOverride({
   vehicleTypes,
   unitConversions,
   materialUnitPriceOverride,
+  markupPctOverride,
   truckRateOverride,
   materialMinimumOverride,
   truckingMinimumOverride,
@@ -380,6 +382,7 @@ function applyMaterialUnitPriceOverride({
   vehicleTypes: VehicleCapacity[];
   unitConversions: QuoteUnitConversion[];
   materialUnitPriceOverride: number | null;
+  markupPctOverride: number | null;
   truckRateOverride: TruckRateKey | null;
   materialMinimumOverride: number | null;
   truckingMinimumOverride: number | null;
@@ -388,6 +391,7 @@ function applyMaterialUnitPriceOverride({
 }): PlantRecommendation {
   if (
     materialUnitPriceOverride === null &&
+    markupPctOverride === null &&
     truckRateOverride === null &&
     materialMinimumOverride === null &&
     truckingMinimumOverride === null
@@ -412,6 +416,7 @@ function applyMaterialUnitPriceOverride({
         recommendation.deadheadDistance?.durationSeconds ?? null,
       truckingProfile: recommendation.truckingProfile,
       materialUnitPriceOverride,
+      markupPctOverride,
       truckRateOverride,
       materialMinimumOverride,
       truckingMinimumOverride,
@@ -425,24 +430,17 @@ function applyMaterialUnitPriceOverride({
 }
 
 function resolveTruckingProfile({
-  plantId,
-  supplierId,
+  materialId,
   profiles,
   assignments,
 }: {
-  plantId: string;
-  supplierId: string | null;
+  materialId: string;
   profiles: Map<string, TruckingProfile>;
   assignments: TruckingProfileAssignment[];
 }): TruckingProfile | null {
-  const assignment =
-    assignments.find((candidate) => candidate.plant_id === plantId) ??
-    assignments.find(
-      (candidate) => supplierId !== null && candidate.supplier_id === supplierId,
-    ) ??
-    assignments.find(
-      (candidate) => candidate.plant_id === null && candidate.supplier_id === null,
-    );
+  const assignment = assignments.find(
+    (candidate) => candidate.material_id === materialId,
+  );
 
   return assignment ? profiles.get(assignment.trucking_profile_id) ?? null : null;
 }

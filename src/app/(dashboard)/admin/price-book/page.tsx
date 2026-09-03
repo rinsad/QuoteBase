@@ -1,9 +1,7 @@
 import { redirect } from "next/navigation";
 import { FileUp, Save } from "lucide-react";
 
-import {
-  confirmSupplierPriceBookMapping,
-} from "@/app/(dashboard)/admin/price-book/actions";
+import { confirmSupplierPriceBookMapping } from "@/app/(dashboard)/admin/price-book/actions";
 import { MaterialPdfUploadForm } from "@/app/(dashboard)/admin/price-book/material-pdf-upload-form";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
@@ -13,23 +11,30 @@ import {
   type PriceBookSupplier,
   type SupplierPriceImport,
 } from "@/lib/admin/price-book";
+import {
+  getAdminTruckingProfiles,
+  type AdminTruckingProfile,
+} from "@/lib/admin/trucking-profiles";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
 const requiredFields = [
   {
     key: "description",
     label: "Material",
-    helper: "QuoteBase uses the material name as the identifier for matching imported rows.",
+    helper:
+      "QuoteBase uses the material name as the identifier for matching imported rows.",
   },
   {
     key: "uom",
     label: "Unit of Measure",
-    helper: "Tenant unit such as ton, cubic yard, load, each, or an approved alias.",
+    helper:
+      "Tenant unit such as ton, cubic yard, load, each, or an approved alias.",
   },
   {
     key: "cost",
     label: "Material Price",
-    helper: "The primary material cost QuoteBase will use when pricing this material.",
+    helper:
+      "The primary material cost QuoteBase will use when pricing this material.",
   },
 ] as const;
 
@@ -37,7 +42,8 @@ const optionalFields = [
   {
     key: "per_ton",
     label: "Per Unit",
-    helper: "Per-unit value from the supplier PDF, such as per ton or delivered unit price.",
+    helper:
+      "Per-unit value from the supplier PDF, such as per ton or delivered unit price.",
   },
   {
     key: "surcharge_per_load",
@@ -80,21 +86,25 @@ export default async function AdminPriceBookPage({
   }
 
   const selectedPlantId = params.plant ?? params.supplier;
-  const [suppliers, imports] = await Promise.all([
+  const [suppliers, imports, truckingProfileData] = await Promise.all([
     getPriceBookSuppliers(user.organization_id),
     getSupplierPriceImports({
       organizationId: user.organization_id,
       importId: params.import,
       supplierId: selectedPlantId,
     }),
+    getAdminTruckingProfiles(user.organization_id),
   ]);
+  const activeTruckingProfiles = truckingProfileData.profiles.filter(
+    (profile) => profile.isActive,
+  );
   const supplierGroups = groupPlantsBySupplier(suppliers);
   const selectedPlant = suppliers.find(
     (supplier) => supplier.id === selectedPlantId,
   );
   const selectedCompany = selectedPlant
     ? supplierCompanyName(selectedPlant)
-    : params.company ?? "";
+    : (params.company ?? "");
   const uploadError =
     params.error && params.error !== "select-plant" ? params.error : null;
 
@@ -138,7 +148,11 @@ export default async function AdminPriceBookPage({
 
         {imports.selectedImport ? (
           <section className="mt-6">
-            <MappingPanel priceImport={imports.selectedImport} />
+            <MappingPanel
+              priceImport={imports.selectedImport}
+              truckingProfiles={activeTruckingProfiles}
+              canAssignTruckingProfile={user.role === "admin"}
+            />
           </section>
         ) : (
           <section className="mx-auto mt-6 max-w-2xl">
@@ -196,15 +210,20 @@ function groupPlantsBySupplier(suppliers: PriceBookSupplier[]): Array<{
 
 function uploadErrorMessage(code: string): string {
   const messages: Record<string, string> = {
-    "pdf-only": "Upload a PDF material price sheet. Spreadsheet upload is not active here yet.",
+    "pdf-only":
+      "Upload a PDF material price sheet. Spreadsheet upload is not active here yet.",
     "pdf-required": "Choose a material PDF before uploading.",
     "pdf-too-large": "Material PDF uploads are limited to 20 MB.",
-    "plant-mismatch": "The selected plant does not belong to the selected supplier.",
+    "plant-mismatch":
+      "The selected plant does not belong to the selected supplier.",
     "plant-not-found": "Choose an active plant before uploading.",
     "select-supplier": "Choose the supplier/company before uploading.",
   };
 
-  return messages[code] ?? "Could not upload the material PDF. Check the selections and try again.";
+  return (
+    messages[code] ??
+    "Could not upload the material PDF. Check the selections and try again."
+  );
 }
 
 function priceBookPathWithoutError(params: {
@@ -216,7 +235,13 @@ function priceBookPathWithoutError(params: {
 }): string {
   const nextParams = new URLSearchParams();
 
-  for (const key of ["company", "import", "imported", "plant", "supplier"] as const) {
+  for (const key of [
+    "company",
+    "import",
+    "imported",
+    "plant",
+    "supplier",
+  ] as const) {
     if (params[key]) {
       nextParams.set(key, params[key]);
     }
@@ -229,8 +254,12 @@ function priceBookPathWithoutError(params: {
 
 function MappingPanel({
   priceImport,
+  truckingProfiles,
+  canAssignTruckingProfile,
 }: {
   priceImport: SupplierPriceImport | null;
+  truckingProfiles: AdminTruckingProfile[];
+  canAssignTruckingProfile: boolean;
 }) {
   if (!priceImport) {
     return (
@@ -282,6 +311,33 @@ function MappingPanel({
 
       <form action={confirmImportAction} className="mt-5 grid gap-4">
         <input type="hidden" name="import_id" value={priceImport.id} />
+        {canAssignTruckingProfile ? (
+          <label className="grid gap-2 rounded-[18px] border border-border bg-card/70 p-4">
+            <span className="text-sm font-semibold">Trucking profile</span>
+            <span className="text-xs leading-5 text-muted-foreground">
+              Assign the selected profile to every material created or updated
+              by this import.
+            </span>
+            <select
+              name="trucking_profile_id"
+              defaultValue=""
+              className="soft-control mt-1 w-full"
+            >
+              <option value="">Do not assign a profile</option>
+              {truckingProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+            {truckingProfiles.length === 0 ? (
+              <span className="text-xs text-amber-700">
+                Create an active trucking profile under Masters before assigning
+                one.
+              </span>
+            ) : null}
+          </label>
+        ) : null}
         <div className="overflow-hidden rounded-[18px] border border-border bg-card/70">
           <div className="grid gap-3 border-b border-border bg-muted/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground sm:grid-cols-[0.95fr_1.05fr]">
             <span>QuoteBase database field</span>
@@ -323,7 +379,6 @@ function MappingPanel({
             : "Import and update materials"}
         </Button>
       </form>
-
     </section>
   );
 }

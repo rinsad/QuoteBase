@@ -140,12 +140,11 @@ type TruckingProfileRecord = {
 
 type TruckingProfileAssignmentRecord = {
   trucking_profile_id: string;
-  supplier_id: string | null;
-  plant_id: string | null;
+  material_id: string;
 };
 
 const BASE_PRICING_SELECT =
-  "tier_r1_min, tier_r1_max, tier_r2_min, tier_r2_max, tier_r3_min, tier_r3_max, tier_r4_min, tier_r4_max, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton";
+  "default_material_markup_pct, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton";
 
 const DEFAULT_PROJECT_STATUS_OPTIONS: QuoteProjectStatusOption[] = [
   { value: "bid", label: "Bid" },
@@ -267,8 +266,9 @@ export async function getNewQuoteContext(
       .returns<TruckingProfileRecord[]>(),
     supabase
       .from("trucking_profile_assignments")
-      .select("trucking_profile_id, supplier_id, plant_id")
+      .select("trucking_profile_id, material_id")
       .eq("organization_id", user.organization_id)
+      .not("material_id", "is", null)
       .eq("is_active", true)
       .returns<TruckingProfileAssignmentRecord[]>(),
   ]);
@@ -313,7 +313,6 @@ export async function getNewQuoteContext(
           pricingConfig,
           vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
           unitConversions,
-          catalogMarkupRule: resolveCatalogMarkupRule(firstMaterial, markupRules),
         })
       : null;
 
@@ -371,8 +370,7 @@ export async function getNewQuoteContext(
           unit: material.unit,
           cost_per_unit: Number(material.cost_per_unit),
           trucking_profile: resolveMaterialTruckingProfile({
-            plantId: plant?.id ?? material.supplier_id,
-            supplierId: supplier?.id ?? null,
+            materialId: material.id,
             profiles: truckingProfiles,
             assignments: truckingAssignmentsResult.data ?? [],
           }),
@@ -395,24 +393,17 @@ export async function getNewQuoteContext(
 }
 
 function resolveMaterialTruckingProfile({
-  plantId,
-  supplierId,
+  materialId,
   profiles,
   assignments,
 }: {
-  plantId: string;
-  supplierId: string | null;
+  materialId: string;
   profiles: Map<string, TruckingProfile>;
   assignments: TruckingProfileAssignmentRecord[];
 }): TruckingProfile | null {
-  const assignment =
-    assignments.find((candidate) => candidate.plant_id === plantId) ??
-    assignments.find(
-      (candidate) => supplierId !== null && candidate.supplier_id === supplierId,
-    ) ??
-    assignments.find(
-      (candidate) => candidate.plant_id === null && candidate.supplier_id === null,
-    );
+  const assignment = assignments.find(
+    (candidate) => candidate.material_id === materialId,
+  );
 
   return assignment ? profiles.get(assignment.trucking_profile_id) ?? null : null;
 }
@@ -473,14 +464,7 @@ async function getQuotePricingConfig(
 
 export function normalizePricingConfig(config: PricingConfig): PricingConfig {
   return {
-    tier_r1_min: Number(config.tier_r1_min),
-    tier_r1_max: Number(config.tier_r1_max),
-    tier_r2_min: Number(config.tier_r2_min),
-    tier_r2_max: Number(config.tier_r2_max),
-    tier_r3_min: Number(config.tier_r3_min),
-    tier_r3_max: Number(config.tier_r3_max),
-    tier_r4_min: Number(config.tier_r4_min),
-    tier_r4_max: Number(config.tier_r4_max),
+    default_material_markup_pct: Number(config.default_material_markup_pct),
     truck_floor_rate: Number(config.truck_floor_rate),
     truck_standard_rate: Number(config.truck_standard_rate),
     truck_target_rate: Number(config.truck_target_rate),

@@ -13,67 +13,51 @@ const UUID_PATTERN =
 export async function saveTruckingProfile(formData: FormData): Promise<void> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role !== "admin") throw new Error("Only admins can manage trucking profiles.");
+  if (user.role !== "admin") {
+    throw new Error("Only admins can manage trucking profiles.");
+  }
 
   const supabase = await createClient();
-  if (!supabase) throw new Error("Supabase is not configured for this workspace.");
+  if (!supabase) {
+    throw new Error("Supabase is not configured for this workspace.");
+  }
 
   const profileId = optionalUuid(formData, "profile_id");
-  const { scope, targetId } = requiredAssignment(formData);
   const payload = {
     organization_id: user.organization_id,
     name: requiredText(formData, "name"),
     average_speed_mph: requiredPositiveNumber(formData, "average_speed_mph", 100),
     hourly_rate: requiredNonNegativeNumber(formData, "hourly_rate", 10000),
     round_trip_factor: requiredPositiveNumber(formData, "round_trip_factor", 10),
+    time_adjustment_bands: readTimeAdjustmentBands(formData),
     is_active: true,
   };
 
-  await validateAssignmentTarget({ supabase, organizationId: user.organization_id, scope, targetId });
-
   const { data: before } = profileId
-    ? await supabase.from("trucking_profiles").select("*")
-        .eq("organization_id", user.organization_id).eq("id", profileId)
+    ? await supabase
+        .from("trucking_profiles")
+        .select("*")
+        .eq("organization_id", user.organization_id)
+        .eq("id", profileId)
         .maybeSingle<Record<string, unknown>>()
     : { data: null };
+
   const profileQuery = profileId
-    ? supabase.from("trucking_profiles").update(payload)
-        .eq("organization_id", user.organization_id).eq("id", profileId)
+    ? supabase
+        .from("trucking_profiles")
+        .update(payload)
+        .eq("organization_id", user.organization_id)
+        .eq("id", profileId)
     : supabase.from("trucking_profiles").insert(payload);
-  const { data: profile, error: profileError } = await profileQuery
-    .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, is_active")
+
+  const { data: profile, error } = await profileQuery
+    .select(
+      "id, name, average_speed_mph, hourly_rate, round_trip_factor, time_adjustment_bands, is_active",
+    )
     .single<Record<string, unknown>>();
-  if (profileError || typeof profile?.id !== "string") {
-    throw new Error(profileError?.message ?? "Could not save trucking profile.");
-  }
 
-  const assignmentMatch = assignmentColumns(scope, targetId);
-  let existingQuery = supabase.from("trucking_profile_assignments").select("*")
-    .eq("organization_id", user.organization_id).eq("is_active", true);
-  existingQuery = assignmentMatch.supplier_id
-    ? existingQuery.eq("supplier_id", assignmentMatch.supplier_id).is("plant_id", null)
-    : existingQuery.is("supplier_id", null);
-  existingQuery = assignmentMatch.plant_id
-    ? existingQuery.eq("plant_id", assignmentMatch.plant_id)
-    : existingQuery.is("plant_id", null);
-  const { data: previousAssignments, error: previousAssignmentsError } = await existingQuery;
-  if (previousAssignmentsError) throw new Error(previousAssignmentsError.message);
-
-  if ((previousAssignments ?? []).length) {
-    const assignmentIds = (previousAssignments ?? []).map((assignment) => assignment.id);
-    const { error } = await supabase.from("trucking_profile_assignments")
-      .update({ is_active: false }).eq("organization_id", user.organization_id)
-      .in("id", assignmentIds);
-    if (error) throw new Error(error.message);
-  }
-
-  const { data: assignment, error: assignmentError } = await supabase
-    .from("trucking_profile_assignments")
-    .insert({ organization_id: user.organization_id, trucking_profile_id: profile.id, ...assignmentMatch })
-    .select("id, trucking_profile_id, supplier_id, plant_id, is_active")
-    .single<Record<string, unknown>>();
-  if (assignmentError || !assignment) {
-    throw new Error(assignmentError?.message ?? "Could not assign trucking profile.");
+  if (error || typeof profile?.id !== "string") {
+    throw new Error(error?.message ?? "Could not save trucking profile.");
   }
 
   await logAction({
@@ -81,51 +65,42 @@ export async function saveTruckingProfile(formData: FormData): Promise<void> {
     action: profileId ? "trucking_profile.updated" : "trucking_profile.created",
     targetTable: "trucking_profiles",
     targetId: profile.id,
-    before: { profile: before, assignments: previousAssignments ?? [] },
-    after: { profile, assignment },
+    before,
+    after: profile,
+    supabase,
   });
 
   revalidatePath("/admin/trucking-profiles");
-  revalidatePath("/admin/pricing");
+  revalidatePath("/admin/material-prices");
   revalidatePath("/quotes/new");
   redirect("/admin/trucking-profiles?saved=1");
 }
 
-function assignmentColumns(scope: "tenant" | "supplier" | "plant", targetId: string | null) {
-  return { supplier_id: scope === "supplier" ? targetId : null, plant_id: scope === "plant" ? targetId : null };
-}
-
-async function validateAssignmentTarget({ supabase, organizationId, scope, targetId }: {
-  supabase: NonNullable<Awaited<ReturnType<typeof createClient>>>;
-  organizationId: string;
-  scope: "tenant" | "supplier" | "plant";
-  targetId: string | null;
-}): Promise<void> {
-  if (scope === "tenant") return;
-  const table = scope === "supplier" ? "suppliers" : "supplier_plants";
-  const { data } = await supabase.from(table).select("id")
-    .eq("organization_id", organizationId).eq("id", targetId).eq("is_active", true)
-    .maybeSingle<{ id: string }>();
-  if (!data) throw new Error(`The selected ${scope} is not available to this tenant.`);
-}
-
-function requiredAssignment(formData: FormData): {
-  scope: "tenant" | "supplier" | "plant";
-  targetId: string | null;
-} {
-  const value = formData.get("assignment");
-  if (value === "tenant") return { scope: "tenant", targetId: null };
-  if (typeof value !== "string") throw new Error("Assignment is required.");
-  const [scope, targetId] = value.split(":");
-  if ((scope !== "supplier" && scope !== "plant") || !targetId) {
-    throw new Error("Assignment is invalid.");
-  }
-  return { scope, targetId: validateUuid(targetId, "assignment") };
+function readTimeAdjustmentBands(
+  formData: FormData,
+): Array<{ under_miles: number; hours: number }> {
+  return [0, 1, 2]
+    .map((index) => ({
+      under_miles: requiredPositiveNumber(
+        formData,
+        "band_" + index + "_under_miles",
+        1000,
+      ),
+      hours: requiredNonNegativeNumber(
+        formData,
+        "band_" + index + "_hours",
+        24,
+      ),
+    }))
+    .sort((left, right) => left.under_miles - right.under_miles);
 }
 
 function requiredText(formData: FormData, key: string): string {
   const value = formData.get(key);
-  if (typeof value !== "string" || !value.trim()) throw new Error(`${key} is required.`);
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(key + " is required.");
+  }
+
   return value.trim().slice(0, 120);
 }
 
@@ -135,19 +110,37 @@ function optionalUuid(formData: FormData, key: string): string | null {
 }
 
 function validateUuid(value: string, key: string): string {
-  if (!UUID_PATTERN.test(value)) throw new Error(`${key} is invalid.`);
+  if (!UUID_PATTERN.test(value)) {
+    throw new Error(key + " is invalid.");
+  }
+
   return value;
 }
 
-function requiredPositiveNumber(formData: FormData, key: string, maximum: number): number {
+function requiredPositiveNumber(
+  formData: FormData,
+  key: string,
+  maximum: number,
+): number {
   const value = requiredNonNegativeNumber(formData, key, maximum);
-  if (value <= 0) throw new Error(`${key} must be greater than zero.`);
+  if (value <= 0) {
+    throw new Error(key + " must be greater than zero.");
+  }
+
   return value;
 }
 
-function requiredNonNegativeNumber(formData: FormData, key: string, maximum: number): number {
+function requiredNonNegativeNumber(
+  formData: FormData,
+  key: string,
+  maximum: number,
+): number {
   const rawValue = formData.get(key);
   const value = typeof rawValue === "string" ? Number(rawValue) : NaN;
-  if (!Number.isFinite(value) || value < 0 || value > maximum) throw new Error(`${key} must be between 0 and ${maximum}.`);
+
+  if (!Number.isFinite(value) || value < 0 || value > maximum) {
+    throw new Error(key + " must be between 0 and " + maximum + ".");
+  }
+
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }

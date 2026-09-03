@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { Save, Settings2 } from "lucide-react";
+import Link from "next/link";
+import { Save, Settings2, Truck } from "lucide-react";
 
 import { updateTenantSettings } from "@/app/(dashboard)/admin/settings/actions";
 import { AdminNav } from "@/components/app-nav";
@@ -70,14 +71,14 @@ export default async function AdminSettingsPage({
                 Tenant configuration
               </p>
               <h2 className="accent-title text-3xl font-semibold tracking-normal">
-                Quote and dashboard rules
+                Organization settings
               </h2>
             </div>
           </div>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">
             These values apply only to{" "}
             {user.organization?.name ?? "this organization"} and control quote
-            follow-up behavior and dashboard highlighting.
+            follow-up behavior, quote recommendations, and trucking profiles.
           </p>
         </section>
 
@@ -113,6 +114,63 @@ export default async function AdminSettingsPage({
               suffix="attempts"
             />
           </div>
+          <section className="mt-6 border-t border-border pt-6">
+            <div>
+              <h3 className="text-lg font-semibold">Material markup</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Default percentage added to supplier material cost. It can be overridden while creating a quote.
+              </p>
+            </div>
+            <div className="mt-4 max-w-sm">
+              <SettingField
+                name="default_material_markup_pct"
+                label="Default material markup"
+                description="Applied to each new material line unless the quote uses a different percentage."
+                value={settings.default_material_markup_pct}
+                min={0}
+                max={500}
+                step={0.01}
+                suffix="%"
+              />
+            </div>
+          </section>
+          <section className="mt-6 border-t border-border pt-6">
+            <div>
+              <h3 className="text-lg font-semibold">Quote recommendations</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Choose how many ranked supplier and plant options appear while building a quote.
+              </p>
+            </div>
+            <label className="soft-row mt-4 block max-w-sm p-5">
+              <span className="text-sm font-semibold">Best pricing options</span>
+              <select
+                name="quote_recommendation_count"
+                defaultValue={String(settings.quote_recommendation_count ?? 3)}
+                className="soft-control mt-4 w-full"
+                required
+              >
+                <option value="3">3 best options</option>
+                <option value="4">4 best options</option>
+                <option value="5">5 best options</option>
+              </select>
+            </label>
+          </section>
+          <section className="mt-6 border-t border-border pt-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="flex items-center gap-2 text-lg font-semibold">
+                  <Truck className="size-5 text-primary" />
+                  Trucking configuration
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Trucking profiles are assigned directly to individual materials.
+                </p>
+              </div>
+              <Link href="/admin/trucking-profiles" className="mac-link h-10 px-4">
+                Manage trucking profiles
+              </Link>
+            </div>
+          </section>
           <div className="mt-6 flex justify-end">
             <Button type="submit" className="h-11 rounded-full px-6">
               <Save className="size-4" />

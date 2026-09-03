@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 
 import {
   getActiveUnitLookup,
@@ -35,6 +36,9 @@ const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const MAX_IMPORT_ROWS = 5000;
 const PREVIEW_ROWS = 5;
 const PRICE_BOOK_BUCKET = "supplier-price-books";
+const importOptionsSchema = z.object({
+  trucking_profile_id: z.union([z.literal(""), z.string().uuid()]).optional(),
+});
 
 type CsvRow = Record<string, string>;
 type CatalogItemPayload = {
@@ -100,7 +104,11 @@ export async function uploadSupplierPriceBook(formData: FormData) {
   }
 
   const normalizedFormData = normalizeActionFormData(formData);
-  const supplierCompany = optionalText(normalizedFormData, "supplier_company", 160);
+  const supplierCompany = optionalText(
+    normalizedFormData,
+    "supplier_company",
+    160,
+  );
   const plantName = optionalText(normalizedFormData, "plant_name", 160);
   const plantId =
     optionalUploadUuid(normalizedFormData, "plant_id") ??
@@ -218,7 +226,9 @@ export async function uploadSupplierPriceBook(formData: FormData) {
 
   if (error || !priceImport) {
     await supabase.storage.from(PRICE_BOOK_BUCKET).remove([storagePath]);
-    throw new Error(error?.message ?? "Could not create the price book import.");
+    throw new Error(
+      error?.message ?? "Could not create the price book import.",
+    );
   }
 
   await logAction({
@@ -299,7 +309,7 @@ async function findSelectedPlant({
 export async function confirmSupplierPriceBookMapping(
   importIdOrFormData: string | FormData,
   maybeFormData?: FormData,
-) {
+): Promise<void> {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -326,6 +336,20 @@ export async function confirmSupplierPriceBookMapping(
   const normalizedFormData = normalizeActionFormData(formData);
   const importId = resolveImportId(importIdOrFormData, normalizedFormData);
   const mapping = readColumnMapping(normalizedFormData);
+  const importOptions = importOptionsSchema.safeParse({
+    trucking_profile_id:
+      normalizedFormData.get("trucking_profile_id") ?? undefined,
+  });
+
+  if (!importOptions.success) {
+    throw new Error("Select a valid trucking profile.");
+  }
+
+  const truckingProfileId = importOptions.data.trucking_profile_id || null;
+
+  if (truckingProfileId && user.role !== "admin") {
+    throw new Error("Only admins can assign trucking profiles during import.");
+  }
 
   for (const field of REQUIRED_FIELDS) {
     if (!mapping[field]) {
@@ -358,6 +382,27 @@ export async function confirmSupplierPriceBookMapping(
     throw new Error(importError?.message ?? "Price book import was not found.");
   }
 
+  const { data: truckingProfile, error: truckingProfileError } =
+    truckingProfileId
+      ? await supabase
+          .from("trucking_profiles")
+          .select("id, name")
+          .eq("organization_id", user.organization_id)
+          .eq("id", truckingProfileId)
+          .eq("is_active", true)
+          .maybeSingle<{ id: string; name: string }>()
+      : { data: null, error: null };
+
+  if (truckingProfileError) {
+    throw new Error(truckingProfileError.message);
+  }
+
+  if (truckingProfileId && !truckingProfile) {
+    throw new Error(
+      "The selected trucking profile is not available to this organization.",
+    );
+  }
+
   if (!priceImport.source_storage_path) {
     throw new Error("Price book source file is missing.");
   }
@@ -373,7 +418,8 @@ export async function confirmSupplierPriceBookMapping(
   const extraction = await extractSupplierDocument({
     fileName: priceImport.source_filename,
     mimeType:
-      priceImport.source_mime_type ?? contentTypeFromName(priceImport.source_filename),
+      priceImport.source_mime_type ??
+      contentTypeFromName(priceImport.source_filename),
     data: await download.data.arrayBuffer(),
     maxRows: MAX_IMPORT_ROWS,
   });
@@ -420,7 +466,9 @@ export async function confirmSupplierPriceBookMapping(
     .single<{ id: string }>();
 
   if (versionError || !version) {
-    throw new Error(versionError?.message ?? "Could not create catalog version.");
+    throw new Error(
+      versionError?.message ?? "Could not create catalog version.",
+    );
   }
 
   const payloads = itemRows.map((row) => ({
@@ -430,10 +478,10 @@ export async function confirmSupplierPriceBookMapping(
   const { error: itemError } = await supabase
     .from("supplier_catalog_items")
     .insert(payloads)
-    .select("id, supplier_id, catalog_version_id, sku, description, category, tier, uom, cost, material_price, per_ton, surcharge_per_load, source_plant, quote_number, effective_through, raw_row")
-    .returns<
-      ImportedCatalogItem[]
-    >();
+    .select(
+      "id, supplier_id, catalog_version_id, sku, description, category, tier, uom, cost, material_price, per_ton, surcharge_per_load, source_plant, quote_number, effective_through, raw_row",
+    )
+    .returns<ImportedCatalogItem[]>();
 
   if (itemError) {
     throw new Error(itemError.message);
@@ -441,7 +489,9 @@ export async function confirmSupplierPriceBookMapping(
 
   const { data: importedItems, error: importedItemsError } = await supabase
     .from("supplier_catalog_items")
-    .select("id, supplier_id, catalog_version_id, sku, description, category, tier, uom, cost, material_price, per_ton, surcharge_per_load, source_plant, quote_number, effective_through, raw_row")
+    .select(
+      "id, supplier_id, catalog_version_id, sku, description, category, tier, uom, cost, material_price, per_ton, surcharge_per_load, source_plant, quote_number, effective_through, raw_row",
+    )
     .eq("organization_id", user.organization_id)
     .eq("catalog_version_id", version.id)
     .returns<
@@ -466,7 +516,9 @@ export async function confirmSupplierPriceBookMapping(
     >();
 
   if (importedItemsError || !importedItems) {
-    throw new Error(importedItemsError?.message ?? "Could not read imported items.");
+    throw new Error(
+      importedItemsError?.message ?? "Could not read imported items.",
+    );
   }
 
   const uniqueImportedItems = uniqueItemsByMaterialName(importedItems);
@@ -484,7 +536,10 @@ export async function confirmSupplierPriceBookMapping(
     );
   }
 
-  const existingByMaterialName = new Map<string, { id: string; updated_at: string }>();
+  const existingByMaterialName = new Map<
+    string,
+    { id: string; updated_at: string }
+  >();
 
   for (const material of existingMaterials) {
     const nameKey = normalizeMaterialNameKey(material.name);
@@ -499,38 +554,38 @@ export async function confirmSupplierPriceBookMapping(
   }
 
   const materialPayloads = uniqueImportedItems.map((item) => {
-      const existingMaterial = existingByMaterialName.get(
-        normalizeMaterialNameKey(item.description),
-      );
+    const existingMaterial = existingByMaterialName.get(
+      normalizeMaterialNameKey(item.description),
+    );
 
-      return {
-        existingId: existingMaterial?.id ?? null,
-        organization_id: user.organization_id,
-        supplier_id: item.supplier_id,
-        name: item.description,
-        description: item.description,
-        tier: item.tier,
-        unit: item.uom,
-        cost_per_unit: Number(item.cost),
-        last_price_update: new Date().toISOString().slice(0, 10),
-        is_active: true,
-        supplier_catalog_version_id: item.catalog_version_id,
-        supplier_catalog_item_id: item.id,
-        catalog_sku: item.sku,
-        catalog_category: item.category,
-        catalog_material_price:
-          item.material_price === null ? null : Number(item.material_price),
-        catalog_per_ton: item.per_ton === null ? null : Number(item.per_ton),
-        catalog_surcharge_per_load:
-          item.surcharge_per_load === null
-            ? null
-            : Number(item.surcharge_per_load),
-        catalog_source_plant: item.source_plant,
-        catalog_quote_number: item.quote_number,
-        catalog_effective_through: item.effective_through,
-        catalog_raw_row: item.raw_row,
-      };
-    });
+    return {
+      existingId: existingMaterial?.id ?? null,
+      organization_id: user.organization_id,
+      supplier_id: item.supplier_id,
+      name: item.description,
+      description: item.description,
+      tier: item.tier,
+      unit: item.uom,
+      cost_per_unit: Number(item.cost),
+      last_price_update: new Date().toISOString().slice(0, 10),
+      is_active: true,
+      supplier_catalog_version_id: item.catalog_version_id,
+      supplier_catalog_item_id: item.id,
+      catalog_sku: item.sku,
+      catalog_category: item.category,
+      catalog_material_price:
+        item.material_price === null ? null : Number(item.material_price),
+      catalog_per_ton: item.per_ton === null ? null : Number(item.per_ton),
+      catalog_surcharge_per_load:
+        item.surcharge_per_load === null
+          ? null
+          : Number(item.surcharge_per_load),
+      catalog_source_plant: item.source_plant,
+      catalog_quote_number: item.quote_number,
+      catalog_effective_through: item.effective_through,
+      catalog_raw_row: item.raw_row,
+    };
+  });
 
   const materialUpdates = materialPayloads
     .filter((payload) => payload.existingId)
@@ -552,14 +607,119 @@ export async function confirmSupplierPriceBookMapping(
     }
   }
 
+  let insertedMaterials: Array<{ id: string; name: string }> = [];
+
   if (materialInserts.length) {
-    const { error: materialInsertError } = await supabase
+    const { data, error: materialInsertError } = await supabase
       .from("materials")
-      .insert(materialInserts);
+      .insert(materialInserts)
+      .select("id, name")
+      .returns<Array<{ id: string; name: string }>>();
 
     if (materialInsertError) {
       throw new Error(materialInsertError.message);
     }
+
+    insertedMaterials = data ?? [];
+  }
+
+  const importedMaterialIds = Array.from(
+    new Set([
+      ...materialUpdates.map((material) => material.id),
+      ...insertedMaterials.map((material) => material.id),
+    ]),
+  ).filter((materialId): materialId is string => materialId !== null);
+  let truckingAssignmentsBefore: Array<{
+    id: string;
+    material_id: string;
+    trucking_profile_id: string;
+  }> = [];
+  let truckingAssignmentsAfter: Array<{
+    id: string;
+    material_id: string;
+    trucking_profile_id: string;
+  }> = [];
+
+  if (truckingProfileId && importedMaterialIds.length) {
+    const { data: existingAssignments, error: existingAssignmentsError } =
+      await supabase
+        .from("trucking_profile_assignments")
+        .select("id, material_id, trucking_profile_id")
+        .eq("organization_id", user.organization_id)
+        .eq("is_active", true)
+        .in("material_id", importedMaterialIds)
+        .returns<
+          Array<{
+            id: string;
+            material_id: string;
+            trucking_profile_id: string;
+          }>
+        >();
+
+    if (existingAssignmentsError) {
+      throw new Error(existingAssignmentsError.message);
+    }
+
+    truckingAssignmentsBefore = existingAssignments ?? [];
+    const assignedMaterialIds = new Set(
+      truckingAssignmentsBefore.map((assignment) => assignment.material_id),
+    );
+    const existingAssignmentIds = truckingAssignmentsBefore.map(
+      (assignment) => assignment.id,
+    );
+
+    if (existingAssignmentIds.length) {
+      const { error: assignmentUpdateError } = await supabase
+        .from("trucking_profile_assignments")
+        .update({ trucking_profile_id: truckingProfileId })
+        .eq("organization_id", user.organization_id)
+        .in("id", existingAssignmentIds);
+
+      if (assignmentUpdateError) {
+        throw new Error(assignmentUpdateError.message);
+      }
+    }
+
+    const newAssignments = importedMaterialIds
+      .filter((materialId) => !assignedMaterialIds.has(materialId))
+      .map((materialId) => ({
+        organization_id: user.organization_id,
+        trucking_profile_id: truckingProfileId,
+        material_id: materialId,
+        supplier_id: null,
+        plant_id: null,
+      }));
+
+    if (newAssignments.length) {
+      const { error: assignmentInsertError } = await supabase
+        .from("trucking_profile_assignments")
+        .insert(newAssignments);
+
+      if (assignmentInsertError) {
+        throw new Error(assignmentInsertError.message);
+      }
+    }
+
+    const { data: updatedAssignments, error: updatedAssignmentsError } =
+      await supabase
+        .from("trucking_profile_assignments")
+        .select("id, material_id, trucking_profile_id")
+        .eq("organization_id", user.organization_id)
+        .eq("is_active", true)
+        .in("material_id", importedMaterialIds)
+        .returns<
+          Array<{
+            id: string;
+            material_id: string;
+            trucking_profile_id: string;
+          }>
+        >();
+
+    if (updatedAssignmentsError) {
+      throw new Error(updatedAssignmentsError.message);
+    }
+
+    truckingAssignmentsAfter = updatedAssignments ?? [];
   }
 
   const { error: staleMaterialError } = await supabase
@@ -624,6 +784,7 @@ export async function confirmSupplierPriceBookMapping(
     targetId: version.id,
     before: {
       previous_active_archived: true,
+      trucking_assignments: truckingAssignmentsBefore,
     },
     after: {
       supplier_id: priceImport.supplier_id,
@@ -634,12 +795,18 @@ export async function confirmSupplierPriceBookMapping(
       stale_catalog_materials_deactivated: true,
       parser: extraction.parserId,
       parser_metadata: extraction.metadata,
+      trucking_profile: truckingProfile,
+      trucking_assignments: truckingAssignmentsAfter,
     },
   });
 
   revalidatePath("/admin/price-book");
+  revalidatePath("/admin/material-prices");
+  revalidatePath("/admin/trucking-profiles");
   revalidatePath("/quotes/new");
-  redirect(`/admin/price-book?import=${priceImport.id}&imported=${payloads.length}`);
+  redirect(
+    `/admin/price-book?import=${priceImport.id}&imported=${payloads.length}`,
+  );
 }
 
 export async function saveSupplierMarkupRule(formData: FormData) {
@@ -731,7 +898,9 @@ export async function deactivateSupplierMarkupRule(formData: FormData) {
   }
 
   if (user.role !== "admin" && user.role !== "account_manager") {
-    throw new Error("Only admins and account managers can deactivate markup rules.");
+    throw new Error(
+      "Only admins and account managers can deactivate markup rules.",
+    );
   }
 
   const supabase = await createClient();
@@ -795,7 +964,10 @@ function resolveImportId(
   importIdOrFormData: string | FormData,
   formData: FormData,
 ): string {
-  if (typeof importIdOrFormData === "string" && UUID_PATTERN.test(importIdOrFormData)) {
+  if (
+    typeof importIdOrFormData === "string" &&
+    UUID_PATTERN.test(importIdOrFormData)
+  ) {
     return importIdOrFormData;
   }
 
@@ -985,7 +1157,10 @@ function normalizeActionFormData(formData: FormData): FormData {
     const canonicalKey = canonicalFieldName(entryKey);
     const existingValue = normalized.get(canonicalKey);
 
-    if (existingValue === null || shouldReplaceFormValue(existingValue, value)) {
+    if (
+      existingValue === null ||
+      shouldReplaceFormValue(existingValue, value)
+    ) {
       normalized.set(canonicalKey, value);
     }
   }
@@ -1021,17 +1196,27 @@ function safeFileName(name: string): string {
 }
 
 function normalizeHeader(header: string): string {
-  return header.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  return header
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
 }
 
 function suggestMapping(headers: string[]): Record<string, string> {
   const lookup = new Map(headers.map((header) => [header, header]));
 
   return {
-    sku: firstHeader(lookup, ["sku", "item", "item_number", "product_code"]) ?? "",
+    sku:
+      firstHeader(lookup, ["sku", "item", "item_number", "product_code"]) ?? "",
     description:
-      firstHeader(lookup, ["description", "desc", "material", "material_name", "product"]) ??
-      "",
+      firstHeader(lookup, [
+        "description",
+        "desc",
+        "material",
+        "material_name",
+        "product",
+      ]) ?? "",
     uom: firstHeader(lookup, ["uom", "unit", "unit_of_measure"]) ?? "",
     cost:
       firstHeader(lookup, [
@@ -1046,7 +1231,9 @@ function suggestMapping(headers: string[]): Record<string, string> {
     material_price:
       firstHeader(lookup, ["material_price", "mat_price", "material_cost"]) ??
       "",
-    per_ton: firstHeader(lookup, ["per_ton", "net_per_ton", "delivered_per_ton"]) ?? "",
+    per_ton:
+      firstHeader(lookup, ["per_ton", "net_per_ton", "delivered_per_ton"]) ??
+      "",
     surcharge_per_load:
       firstHeader(lookup, [
         "surcharge_per_load",

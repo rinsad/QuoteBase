@@ -122,7 +122,6 @@ function AdminMenu({ role }: { role: "admin" | "account_manager" }) {
               label: "Materials",
               nested: true,
             },
-            { href: "/admin/pricing", label: "Materials & services pricing" },
             {
               href: "/admin/trucking-profiles",
               label: "Trucking profiles",
@@ -146,11 +145,18 @@ function AdminMenu({ role }: { role: "admin" | "account_manager" }) {
             { href: "/admin/reports", label: "Reports" },
             { href: "/admin/feature-flags", label: "Features" },
             { href: "/admin/integrations/gmail", label: "Gmail" },
+            {
+              href: "/admin/integrations/google-sheets",
+              label: "Supplier sheets",
+            },
             { href: "/admin/integrations/openai", label: "OpenAI" },
             { href: "/admin/integrations/slack", label: "Slack integration" },
             { href: "/admin/integrations/mapbox", label: "Mapbox" },
             { href: "/admin/integrations/stripe", label: "Stripe" },
-            { href: "/admin/integrations/authorizenet", label: "Authorize.net" },
+            {
+              href: "/admin/integrations/authorizenet",
+              label: "Authorize.net",
+            },
             { href: "/admin/users", label: "Users" },
             { href: "/admin/audit-log", label: "Audit log" },
             { href: "/admin/system-check", label: "System check" },
