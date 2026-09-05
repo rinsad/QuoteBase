@@ -243,7 +243,29 @@ export default async function GoogleSheetsIntegrationPage({
               {config.lastSyncError ? ` — ${config.lastSyncError}` : ""}
             </p>
           ) : null}
+          {config.lastSyncSummary ? (
+            <SyncReport summary={config.lastSyncSummary} />
+          ) : null}
         </form>
+
+        {config.syncLog?.length ? (
+          <section className="mt-6 glass-panel p-5 sm:p-6">
+            <h3 className="text-xl font-semibold">Synchronization log</h3>
+            <div className="mt-4 divide-y divide-border">
+              {config.syncLog.map((entry, index) => (
+                <div key={`${entry.at}-${index}`} className="grid gap-1 py-3 text-sm sm:grid-cols-[190px_90px_1fr]">
+                  <span>{new Date(entry.at).toLocaleString()}</span>
+                  <span className={entry.status === "success" ? "text-emerald-700" : "text-rose-700"}>
+                    {entry.status === "success" ? "Completed" : "Failed"}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {entry.message ?? syncLogSummary(entry.summary)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <form
           action={saveGoogleSheetsOAuthSettings}
@@ -290,6 +312,39 @@ export default async function GoogleSheetsIntegrationPage({
       </div>
     </main>
   );
+}
+
+function SyncReport({ summary }: { summary: Record<string, unknown> }) {
+  const warnings = Array.isArray(summary.warnings)
+    ? summary.warnings.filter((warning): warning is string => typeof warning === "string")
+    : [];
+  return (
+    <div className="mt-4 rounded-[16px] border border-border bg-muted/30 p-4 text-sm">
+      <p className="font-medium">
+        {summaryNumber(summary, "suppliers")} suppliers / {summaryNumber(summary, "plants")} plants /{" "}
+        {summaryNumber(summary, "materials")} materials / {summaryNumber(summary, "skippedRows")} skipped rows
+      </p>
+      {warnings.length ? (
+        <details className="mt-3">
+          <summary className="cursor-pointer font-medium text-amber-800">
+            View {warnings.length} synchronization warning{warnings.length === 1 ? "" : "s"}
+          </summary>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+            {warnings.map((warning, index) => <li key={`${index}-${warning}`}>{warning}</li>)}
+          </ul>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function summaryNumber(summary: Record<string, unknown>, key: string): number {
+  return typeof summary[key] === "number" ? summary[key] : 0;
+}
+
+function syncLogSummary(summary?: Record<string, unknown>): string {
+  if (!summary) return "Synchronization completed.";
+  return `${summaryNumber(summary, "suppliers")} suppliers, ${summaryNumber(summary, "plants")} plants, ${summaryNumber(summary, "materials")} materials, ${summaryNumber(summary, "skippedRows")} skipped rows`;
 }
 
 function ColumnInput({

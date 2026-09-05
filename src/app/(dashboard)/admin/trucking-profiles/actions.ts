@@ -29,7 +29,11 @@ export async function saveTruckingProfile(formData: FormData): Promise<void> {
     average_speed_mph: requiredPositiveNumber(formData, "average_speed_mph", 100),
     hourly_rate: requiredNonNegativeNumber(formData, "hourly_rate", 10000),
     round_trip_factor: requiredPositiveNumber(formData, "round_trip_factor", 10),
-    time_adjustment_bands: readTimeAdjustmentBands(formData),
+    loading_unloading_hours: requiredNonNegativeNumber(
+      formData,
+      "loading_unloading_hours",
+      24,
+    ),
     is_active: true,
   };
 
@@ -52,7 +56,7 @@ export async function saveTruckingProfile(formData: FormData): Promise<void> {
 
   const { data: profile, error } = await profileQuery
     .select(
-      "id, name, average_speed_mph, hourly_rate, round_trip_factor, time_adjustment_bands, is_active",
+      "id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, is_active",
     )
     .single<Record<string, unknown>>();
 
@@ -74,25 +78,6 @@ export async function saveTruckingProfile(formData: FormData): Promise<void> {
   revalidatePath("/admin/material-prices");
   revalidatePath("/quotes/new");
   redirect("/admin/trucking-profiles?saved=1");
-}
-
-function readTimeAdjustmentBands(
-  formData: FormData,
-): Array<{ under_miles: number; hours: number }> {
-  return [0, 1, 2]
-    .map((index) => ({
-      under_miles: requiredPositiveNumber(
-        formData,
-        "band_" + index + "_under_miles",
-        1000,
-      ),
-      hours: requiredNonNegativeNumber(
-        formData,
-        "band_" + index + "_hours",
-        24,
-      ),
-    }))
-    .sort((left, right) => left.under_miles - right.under_miles);
 }
 
 function requiredText(formData: FormData, key: string): string {

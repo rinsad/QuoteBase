@@ -17,7 +17,7 @@ export async function getAdminTruckingProfiles(
   const { data } = await supabase
     .from("trucking_profiles")
     .select(
-      "id, name, average_speed_mph, hourly_rate, round_trip_factor, time_adjustment_bands, is_active",
+      "id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, is_active",
     )
     .eq("organization_id", organizationId)
     .order("name");

@@ -36,6 +36,14 @@ export type GoogleSheetsConfig = {
   lastSyncStatus?: "success" | "failed";
   lastSyncError?: string;
   lastSyncSummary?: Record<string, unknown>;
+  syncLog?: GoogleSheetsSyncLogEntry[];
+};
+
+export type GoogleSheetsSyncLogEntry = {
+  at: string;
+  status: "success" | "failed";
+  message?: string;
+  summary?: Record<string, unknown>;
 };
 
 export type GoogleSheetsIntegrationRecord = {
@@ -128,6 +136,24 @@ export function normalizeGoogleSheetsConfig(
         : undefined,
     lastSyncError: stringValue(config?.lastSyncError) ?? undefined,
     lastSyncSummary: objectValue(config?.lastSyncSummary) ?? undefined,
+    syncLog: Array.isArray(config?.syncLog)
+      ? config.syncLog.flatMap((entry) => {
+          const value = objectValue(entry);
+          const at = stringValue(value?.at);
+          if (
+            !at ||
+            (value?.status !== "success" && value?.status !== "failed")
+          ) return [];
+          const status: GoogleSheetsSyncLogEntry["status"] =
+            value.status === "success" ? "success" : "failed";
+          return [{
+            at,
+            status,
+            message: stringValue(value?.message) ?? undefined,
+            summary: objectValue(value?.summary) ?? undefined,
+          }];
+        }).slice(0, 20)
+      : [],
   };
 }
 

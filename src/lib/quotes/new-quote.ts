@@ -135,7 +135,7 @@ type TruckingProfileRecord = {
   average_speed_mph: number;
   hourly_rate: number;
   round_trip_factor: number;
-  time_adjustment_bands: unknown;
+  loading_unloading_hours: number;
 };
 
 type TruckingProfileAssignmentRecord = {
@@ -260,7 +260,7 @@ export async function getNewQuoteContext(
       .returns<Array<{ provider: CrmProvider }>>(),
     supabase
       .from("trucking_profiles")
-      .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, time_adjustment_bands")
+      .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours")
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
       .returns<TruckingProfileRecord[]>(),

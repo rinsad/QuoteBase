@@ -34,6 +34,8 @@ type SheetMaterial = {
   isActive: boolean;
 };
 
+type SheetSupplier = { name: string; key: string };
+
 export type GoogleSheetsSyncSummary = {
   suppliers: number;
   plants: number;
@@ -83,13 +85,7 @@ export async function runGoogleSheetsSync({
     supabase,
     organizationId: integration.organization_id,
   });
-  const supplierRows = uniqueBy(
-    parsed.materials.map((row) => ({
-      name: row.supplierName,
-      key: row.supplierKey,
-    })),
-    (row) => row.key,
-  );
+  const supplierRows = parsed.suppliers;
   const { data: suppliers, error: supplierError } = await supabase
     .from("suppliers")
     .upsert(
@@ -170,6 +166,14 @@ export async function runGoogleSheetsSync({
       return { row, coordinates };
     },
   );
+  for (const { row, coordinates } of geocodedPlants) {
+    if (!coordinates && !existingCoordinates.get(row.plantKey)?.latitude) {
+      addWarning(
+        parsed.warnings,
+        `${row.supplierName}: plant address could not be geocoded (${row.address.formatted}).`,
+      );
+    }
+  }
   const plantPayloads = geocodedPlants.map(({ row, coordinates }) => {
     const supplierId = supplierIdByKey.get(row.supplierKey);
 
@@ -313,24 +317,38 @@ export async function runGoogleSheetsSync({
     if (error) throw new Error(error.message);
   }
 
-  const deactivatedSuppliers = await deactivateMissing({
-    supabase,
-    table: "suppliers",
-    organizationId: integration.organization_id,
-    currentKeys: supplierRows.map((row) => row.key),
-  });
-  const deactivatedPlants = await deactivateMissing({
-    supabase,
-    table: "supplier_plants",
-    organizationId: integration.organization_id,
-    currentKeys: plantsToSync.map((row) => row.plantKey),
-  });
-  const deactivatedMaterials = await deactivateMissing({
-    supabase,
-    table: "materials",
-    organizationId: integration.organization_id,
-    currentKeys: materialKeys,
-  });
+  // Never deactivate previous catalog data from a partially invalid source.
+  const canDeactivateMissing = parsed.skippedRows === 0;
+  const deactivatedSuppliers = canDeactivateMissing
+    ? await deactivateMissing({
+        supabase,
+        table: "suppliers",
+        organizationId: integration.organization_id,
+        currentKeys: supplierRows.map((row) => row.key),
+      })
+    : 0;
+  const deactivatedPlants = canDeactivateMissing
+    ? await deactivateMissing({
+        supabase,
+        table: "supplier_plants",
+        organizationId: integration.organization_id,
+        currentKeys: plantsToSync.map((row) => row.plantKey),
+      })
+    : 0;
+  const deactivatedMaterials = canDeactivateMissing
+    ? await deactivateMissing({
+        supabase,
+        table: "materials",
+        organizationId: integration.organization_id,
+        currentKeys: materialKeys,
+      })
+    : 0;
+  if (!canDeactivateMissing) {
+    addWarning(
+      parsed.warnings,
+      "Previously synchronized records were not deactivated because this run contained invalid rows.",
+    );
+  }
   const summary: GoogleSheetsSyncSummary = {
     suppliers: supplierRows.length,
     plants: plantsToSync.length,
@@ -348,6 +366,10 @@ export async function runGoogleSheetsSync({
     lastSyncStatus: "success" as const,
     lastSyncError: "",
     lastSyncSummary: summary,
+    syncLog: [
+      { at: syncedAt, status: "success" as const, summary },
+      ...(config.syncLog ?? []),
+    ].slice(0, 20),
   };
   const { error: integrationError } = await supabase
     .from("organization_integrations")
@@ -388,16 +410,21 @@ export async function recordGoogleSheetsSyncFailure({
   const config = normalizeGoogleSheetsConfig(integration.config);
   const message =
     error instanceof Error ? error.message : "Google Sheets sync failed.";
+  const failedAt = new Date().toISOString();
   await supabase
     .from("organization_integrations")
     .update({
       config: {
         ...config,
-        lastSyncAt: new Date().toISOString(),
+        lastSyncAt: failedAt,
         lastSyncStatus: "failed",
         lastSyncError: message.slice(0, 500),
+        syncLog: [
+          { at: failedAt, status: "failed", message: message.slice(0, 500) },
+          ...(config.syncLog ?? []),
+        ].slice(0, 20),
       },
-      updated_at: new Date().toISOString(),
+      updated_at: failedAt,
     })
     .eq("organization_id", integration.organization_id)
     .eq("id", integration.id)
@@ -412,7 +439,13 @@ function parseSpreadsheet({
   tabs: Array<{ title: string; values: unknown[][] }>;
   config: ReturnType<typeof normalizeGoogleSheetsConfig>;
   unitAliases: Map<string, string>;
-}): { materials: SheetMaterial[]; skippedRows: number; warnings: string[] } {
+}): {
+  suppliers: SheetSupplier[];
+  materials: SheetMaterial[];
+  skippedRows: number;
+  warnings: string[];
+} {
+  const suppliers: SheetSupplier[] = [];
   const materials: SheetMaterial[] = [];
   const warnings: string[] = [];
   let skippedRows = 0;
@@ -426,6 +459,11 @@ function parseSpreadsheet({
   for (const tab of tabs) {
     const supplierName = tab.title.trim();
     const supplierKey = syncKey(supplierName);
+    const hasContent = tab.values
+      .slice(config.headerRow)
+      .some((row) => row.some((value) => cellValue(value) !== ""));
+    if (!supplierName || !hasContent) continue;
+    suppliers.push({ name: supplierName, key: supplierKey });
     let currentAddress: ParsedAddress | null = null;
     let currentPlantLabel: string | null = null;
 
@@ -451,22 +489,24 @@ function parseSpreadsheet({
       if (!materialName && !priceText) continue;
 
       const price = parsePrice(priceText);
-      const unit = unitAliases.get(normalize(unitText));
+      const unit = resolveUnit(unitText, unitAliases);
 
       if (!currentAddress || !materialName || price === null || !unit) {
         skippedRows += 1;
-        if (warnings.length < MAX_WARNINGS) {
-          warnings.push(
-            `${tab.title} row ${index + 1}: skipped because address, material, numeric price, or unit is missing.`,
-          );
-        }
+        const reasons = [
+          !currentAddress ? "plant address is missing or invalid" : null,
+          !materialName ? "material name is missing" : null,
+          price === null ? "price is not numeric" : null,
+          !unit ? `unit is not recognized${unitText ? ` (${unitText})` : ""}` : null,
+        ].filter((reason): reason is string => Boolean(reason));
+        addWarning(warnings, `${tab.title} row ${index + 1}: ${reasons.join(", ")}.`);
         continue;
       }
 
       const plantName =
         currentPlantLabel?.trim() ||
         [supplierName, currentAddress.city].filter(Boolean).join(" ");
-      const plantKey = syncKey(`${supplierKey}|${plantName}`);
+      const plantKey = syncKey(`${supplierKey}|${currentAddress.formatted}`);
       materials.push({
         supplierName,
         supplierKey,
@@ -490,7 +530,12 @@ function parseSpreadsheet({
     throw new Error("No valid supplier material rows were found.");
   }
 
-  return { materials, skippedRows, warnings };
+  return {
+    suppliers: uniqueBy(suppliers, (row) => row.key),
+    materials,
+    skippedRows,
+    warnings,
+  };
 }
 
 function parseAddress(value: string): ParsedAddress | null {
@@ -545,7 +590,25 @@ async function loadUnitAliases(
       }
     }
   }
+  for (const [alias, code] of Array.from(aliases.entries())) {
+    aliases.set(`per ${alias}`, code);
+    aliases.set(`$/${alias}`, code);
+    aliases.set(`$ per ${alias}`, code);
+  }
   return aliases;
+}
+
+function resolveUnit(value: string, aliases: Map<string, string>): string | undefined {
+  const simplified = normalize(value)
+    .replace(/^\$\s*\/\s*/, "")
+    .replace(/^\$\s+per\s+/, "")
+    .replace(/^per\s+/, "")
+    .replace(/s$/, "");
+  return aliases.get(normalize(value)) ?? aliases.get(simplified);
+}
+
+function addWarning(warnings: string[], warning: string): void {
+  if (warnings.length < MAX_WARNINGS) warnings.push(warning);
 }
 
 async function deactivateMissing({
@@ -624,6 +687,12 @@ function columnToIndex(column: string): number {
 
 function cell(row: unknown[], index: number): string {
   const value = row[index];
+  return typeof value === "string" || typeof value === "number"
+    ? String(value).trim()
+    : "";
+}
+
+function cellValue(value: unknown): string {
   return typeof value === "string" || typeof value === "number"
     ? String(value).trim()
     : "";
