@@ -490,10 +490,22 @@ function parseSpreadsheet({
         !parsePrice(priceText)
       ) {
         currentPlantLabel = addressText;
+        currentAddress = null;
         continue;
       }
 
-      if (parsedAddress) currentAddress = parsedAddress;
+      if (parsedAddress) {
+        if (currentPlantLabel || !currentAddress) {
+          currentAddress = parsedAddress;
+        } else if (
+          normalize(parsedAddress.formatted) !== normalize(currentAddress.formatted)
+        ) {
+          addWarning(
+            warnings,
+            `${tab.title} row ${index + 1}: address differs from the first address in this single-plant supplier tab; using ${currentAddress.formatted}.`,
+          );
+        }
+      }
       if (!materialName && !priceText) continue;
 
       const price = parsePrice(priceText);
@@ -511,12 +523,8 @@ function parseSpreadsheet({
         continue;
       }
 
-      const plantName = currentPlantLabel?.trim()
-        ? `${currentPlantLabel.trim()} - ${currentAddress.formatted}`
-        : `${supplierName} - ${currentAddress.formatted}`;
-      // Address is the plant identity in the spreadsheet. Repeated copies of
-      // the same normalized address beside material rows resolve to one plant.
-      const plantKey = syncKey(`${supplierKey}|${currentAddress.formatted}`);
+      const plantName = currentPlantLabel?.trim() || supplierName;
+      const plantKey = syncKey(`${supplierKey}|${plantName}`);
       materials.push({
         supplierName,
         supplierKey,
