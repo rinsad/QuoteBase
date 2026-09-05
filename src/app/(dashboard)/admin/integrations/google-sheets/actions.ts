@@ -166,14 +166,34 @@ export async function runGoogleSheetsSyncNow(): Promise<void> {
     throw new Error("Google Sheets integration was not found.");
   }
 
+  const startedAt = Date.now();
+  console.info(JSON.stringify({
+    level: "info",
+    message: "Google Sheets manual synchronization started.",
+    organizationId: user.organization_id,
+  }));
   try {
-    await runGoogleSheetsSync({ supabase, integration });
+    const summary = await runGoogleSheetsSync({ supabase, integration });
+    console.info(JSON.stringify({
+      level: "info",
+      message: "Google Sheets manual synchronization completed.",
+      organizationId: user.organization_id,
+      durationMs: Date.now() - startedAt,
+      summary,
+    }));
   } catch (syncError) {
     await recordGoogleSheetsSyncFailure({
       supabase,
       integration,
       error: syncError,
     });
+    console.error(JSON.stringify({
+      level: "error",
+      message: "Google Sheets manual synchronization failed.",
+      organizationId: user.organization_id,
+      durationMs: Date.now() - startedAt,
+      error: syncError instanceof Error ? syncError.message : "Unknown error",
+    }));
     throw syncError;
   }
 

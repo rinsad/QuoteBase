@@ -505,7 +505,9 @@ function parseSpreadsheet({
 
       const plantName =
         currentPlantLabel?.trim() ||
-        [supplierName, currentAddress.city].filter(Boolean).join(" ");
+        `${supplierName} - ${currentAddress.city} (${currentAddress.street})`;
+      // Address is the plant identity in the spreadsheet. Repeated copies of
+      // the same normalized address beside material rows resolve to one plant.
       const plantKey = syncKey(`${supplierKey}|${currentAddress.formatted}`);
       materials.push({
         supplierName,

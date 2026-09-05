@@ -4,7 +4,6 @@ import {
   CloudCog,
   FileSpreadsheet,
   KeyRound,
-  RefreshCw,
   ShieldCheck,
   Unplug,
 } from "lucide-react";
@@ -17,6 +16,7 @@ import {
 } from "@/app/(dashboard)/admin/integrations/google-sheets/actions";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
+import { SyncNowForm } from "@/app/(dashboard)/admin/integrations/google-sheets/sync-now-form";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import {
   googleSheetsRedirectUri,
@@ -239,12 +239,7 @@ export default async function GoogleSheetsIntegrationPage({
         </form>
 
         {integration?.is_enabled ? (
-          <form action={runGoogleSheetsSyncNow} className="mt-3 flex justify-end">
-            <Button type="submit" variant="outline" className="h-11 rounded-full">
-              <RefreshCw className="size-4" />
-              Sync now
-            </Button>
-          </form>
+          <SyncNowForm action={runGoogleSheetsSyncNow} />
         ) : null}
 
         {config.syncLog?.length ? (
