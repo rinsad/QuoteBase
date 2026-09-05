@@ -123,15 +123,10 @@ export default async function GoogleSheetsIntegrationPage({
               </p>
             </div>
             <div className="flex gap-3">
-              <Link
-                href="/api/integrations/google-sheets/connect"
-                className={`mac-button ${oauthConfigured ? "" : "pointer-events-none opacity-50"}`}
-              >
-                Connect Google
-              </Link>
               {connected ? (
                 <form action={disconnectGoogleSheets}>
                   <Button
+                    type="submit"
                     variant="outline"
                     className="rounded-full text-rose-700"
                   >
@@ -139,7 +134,14 @@ export default async function GoogleSheetsIntegrationPage({
                     Disconnect
                   </Button>
                 </form>
-              ) : null}
+              ) : (
+                <Link
+                  href="/api/integrations/google-sheets/connect"
+                  className={`mac-button ${oauthConfigured ? "" : "pointer-events-none opacity-50"}`}
+                >
+                  Connect Google
+                </Link>
+              )}
             </div>
           </div>
         </section>
