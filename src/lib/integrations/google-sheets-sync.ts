@@ -86,6 +86,7 @@ export async function runGoogleSheetsSync({
     organizationId: integration.organization_id,
   });
   const supplierRows = parsed.suppliers;
+  logSyncStage(integration.organization_id, "suppliers", supplierRows.length);
   const { data: suppliers, error: supplierError } = await supabase
     .from("suppliers")
     .upsert(
@@ -200,6 +201,7 @@ export async function runGoogleSheetsSync({
       google_sheet_synced_at: syncedAt,
     };
   });
+  logSyncStage(integration.organization_id, "plants", plantPayloads.length);
   const { data: plants, error: plantError } = await supabase
     .from("supplier_plants")
     .upsert(plantPayloads, { onConflict: "organization_id,supplier_id,name" })
@@ -261,6 +263,7 @@ export async function runGoogleSheetsSync({
       google_sheet_synced_at: syncedAt,
     };
   });
+  logSyncStage(integration.organization_id, "materials", materialPayloads.length);
   const { data: materials, error: materialError } = await supabase
     .from("materials")
     .upsert(materialPayloads, {
@@ -503,9 +506,9 @@ function parseSpreadsheet({
         continue;
       }
 
-      const plantName =
-        currentPlantLabel?.trim() ||
-        `${supplierName} - ${currentAddress.city} (${currentAddress.street})`;
+      const plantName = currentPlantLabel?.trim()
+        ? `${currentPlantLabel.trim()} - ${currentAddress.formatted}`
+        : `${supplierName} - ${currentAddress.formatted}`;
       // Address is the plant identity in the spreadsheet. Repeated copies of
       // the same normalized address beside material rows resolve to one plant.
       const plantKey = syncKey(`${supplierKey}|${currentAddress.formatted}`);
@@ -611,6 +614,20 @@ function resolveUnit(value: string, aliases: Map<string, string>): string | unde
 
 function addWarning(warnings: string[], warning: string): void {
   if (warnings.length < MAX_WARNINGS) warnings.push(warning);
+}
+
+function logSyncStage(
+  organizationId: string,
+  stage: "suppliers" | "plants" | "materials",
+  rows: number,
+): void {
+  console.info(JSON.stringify({
+    level: "info",
+    message: "Google Sheets synchronization stage started.",
+    organizationId,
+    stage,
+    rows,
+  }));
 }
 
 async function deactivateMissing({
