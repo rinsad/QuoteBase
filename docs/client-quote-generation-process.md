@@ -51,7 +51,6 @@ The system loads the active pricing configuration for the organization. This inc
 - Fuel surcharge per load
 - Environmental fee per load
 - Credit-card surcharge percentage
-- Overhead per ton
 
 These values are configuration-driven. They are not hardcoded into the quote screen.
 

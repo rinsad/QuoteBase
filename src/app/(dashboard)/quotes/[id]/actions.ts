@@ -1233,7 +1233,7 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     supabase
       .from("pricing_config")
       .select(
-        "default_material_markup_pct, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton",
+        "default_material_markup_pct, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct",
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
@@ -1643,7 +1643,7 @@ export async function updateQuoteItemQuantity(
     supabase
       .from("pricing_config")
       .select(
-        "default_material_markup_pct, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton",
+        "default_material_markup_pct, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct",
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),

@@ -93,13 +93,10 @@ R2 max = $12
 R2 markup = $10/unit
 ```
 
-For ton-based materials, it also adds `overhead_per_ton`.
+Material sell price is supplier cost plus the selected markup.
 
 ```text
-material sell price =
-supplier cost
-+ markup
-+ overhead per ton, if unit is ton
+material sell price = supplier cost + markup
 ```
 
 Then:

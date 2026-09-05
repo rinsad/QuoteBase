@@ -145,7 +145,7 @@ type TruckingProfileAssignmentRecord = {
 };
 
 const BASE_PRICING_SELECT =
-  "default_material_markup_pct, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton";
+  "default_material_markup_pct, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct";
 
 const DEFAULT_PROJECT_STATUS_OPTIONS: QuoteProjectStatusOption[] = [
   { value: "bid", label: "Bid" },
@@ -497,7 +497,6 @@ export function normalizePricingConfig(config: PricingConfig): PricingConfig {
       config.cc_surcharge_pct === undefined
         ? undefined
         : Number(config.cc_surcharge_pct),
-    overhead_per_ton: Number(config.overhead_per_ton),
     big_quote_threshold:
       config.big_quote_threshold === undefined
         ? undefined

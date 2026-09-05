@@ -19,7 +19,6 @@ export type PricingConfig = {
   material_minimum?: number;
   trucking_minimum?: number;
   cc_surcharge_pct?: number;
-  overhead_per_ton: number;
   big_quote_threshold?: number;
   default_followup_max_attempts?: number;
   jobs_starting_soon_days?: number;
@@ -145,11 +144,7 @@ export function calculateQuoteDraft({
   const truckRateKey = getTruckRateKey(pricingConfig, truckRateOverride);
   const truckHourlyRate = getTruckHourlyRate(pricingConfig, truckRateKey);
   const unitConversion = resolveUnitConversion(unit, unitConversions);
-  const overheadPerUnit =
-    unitConversion.quoteQuantityBasis === "ton" && unitConversion.quoteQuantityFactor
-      ? pricingConfig.overhead_per_ton * unitConversion.quoteQuantityFactor
-      : 0;
-  const suggestedMaterialUnitPrice = costPerUnit + markupPerUnit + overheadPerUnit;
+  const suggestedMaterialUnitPrice = costPerUnit + markupPerUnit;
   const materialUnitPrice =
     materialUnitPriceOverride !== null &&
     Number.isFinite(materialUnitPriceOverride) &&

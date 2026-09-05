@@ -8,7 +8,7 @@ export type AdminPricingConfig = PricingConfig & {
 };
 
 const BASE_PRICING_SELECT =
-  "id, default_material_markup_pct, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, overhead_per_ton, updated_at";
+  "id, default_material_markup_pct, truck_floor_rate, truck_standard_rate, truck_target_rate, truck_premium_rate, truck_stretch_rate, default_truck_rate, material_minimum, trucking_minimum, fuel_surcharge_per_load, environmental_fee_per_load, cc_surcharge_pct, updated_at";
 
 const EXTENDED_PRICING_SELECT = `${BASE_PRICING_SELECT}, big_quote_threshold, default_followup_max_attempts, jobs_starting_soon_days, follow_up_auto_send_enabled, follow_up_sms_enabled, project_status_options, quote_recommendation_count`;
 
@@ -74,7 +74,6 @@ function normalizePricingConfig(data: AdminPricingConfig): AdminPricingConfig {
     environmental_fee_per_load: Number(data.environmental_fee_per_load),
     cc_surcharge_pct:
       data.cc_surcharge_pct === undefined ? undefined : Number(data.cc_surcharge_pct),
-    overhead_per_ton: Number(data.overhead_per_ton),
     big_quote_threshold:
       data.big_quote_threshold === undefined
         ? undefined
