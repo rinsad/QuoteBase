@@ -10,7 +10,7 @@ Before QuoteBase can calculate a quote, the tenant needs master data:
 - Job sites
 - Materials
 - Suppliers/plants
-- Vehicle types
+- Trucking profiles with truck capacity per load
 - Sales tax rates
 - Admin > Pricing configuration
 - Optional Slack integration for approval/status notifications

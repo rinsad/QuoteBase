@@ -13,7 +13,6 @@ import { geocodeJobSiteAddress } from "@/lib/geo/geocode";
 import { getMapboxIntegration } from "@/lib/integrations/mapbox";
 import {
   normalizePricingConfig,
-  normalizeVehicleTypes,
 } from "@/lib/quotes/new-quote";
 import {
   selectBestPlantForQuote,
@@ -23,7 +22,6 @@ import {
   normalizeCatalogMarkupRules,
   type CatalogMarkupRule,
   type PricingConfig,
-  type VehicleCapacity,
 } from "@/lib/quotes/pricing";
 import { createClient } from "@/lib/supabase/server";
 
@@ -131,7 +129,6 @@ export async function POST(request: Request) {
   const [
     materialResult,
     pricingConfigResult,
-    vehicleTypesResult,
     jobSiteResult,
     markupRulesResult,
     unitConversions,
@@ -153,13 +150,6 @@ export async function POST(request: Request) {
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
-    supabase
-      .from("vehicle_types")
-      .select("id, name, capacity_tons, capacity_cy")
-      .eq("organization_id", user.organization_id)
-      .eq("is_active", true)
-      .order("capacity_tons", { ascending: false })
-      .returns<VehicleCapacity[]>(),
     parsed.value.job_site_id
       ? supabase
           .from("job_sites")
@@ -230,7 +220,6 @@ export async function POST(request: Request) {
       taxRate: Number(taxRate.rate),
       quantity: parsed.value.quantity,
       pricingConfig: normalizePricingConfig(pricingConfigResult.data),
-      vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
       unitConversions,
       useRequestedPlant: parsed.value.use_selected_plant,
       materialUnitPriceOverride:
@@ -270,8 +259,6 @@ export async function POST(request: Request) {
           state: taxRate.state,
           rate: Number(taxRate.rate),
         },
-        vehicle_type_id: calculation.vehicleTypeId,
-        vehicle_name: calculation.vehicleName,
         quote_quantity_basis: calculation.quoteQuantityBasis,
         quote_quantity_factor: calculation.quoteQuantityFactor,
         truck_capacity_quantity: calculation.truckCapacityQuantity,

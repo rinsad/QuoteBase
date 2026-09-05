@@ -14,7 +14,6 @@ import {
   type QuoteDraftCalculation,
   type QuoteUnitConversion,
   type TruckRateKey,
-  type VehicleCapacity,
 } from "@/lib/quotes/pricing";
 import {
   normalizeTruckingProfile,
@@ -83,6 +82,7 @@ type TruckingProfileRecord = {
   hourly_rate: number;
   round_trip_factor: number;
   loading_unloading_hours: number;
+  truck_capacity: number;
   is_default: boolean;
 };
 
@@ -95,7 +95,6 @@ export async function selectBestPlantForQuote({
   quantity,
   taxRate,
   pricingConfig,
-  vehicleTypes,
   unitConversions = [],
   useRequestedPlant = false,
   materialUnitPriceOverride = null,
@@ -116,7 +115,6 @@ export async function selectBestPlantForQuote({
   quantity: number;
   taxRate: number;
   pricingConfig: PricingConfig;
-  vehicleTypes: VehicleCapacity[];
   unitConversions?: QuoteUnitConversion[];
   useRequestedPlant?: boolean;
   materialUnitPriceOverride?: number | null;
@@ -169,7 +167,7 @@ export async function selectBestPlantForQuote({
     }),
     supabase
       .from("trucking_profiles")
-      .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, is_default")
+      .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, truck_capacity, is_default")
       .eq("organization_id", organizationId)
       .eq("is_active", true),
     supabase
@@ -207,7 +205,6 @@ export async function selectBestPlantForQuote({
         quantity,
         taxRate,
         pricingConfig,
-        vehicleTypes,
         unitConversions,
         yards: yardsResult.data ?? [],
         useMapbox: Boolean(mapboxAccessToken),
@@ -240,7 +237,6 @@ export async function selectBestPlantForQuote({
       quantity,
       taxRate,
       pricingConfig,
-      vehicleTypes,
       unitConversions,
       materialUnitPriceOverride,
       markupPctOverride,
@@ -257,7 +253,6 @@ export async function selectBestPlantForQuote({
     quantity,
     taxRate,
     pricingConfig,
-    vehicleTypes,
     unitConversions,
     materialUnitPriceOverride,
     markupPctOverride,
@@ -277,7 +272,6 @@ async function buildRecommendation({
   quantity,
   taxRate,
   pricingConfig,
-  vehicleTypes,
   unitConversions,
   yards,
   useMapbox,
@@ -296,7 +290,6 @@ async function buildRecommendation({
   quantity: number;
   taxRate: number;
   pricingConfig: PricingConfig;
-  vehicleTypes: VehicleCapacity[];
   unitConversions: QuoteUnitConversion[];
   yards: YardRecord[];
   useMapbox: boolean;
@@ -347,7 +340,6 @@ async function buildRecommendation({
     unit: material.unit,
     taxRate,
     pricingConfig,
-    vehicleTypes,
     unitConversions,
     routeDurationSeconds: routeDistance?.durationSeconds ?? null,
     routeDistanceMiles: routeDistance?.distanceMiles ?? null,
@@ -382,7 +374,6 @@ function applyMaterialUnitPriceOverride({
   quantity,
   taxRate,
   pricingConfig,
-  vehicleTypes,
   unitConversions,
   materialUnitPriceOverride,
   markupPctOverride,
@@ -396,7 +387,6 @@ function applyMaterialUnitPriceOverride({
   quantity: number;
   taxRate: number;
   pricingConfig: PricingConfig;
-  vehicleTypes: VehicleCapacity[];
   unitConversions: QuoteUnitConversion[];
   materialUnitPriceOverride: number | null;
   markupPctOverride: number | null;
@@ -425,7 +415,6 @@ function applyMaterialUnitPriceOverride({
       unit: recommendation.material.unit,
       taxRate,
       pricingConfig,
-      vehicleTypes,
       unitConversions,
       routeDurationSeconds: recommendation.routeDistance?.durationSeconds ?? null,
       routeDistanceMiles: recommendation.routeDistance?.distanceMiles ?? null,

@@ -117,7 +117,7 @@ Create deterministic fixtures:
 - Supplier A1 with at least two plants.
 - Materials across R1-R4 tiers.
 - One yard with coordinates.
-- Vehicle types with ton and cubic yard capacity.
+- Trucking profiles with capacity per load.
 - Pricing config with all fees, minimums, markups, and taxes populated from database rows.
 - Feature flags enabled and disabled across both organizations.
 
@@ -323,7 +323,7 @@ Coverage:
 - Suppliers.
 - Plants.
 - Yards.
-- Vehicle types.
+- Trucking profiles.
 - Feature flags.
 - Users/invites.
 - Audit log.
@@ -378,7 +378,7 @@ Tables to verify:
 - `materials`
 - `material_price_history`
 - `yards`
-- `vehicle_types`
+- `trucking_profiles`
 - `pricing_config`
 - `tax_rates`
 - `feature_flags`

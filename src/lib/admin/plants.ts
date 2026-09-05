@@ -30,7 +30,6 @@ export type AdminPlantsSummary = {
   counts: {
     suppliers: number;
     materials: number;
-    vehicleTypes: number;
     yards: number;
     taxRates: number;
     auditEntries: number;
@@ -54,7 +53,6 @@ export async function getAdminPlantsSummary(
       counts: {
         suppliers: 0,
         materials: 0,
-        vehicleTypes: 0,
         yards: 0,
         taxRates: 0,
         auditEntries: 0,
@@ -67,7 +65,6 @@ export async function getAdminPlantsSummary(
     parentSuppliersResult,
     suppliersCount,
     materialsCount,
-    vehicleTypesCount,
     yardsCount,
     taxRatesCount,
     auditEntriesCount,
@@ -93,10 +90,6 @@ export async function getAdminPlantsSummary(
       .eq("organization_id", organizationId),
     admin
       .from("materials")
-      .select("id", { count: "exact", head: true })
-      .eq("organization_id", organizationId),
-    admin
-      .from("vehicle_types")
       .select("id", { count: "exact", head: true })
       .eq("organization_id", organizationId),
     admin
@@ -133,7 +126,6 @@ export async function getAdminPlantsSummary(
     counts: {
       suppliers: suppliersCount.count ?? 0,
       materials: materialsCount.count ?? 0,
-      vehicleTypes: vehicleTypesCount.count ?? 0,
       yards: yardsCount.count ?? 0,
       taxRates: taxRatesCount.count ?? 0,
       auditEntries: auditEntriesCount.count ?? 0,

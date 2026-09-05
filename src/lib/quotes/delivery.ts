@@ -120,7 +120,6 @@ export type PublicQuoteItem = {
   quantity: number;
   unit: string;
   load_count: number;
-  vehicle_name: string | null;
   line_total: number;
 };
 
@@ -285,7 +284,6 @@ type PublicQuoteItemRecord = {
     | { name: string; tier: string }
     | { name: string; tier: string }[]
     | null;
-  vehicle_types: { name: string } | { name: string }[] | null;
 };
 
 const PUBLIC_LINK_DAYS = 30;
@@ -386,7 +384,7 @@ export async function getPublicQuoteByToken(
   const { data: quote } = await admin
     .from("quotes")
     .select(
-      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, organization_id, customers(name, contact_name, email, phone, payment_terms), job_sites(name, city, county, state, address), users(full_name, email), quote_items(id, quantity, unit, load_count, line_total, supplier_plants(name), materials(name, tier), vehicle_types(name))",
+      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, organization_id, customers(name, contact_name, email, phone, payment_terms), job_sites(name, city, county, state, address), users(full_name, email), quote_items(id, quantity, unit, load_count, line_total, supplier_plants(name), materials(name, tier))",
     )
     .eq("organization_id", link.organization_id)
     .eq("id", link.quote_id)
@@ -439,7 +437,6 @@ export async function getPublicQuoteByToken(
       quote.quote_items?.map((item) => {
         const supplier = relationOne(item.supplier_plants);
         const material = relationOne(item.materials);
-        const vehicle = relationOne(item.vehicle_types);
 
         return {
           id: item.id,
@@ -449,7 +446,6 @@ export async function getPublicQuoteByToken(
           quantity: Number(item.quantity),
           unit: item.unit,
           load_count: Number(item.load_count),
-          vehicle_name: vehicle?.name ?? null,
           line_total: Number(item.line_total),
         };
       }) ?? [],

@@ -349,7 +349,7 @@ Acceptance criteria:
 - Stakeholder pricing data:
   - Pricing rules.
   - Tax rates.
-  - Vehicle types.
+  - Trucking profiles and capacity per load.
   - Units of measure.
 - Credit application final template.
 - Decision on SMS gateway/provider.

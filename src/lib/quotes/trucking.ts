@@ -5,6 +5,7 @@ export type TruckingProfile = {
   hourlyRate: number;
   roundTripFactor: number;
   loadingUnloadingHours: number;
+  truckCapacity: number;
 };
 
 export type TruckingRecommendation = {
@@ -24,17 +25,15 @@ export type TruckingRecommendation = {
 
 export function calculateTruckingRecommendation({
   oneWayMiles,
-  truckCapacity,
   loadCount,
   profile,
 }: {
   oneWayMiles: number;
-  truckCapacity: number;
   loadCount: number;
   profile: TruckingProfile;
 }): TruckingRecommendation {
   const safeMiles = requireNonNegativeFinite(oneWayMiles, "one-way miles");
-  const safeCapacity = requirePositiveFinite(truckCapacity, "truck capacity");
+  const safeCapacity = requirePositiveFinite(profile.truckCapacity, "truck capacity");
   const safeLoadCount = requirePositiveFinite(loadCount, "load count");
   const averageSpeedMph = requirePositiveFinite(
     profile.averageSpeedMph,
@@ -77,6 +76,7 @@ export function normalizeTruckingProfile(record: {
   hourly_rate: number;
   round_trip_factor: number;
   loading_unloading_hours: number;
+  truck_capacity: number;
 }): TruckingProfile {
   return {
     id: record.id,
@@ -85,6 +85,7 @@ export function normalizeTruckingProfile(record: {
     hourlyRate: Number(record.hourly_rate),
     roundTripFactor: Number(record.round_trip_factor),
     loadingUnloadingHours: Number(record.loading_unloading_hours),
+    truckCapacity: Number(record.truck_capacity),
   };
 }
 

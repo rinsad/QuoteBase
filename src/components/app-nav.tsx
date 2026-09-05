@@ -131,7 +131,6 @@ function AdminMenu({ role }: { role: "admin" | "account_manager" }) {
             { href: "/admin/units", label: "Units" },
             { href: "/admin/tax-rates", label: "Tax rates" },
             { href: "/admin/yards", label: "Yards" },
-            { href: "/admin/vehicle-types", label: "Vehicle types" },
           ]}
         />
         <NavGroup

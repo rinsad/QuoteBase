@@ -7,7 +7,6 @@ import { getMapboxIntegration } from "@/lib/integrations/mapbox";
 import {
   normalizePricingConfig,
   normalizeProjectStatusOptions,
-  normalizeVehicleTypes,
 } from "@/lib/quotes/new-quote";
 import {
   selectBestPlantForQuote,
@@ -20,7 +19,6 @@ import {
   type CatalogMarkupRule,
   type PricingConfig,
   type TruckRateKey,
-  type VehicleCapacity,
 } from "@/lib/quotes/pricing";
 import type { createClient } from "@/lib/supabase/server";
 
@@ -132,7 +130,6 @@ export async function createQuoteDraftRecord({
   const [
     materialsResult,
     pricingConfigResult,
-    vehicleTypesResult,
     existingCustomerResult,
     existingJobSiteResult,
     markupRulesResult,
@@ -158,13 +155,6 @@ export async function createQuoteDraftRecord({
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
-    supabase
-      .from("vehicle_types")
-      .select("id, name, capacity_tons, capacity_cy")
-      .eq("organization_id", user.organization_id)
-      .eq("is_active", true)
-      .order("capacity_tons", { ascending: false })
-      .returns<VehicleCapacity[]>(),
     input.customerId
       ? supabase
           .from("customers")
@@ -243,7 +233,6 @@ export async function createQuoteDraftRecord({
   }
 
   const pricingConfig = normalizePricingConfig(pricingConfigResult.data);
-  const vehicleTypes = normalizeVehicleTypes(vehicleTypesResult.data ?? []);
   const catalogMarkupRules = normalizeCatalogMarkupRules(
     markupRulesResult.data ?? [],
   );
@@ -280,7 +269,6 @@ export async function createQuoteDraftRecord({
         taxRate: Number(taxRate.rate),
         quantity: line.quantity,
         pricingConfig,
-        vehicleTypes,
         unitConversions,
         useRequestedPlant: input.useSelectedPlant,
         markupPctOverride: line.markupPctOverride,
@@ -305,7 +293,6 @@ export async function createQuoteDraftRecord({
         unit: material.unit,
         taxRate: Number(taxRate.rate),
         pricingConfig,
-        vehicleTypes,
         unitConversions,
         routeDurationSeconds:
           recommendation.routeDistance?.durationSeconds ?? null,
@@ -398,7 +385,6 @@ export async function createQuoteDraftRecord({
       markup_pct: line.calculation.markupPct,
       material_unit_price: line.calculation.materialUnitPrice,
       material_subtotal: line.calculation.materialSubtotal,
-      vehicle_type_id: line.calculation.vehicleTypeId,
       load_count: line.calculation.loadCount,
       trucking_rate_per_unit: line.calculation.truckingRatePerUnit,
       trucking_subtotal: line.calculation.truckingSubtotal,

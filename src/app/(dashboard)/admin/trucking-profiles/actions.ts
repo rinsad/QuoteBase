@@ -30,6 +30,7 @@ export async function saveTruckingProfile(formData: FormData): Promise<void> {
     average_speed_mph: requiredPositiveNumber(formData, "average_speed_mph", 100),
     hourly_rate: requiredNonNegativeNumber(formData, "hourly_rate", 10000),
     round_trip_factor: requiredPositiveNumber(formData, "round_trip_factor", 10),
+    truck_capacity: requiredPositiveNumber(formData, "truck_capacity", 10000),
     loading_unloading_hours: requiredNonNegativeNumber(
       formData,
       "loading_unloading_hours",
@@ -92,7 +93,7 @@ export async function saveTruckingProfile(formData: FormData): Promise<void> {
 
   const { data: profile, error } = await profileQuery
     .select(
-      "id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, is_active, is_default",
+      "id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, truck_capacity, is_active, is_default",
     )
     .single<Record<string, unknown>>();
 

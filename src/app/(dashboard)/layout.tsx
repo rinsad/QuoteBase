@@ -57,7 +57,6 @@ const primaryNav: NavItem[] = [
       { label: "Customer types", href: "/admin/customer-types" },
       { label: "Units", href: "/admin/units" },
       { label: "Tax rates", href: "/admin/tax-rates" },
-      { label: "Vehicle types", href: "/admin/vehicle-types" },
       { label: "Trucking profiles", href: "/admin/trucking-profiles" },
       { label: "Yards", href: "/admin/yards" },
     ],

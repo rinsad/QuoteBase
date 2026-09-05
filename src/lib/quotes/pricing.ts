@@ -48,13 +48,6 @@ export type CatalogPricedMaterial = {
   catalog_category: string | null;
 };
 
-export type VehicleCapacity = {
-  id: string;
-  name: string;
-  capacity_tons: number;
-  capacity_cy: number | null;
-};
-
 export type QuoteQuantityBasis = "ton" | "cy" | "load" | "count" | "none";
 
 export type QuoteUnitConversion = {
@@ -70,7 +63,6 @@ export type QuoteDraftCalculationInput = {
   unit: string;
   taxRate: number;
   pricingConfig: PricingConfig;
-  vehicleTypes?: VehicleCapacity[];
   unitConversions?: QuoteUnitConversion[];
   routeDurationSeconds?: number | null;
   routeDistanceMiles?: number | null;
@@ -97,8 +89,6 @@ export type QuoteDraftCalculation = {
   grossMarginPct: number | null;
   marginFloorPct: number | null;
   marginFloorWarning: boolean;
-  vehicleTypeId: string | null;
-  vehicleName: string | null;
   quoteQuantityBasis: QuoteQuantityBasis;
   quoteQuantityFactor: number | null;
   truckCapacityQuantity: number;
@@ -121,7 +111,6 @@ export function calculateQuoteDraft({
   unit,
   taxRate,
   pricingConfig,
-  vehicleTypes = [],
   unitConversions = [],
   routeDurationSeconds = null,
   routeDistanceMiles = null,
@@ -164,10 +153,10 @@ export function calculateQuoteDraft({
       : null;
   const marginFloorPct = null;
   const marginFloorWarning = false;
-  const vehiclePlan = chooseVehiclePlan({
+  const loadPlan = chooseLoadPlan({
     quantity,
     unitConversion,
-    vehicleTypes,
+    truckingProfile,
   });
   const routeSeconds =
     routeDurationSeconds === null ? null : Math.max(0, routeDurationSeconds);
@@ -179,8 +168,7 @@ export function calculateQuoteDraft({
     truckingProfile && routeDistanceMiles !== null
       ? calculateTruckingRecommendation({
           oneWayMiles: Math.max(0, routeDistanceMiles),
-          truckCapacity: vehiclePlan.truckCapacityQuantity,
-          loadCount: vehiclePlan.loadCount,
+          loadCount: loadPlan.loadCount,
           profile: truckingProfile,
         })
       : null;
@@ -189,20 +177,20 @@ export function calculateQuoteDraft({
   const rawTruckingSubtotal =
     truckingRecommendation?.subtotal ??
     (roundTripSeconds === null
-      ? effectiveTruckHourlyRate * vehiclePlan.loadCount
-      : effectiveTruckHourlyRate * (roundTripSeconds / 3600) * vehiclePlan.loadCount);
+      ? effectiveTruckHourlyRate * loadPlan.loadCount
+      : effectiveTruckHourlyRate * (roundTripSeconds / 3600) * loadPlan.loadCount);
   const truckingMinimum = resolveMinimumOverride(
     truckingMinimumOverride,
     pricingConfig.trucking_minimum ?? 0,
   );
   const truckingSubtotal = truckingRecommendation
     ? rawTruckingSubtotal
-    : Math.max(rawTruckingSubtotal, truckingMinimum * vehiclePlan.loadCount);
+    : Math.max(rawTruckingSubtotal, truckingMinimum * loadPlan.loadCount);
   const truckingRatePerUnit = quantity > 0 ? truckingSubtotal / quantity : 0;
   const loadFeesSubtotal =
     (pricingConfig.fuel_surcharge_per_load +
       pricingConfig.environmental_fee_per_load) *
-    vehiclePlan.loadCount;
+    loadPlan.loadCount;
   const creditCardSurcharge =
     applyCreditCardSurcharge && isCodPaymentTerms(paymentTerms)
       ? (materialSubtotal + truckingSubtotal + loadFeesSubtotal) *
@@ -225,12 +213,10 @@ export function calculateQuoteDraft({
         : Math.round((grossMarginPct + Number.EPSILON) * 10) / 10,
     marginFloorPct,
     marginFloorWarning,
-    vehicleTypeId: vehiclePlan.vehicleTypeId,
-    vehicleName: vehiclePlan.vehicleName,
     quoteQuantityBasis: unitConversion.quoteQuantityBasis,
     quoteQuantityFactor: unitConversion.quoteQuantityFactor,
-    truckCapacityQuantity: roundQuantity(vehiclePlan.truckCapacityQuantity),
-    loadCount: roundQuantity(vehiclePlan.loadCount),
+    truckCapacityQuantity: roundQuantity(loadPlan.truckCapacityQuantity),
+    loadCount: roundQuantity(loadPlan.loadCount),
     truckingRatePerUnit: roundMoney(truckingRatePerUnit),
     truckingRateKey: truckRateKey,
     truckingHourlyRate: roundMoney(effectiveTruckHourlyRate),
@@ -416,17 +402,15 @@ export function isCodPaymentTerms(paymentTerms: string | null | undefined): bool
   return !terms || /\bcod\b/i.test(terms);
 }
 
-function chooseVehiclePlan({
+function chooseLoadPlan({
   quantity,
   unitConversion,
-  vehicleTypes,
+  truckingProfile,
 }: {
   quantity: number;
   unitConversion: QuoteUnitConversion;
-  vehicleTypes: VehicleCapacity[];
+  truckingProfile: TruckingProfile | null;
 }): {
-  vehicleTypeId: string | null;
-  vehicleName: string | null;
   truckCapacityQuantity: number;
   loadCount: number;
 } {
@@ -440,8 +424,6 @@ function chooseVehiclePlan({
     unitConversion.quoteQuantityBasis === "count"
   ) {
     return {
-      vehicleTypeId: null,
-      vehicleName: null,
       truckCapacityQuantity: Math.max(convertedQuantity, 1),
       loadCount: Math.max(1, Math.ceil(convertedQuantity)),
     };
@@ -449,39 +431,22 @@ function chooseVehiclePlan({
 
   if (unitConversion.quoteQuantityBasis === "none") {
     return {
-      vehicleTypeId: null,
-      vehicleName: null,
       truckCapacityQuantity: Math.max(convertedQuantity, 1),
       loadCount: 1,
     };
   }
 
-  const compatibleVehicles = vehicleTypes
-    .map((vehicle) => ({
-      ...vehicle,
-      capacity:
-        unitConversion.quoteQuantityBasis === "cy"
-          ? Number(vehicle.capacity_cy ?? 0)
-          : Number(vehicle.capacity_tons),
-    }))
-    .filter((vehicle) => vehicle.capacity > 0)
-    .sort((a, b) => b.capacity - a.capacity);
-  const selected = compatibleVehicles[0];
-
-  if (!selected) {
+  const capacity = Number(truckingProfile?.truckCapacity ?? 0);
+  if (!Number.isFinite(capacity) || capacity <= 0) {
     return {
-      vehicleTypeId: null,
-      vehicleName: null,
       truckCapacityQuantity: Math.max(convertedQuantity, 1),
       loadCount: 1,
     };
   }
 
   return {
-    vehicleTypeId: selected.id,
-    vehicleName: selected.name,
-    truckCapacityQuantity: selected.capacity,
-    loadCount: Math.max(1, Math.ceil(convertedQuantity / selected.capacity)),
+    truckCapacityQuantity: capacity,
+    loadCount: Math.max(1, Math.ceil(convertedQuantity / capacity)),
   };
 }
 

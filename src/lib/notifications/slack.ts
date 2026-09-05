@@ -51,7 +51,6 @@ type QuoteApprovalMaterial = {
   feesSubtotal: number;
   lineTotal: number;
   loadCount: number;
-  vehicleName: string | null;
   grossMarginPct: number | null;
 };
 
@@ -83,7 +82,6 @@ type QuoteApprovalItemRecord = {
     | { name: string; tier: string }
     | { name: string; tier: string }[]
     | null;
-  vehicle_types: { name: string } | { name: string }[] | null;
 };
 
 type DraftAuditRecord = {
@@ -470,7 +468,7 @@ async function getQuoteApprovalContext({
     supabase
       .from("quotes")
       .select(
-        "material_subtotal, trucking_subtotal, fees_subtotal, tax_total, customers(name), job_sites(name, city, state), quote_items(quantity, unit, unit_cost, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, load_count, supplier_plants(name), materials(name, tier), vehicle_types(name))",
+        "material_subtotal, trucking_subtotal, fees_subtotal, tax_total, customers(name), job_sites(name, city, state), quote_items(quantity, unit, unit_cost, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, load_count, supplier_plants(name), materials(name, tier))",
       )
       .eq("organization_id", organizationId)
       .eq("id", quoteId)
@@ -500,7 +498,6 @@ async function getQuoteApprovalContext({
     .map((item, index): QuoteApprovalMaterial | null => {
       const supplier = relationOne(item.supplier_plants);
       const material = relationOne(item.materials);
-      const vehicle = relationOne(item.vehicle_types);
 
       if (!supplier || !material) {
         return null;
@@ -529,7 +526,6 @@ async function getQuoteApprovalContext({
         feesSubtotal: Number(item.fees_subtotal),
         lineTotal: Number(item.line_total),
         loadCount: Number(item.load_count),
-        vehicleName: vehicle?.name ?? null,
         grossMarginPct,
       };
     })
@@ -763,13 +759,12 @@ function buildMaterialSummary(
     const loads = `${formatQuantity(material.loadCount)} load${
       material.loadCount === 1 ? "" : "s"
     }`;
-    const vehicle = material.vehicleName ? ` via ${material.vehicleName}` : "";
 
     return [
       `*${material.label}: ${material.name} (${material.tier})*`,
       `${formatQuantity(material.quantity)} ${material.unit} | ${
         material.supplierName
-      } | ${loads}${vehicle}`,
+      } | ${loads}`,
       `Cost ${formatCurrency(material.unitCost)}/${material.unit} | Sell ${formatCurrency(
         material.sellPrice,
       )}/${material.unit} | ${margin}`,

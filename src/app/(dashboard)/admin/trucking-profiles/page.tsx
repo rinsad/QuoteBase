@@ -59,19 +59,20 @@ export default async function TruckingProfilesPage({
             </Link>
           </div>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Define the speed, hourly rate, round-trip factor, and loading/unloading time used by materials. Assign a profile from the Materials catalog.
+            Define capacity per load, speed, hourly rate, round-trip factor, and loading/unloading time. Capacity uses the material&apos;s normalized quote unit.
           </p>
         </section>
 
         <section className="mt-6 glass-panel overflow-hidden">
-          <div className="master-table-head lg:grid-cols-[1.4fr_1fr_1fr_90px] lg:gap-4">
-            <span>Profile</span><span>Average speed</span><span>Hourly rate</span><span>Action</span>
+          <div className="master-table-head lg:grid-cols-[1.4fr_1fr_1fr_1fr_90px] lg:gap-4">
+            <span>Profile</span><span>Capacity/load</span><span>Average speed</span><span>Hourly rate</span><span>Action</span>
           </div>
           <div className="divide-y divide-border">
             {data.profiles.map((profile) => (
               <Link key={profile.id} href={`/admin/trucking-profiles?edit=${profile.id}`}
-                className="grid gap-2 px-4 py-4 hover:bg-secondary/70 lg:grid-cols-[1.4fr_1fr_1fr_90px] lg:items-center lg:gap-4">
+                className="grid gap-2 px-4 py-4 hover:bg-secondary/70 lg:grid-cols-[1.4fr_1fr_1fr_1fr_90px] lg:items-center lg:gap-4">
                 <div><p className="text-sm font-semibold">{profile.name}{profile.isDefault ? <span className="ml-2 rounded-full bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700">Default</span> : null}</p><p className="text-xs text-muted-foreground">Round trip × {profile.roundTripFactor}</p></div>
+                <p className="font-mono text-sm">{profile.truckCapacity}</p>
                 <p className="font-mono text-sm">{profile.averageSpeedMph} MPH</p>
                 <p className="font-mono text-sm">{formatCurrency(profile.hourlyRate)}/hr</p>
                 <span className="mac-link h-9 justify-center px-3 text-xs">Edit</span>
@@ -110,6 +111,7 @@ function ProfileEditor({ profile, open }: {
           <NumberField name="average_speed_mph" label="Average speed (MPH)" value={profile?.averageSpeedMph ?? 35} max={100} />
           <NumberField name="hourly_rate" label="Hourly trucking rate" value={profile?.hourlyRate ?? 95} max={10000} />
           <NumberField name="round_trip_factor" label="Round-trip factor" value={profile?.roundTripFactor ?? 2} max={10} />
+          <NumberField name="truck_capacity" label="Truck capacity per load (material quote units)" value={profile?.truckCapacity ?? ""} max={10000} />
           <NumberField name="loading_unloading_hours" label="Loading/unloading hours per round trip" value={profile?.loadingUnloadingHours ?? 0} max={24} allowZero />
           <label className="flex items-start gap-3 rounded-[16px] border border-border bg-card/70 p-4">
             <input name="is_default" type="checkbox" defaultChecked={profile?.isDefault ?? false} className="mt-1 size-4" />
@@ -129,7 +131,7 @@ function TextField({ name, label, value }: { name: string; label: string; value:
   return <label className="block"><span className="text-sm font-medium text-muted-foreground">{label}</span><input name={name} defaultValue={value} className="soft-control mt-2 w-full" required /></label>;
 }
 
-function NumberField({ name, label, value, max, allowZero = false }: { name: string; label: string; value: number; max: number; allowZero?: boolean }) {
+function NumberField({ name, label, value, max, allowZero = false }: { name: string; label: string; value: number | string; max: number; allowZero?: boolean }) {
   return <label className="block"><span className="text-sm font-medium text-muted-foreground">{label}</span><input name={name} type="number" min={allowZero ? 0 : 0.01} max={max} step={0.01} defaultValue={value} className="soft-control mt-2 w-full" required /></label>;
 }
 

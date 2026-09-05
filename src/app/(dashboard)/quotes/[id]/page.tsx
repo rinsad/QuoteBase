@@ -858,7 +858,6 @@ function QuoteItemRow({
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
           {item.load_count.toFixed(0)} load{item.load_count === 1 ? "" : "s"}
-          {item.vehicle_name ? ` via ${item.vehicle_name}` : ""}
         </p>
       </div>
       <div className="text-left md:text-right">

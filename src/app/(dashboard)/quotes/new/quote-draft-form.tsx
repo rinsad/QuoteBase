@@ -378,7 +378,6 @@ export function QuoteDraftForm({
           unit: material.unit,
           taxRate: calculationTaxRate,
           pricingConfig,
-          vehicleTypes: context.vehicleTypes,
           unitConversions: context.unitConversions,
           routeDurationSeconds: estimateRouteDurationSeconds({
             material,
@@ -421,7 +420,6 @@ export function QuoteDraftForm({
     context.materials,
     context.pricingConfig,
     context.unitConversions,
-    context.vehicleTypes,
     calculationTaxRate,
     quantityValue,
     markupPercentageValue,
@@ -459,7 +457,6 @@ export function QuoteDraftForm({
                 unit: line.material.unit,
                 taxRate: calculationTaxRate,
                 pricingConfig: context.pricingConfig,
-                vehicleTypes: context.vehicleTypes,
                 unitConversions: context.unitConversions,
                 routeDurationSeconds: estimateRouteDurationSeconds({
                   material: line.material,
@@ -480,7 +477,6 @@ export function QuoteDraftForm({
       calculationTaxRate,
       context.pricingConfig,
       context.unitConversions,
-      context.vehicleTypes,
       paymentTerms,
       quoteLines,
       selectedJobSite,
@@ -1896,9 +1892,6 @@ function SupplierSourcingTable({
                   <p className="mt-1 text-xs text-muted-foreground">
                     {option.calculation.loadCount.toFixed(0)} load
                     {option.calculation.loadCount === 1 ? "" : "s"}
-                    {option.calculation.vehicleName
-                      ? ` via ${option.calculation.vehicleName}`
-                      : ""}
                   </p>
                 </div>
 

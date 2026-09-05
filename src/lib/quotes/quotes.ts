@@ -149,7 +149,6 @@ export type QuoteDetailItem = {
   markup_pct: number;
   material_unit_price: number;
   material_subtotal: number;
-  vehicle_name: string | null;
   load_count: number;
   trucking_rate_per_unit: number;
   trucking_subtotal: number;
@@ -290,7 +289,6 @@ type QuoteItemRecord = {
     | { name: string; tier: string }
     | { name: string; tier: string }[]
     | null;
-  vehicle_types: { name: string } | { name: string }[] | null;
 };
 
 type AuditRecord = {
@@ -683,7 +681,7 @@ export async function getQuoteDetail(
     supabase
       .from("quotes")
       .select(
-        "id, quote_number, status, parent_quote_id, revision_number, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, job_start_date, job_end_date, followup_attempt_count, followup_max_attempts, account_type, project_status, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), sales_tax_rates(city, state, rate), quote_items(id, quantity, unit, unit_cost, markup_per_unit, markup_pct, material_unit_price, material_subtotal, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, supplier_plants(name), materials(name, tier), vehicle_types(name))",
+        "id, quote_number, status, parent_quote_id, revision_number, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, job_start_date, job_end_date, followup_attempt_count, followup_max_attempts, account_type, project_status, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), sales_tax_rates(city, state, rate), quote_items(id, quantity, unit, unit_cost, markup_per_unit, markup_pct, material_unit_price, material_subtotal, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, supplier_plants(name), materials(name, tier))",
       )
       .eq("organization_id", user.organization_id)
       .eq("id", quoteId)
@@ -791,7 +789,6 @@ export async function getQuoteDetail(
       quote.quote_items?.map((item) => {
         const supplier = relationOne(item.supplier_plants);
         const material = relationOne(item.materials);
-        const vehicleType = relationOne(item.vehicle_types);
 
         return {
           id: item.id,
@@ -805,7 +802,6 @@ export async function getQuoteDetail(
           markup_pct: Number(item.markup_pct),
           material_unit_price: Number(item.material_unit_price),
           material_subtotal: Number(item.material_subtotal),
-          vehicle_name: vehicleType?.name ?? null,
           load_count: Number(item.load_count),
           trucking_rate_per_unit: Number(item.trucking_rate_per_unit),
           trucking_subtotal: Number(item.trucking_subtotal),

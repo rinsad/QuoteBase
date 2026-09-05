@@ -23,7 +23,6 @@ import {
 import { scheduleNextFollowUpForQuote } from "@/lib/quotes/follow-up-schedule";
 import {
   normalizePricingConfig,
-  normalizeVehicleTypes,
 } from "@/lib/quotes/new-quote";
 import {
   selectBestPlantForQuote,
@@ -36,10 +35,10 @@ import {
   resolveCatalogMarkupRule,
   type CatalogMarkupRule,
   type PricingConfig,
-  type VehicleCapacity,
 } from "@/lib/quotes/pricing";
 import type { QuoteStatus } from "@/lib/quotes/quotes";
 import { createQuoteRevision } from "@/lib/quotes/revisions";
+import { normalizeTruckingProfile } from "@/lib/quotes/trucking";
 import { transitionQuoteStatus } from "@/lib/quotes/workflow";
 import { createClient } from "@/lib/supabase/server";
 
@@ -79,13 +78,13 @@ type QuoteItemRecord = {
 };
 
 type EditableQuoteItemRecord = QuoteItemRecord & {
+  trucking_profile_id: string | null;
   unit: string;
   unit_cost: number;
   markup_per_unit: number | null;
   markup_pct: number;
   material_unit_price: number;
   material_subtotal: number;
-  vehicle_type_id: string | null;
   load_count: number;
   trucking_rate_per_unit: number;
   trucking_subtotal: number;
@@ -1207,7 +1206,6 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
     quoteResult,
     materialResult,
     pricingConfigResult,
-    vehicleTypesResult,
     markupRulesResult,
     unitConversions,
   ] = await Promise.all([
@@ -1237,13 +1235,6 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
-    supabase
-      .from("vehicle_types")
-      .select("id, name, capacity_tons, capacity_cy")
-      .eq("organization_id", user.organization_id)
-      .eq("is_active", true)
-      .order("capacity_tons", { ascending: false })
-      .returns<VehicleCapacity[]>(),
     supabase
       .from("supplier_markup_rules")
       .select(
@@ -1327,7 +1318,6 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
         minimumOverrides.truckingMinimumOverride ??
         Number(pricingConfigResult.data.trucking_minimum),
     },
-    vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
     unitConversions,
     catalogMarkupRules,
     mapboxAccessToken:
@@ -1355,7 +1345,6 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
       markup_pct: calculation.markupPct,
       material_unit_price: calculation.materialUnitPrice,
       material_subtotal: calculation.materialSubtotal,
-      vehicle_type_id: calculation.vehicleTypeId,
       load_count: calculation.loadCount,
       trucking_rate_per_unit: calculation.truckingRatePerUnit,
       trucking_subtotal: calculation.truckingSubtotal,
@@ -1444,7 +1433,6 @@ export async function addQuoteItem(quoteId: string, formData: FormData) {
         recommendation.deadheadDistance?.distanceMiles ?? null,
       deadhead_distance_source:
         recommendation.deadheadDistance?.source ?? null,
-      vehicle_type_id: calculation.vehicleTypeId,
       load_count: calculation.loadCount,
       total: totals.total,
     },
@@ -1620,7 +1608,6 @@ export async function updateQuoteItemQuantity(
     quoteResult,
     itemResult,
     pricingConfigResult,
-    vehicleTypesResult,
     unitConversions,
   ] = await Promise.all([
     supabase
@@ -1633,7 +1620,7 @@ export async function updateQuoteItemQuantity(
     supabase
       .from("quote_items")
       .select(
-        "id, material_id, quantity, unit, unit_cost, markup_per_unit, markup_pct, material_unit_price, material_subtotal, vehicle_type_id, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, materials(tier)",
+        "id, material_id, quantity, unit, unit_cost, markup_per_unit, markup_pct, material_unit_price, material_subtotal, trucking_profile_id, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total, materials(tier)",
       )
       .eq("organization_id", user.organization_id)
       .eq("quote_id", quoteId)
@@ -1647,13 +1634,6 @@ export async function updateQuoteItemQuantity(
       )
       .eq("organization_id", user.organization_id)
       .single<PricingConfig>(),
-    supabase
-      .from("vehicle_types")
-      .select("id, name, capacity_tons, capacity_cy")
-      .eq("organization_id", user.organization_id)
-      .eq("is_active", true)
-      .order("capacity_tons", { ascending: false })
-      .returns<VehicleCapacity[]>(),
     getQuoteUnitConversions({
       supabase,
       organizationId: user.organization_id,
@@ -1699,6 +1679,17 @@ export async function updateQuoteItemQuantity(
     quote.id,
     user.organization_id,
   );
+  const profileQuery = supabase
+    .from("trucking_profiles")
+    .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, truck_capacity")
+    .eq("organization_id", user.organization_id)
+    .eq("is_active", true);
+  const { data: profileRecord } = item.trucking_profile_id
+    ? await profileQuery.eq("id", item.trucking_profile_id).maybeSingle()
+    : await profileQuery.eq("is_default", true).maybeSingle();
+  const truckingProfile = profileRecord
+    ? normalizeTruckingProfile(profileRecord)
+    : null;
 
   const calculation = calculateQuoteDraft({
     costPerUnit: Number(item.unit_cost),
@@ -1712,8 +1703,8 @@ export async function updateQuoteItemQuantity(
         minimumOverrides.truckingMinimumOverride ??
         Number(pricingConfigResult.data.trucking_minimum),
     },
-    vehicleTypes: normalizeVehicleTypes(vehicleTypesResult.data ?? []),
     unitConversions,
+    truckingProfile,
     applyMaterialMinimum: false,
     materialUnitPriceOverride: Number(item.material_unit_price),
   });
@@ -1724,7 +1715,6 @@ export async function updateQuoteItemQuantity(
     markup_pct: Number(item.markup_pct),
     material_unit_price: Number(item.material_unit_price),
     material_subtotal: Number(item.material_subtotal),
-    vehicle_type_id: item.vehicle_type_id,
     load_count: Number(item.load_count),
     trucking_rate_per_unit: Number(item.trucking_rate_per_unit),
     trucking_subtotal: Number(item.trucking_subtotal),
@@ -1739,7 +1729,6 @@ export async function updateQuoteItemQuantity(
       markup_pct: calculation.markupPct,
       material_unit_price: calculation.materialUnitPrice,
       material_subtotal: calculation.materialSubtotal,
-      vehicle_type_id: calculation.vehicleTypeId,
       load_count: calculation.loadCount,
       trucking_rate_per_unit: calculation.truckingRatePerUnit,
       trucking_subtotal: calculation.truckingSubtotal,
@@ -1814,7 +1803,6 @@ export async function updateQuoteItemQuantity(
     after: {
       item_id: item.id,
       quantity,
-      vehicle_type_id: calculation.vehicleTypeId,
       load_count: calculation.loadCount,
       line_total: calculation.total,
       total: totals.total,

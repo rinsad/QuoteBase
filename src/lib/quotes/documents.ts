@@ -85,7 +85,6 @@ type QuoteSnapshotItemRecord = {
     | { name: string; tier: string }[]
     | null;
   supplier_plants: { name: string } | { name: string }[] | null;
-  vehicle_types: { name: string } | { name: string }[] | null;
 };
 
 type QuoteDocumentPricingConfig = {
@@ -184,7 +183,7 @@ export async function createQuoteHtmlDocument({
   const { data: quote } = await supabase
     .from("quotes")
     .select(
-      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, materials(name, tier), supplier_plants(name), vehicle_types(name))",
+      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, materials(name, tier), supplier_plants(name))",
     )
     .eq("organization_id", user.organization_id)
     .eq("id", quoteId)
@@ -281,7 +280,7 @@ export async function createQuotePdfDocument({
   const { data: quote } = await supabase
     .from("quotes")
     .select(
-      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, materials(name, tier), supplier_plants(name), vehicle_types(name))",
+      "id, quote_number, status, material_subtotal, trucking_subtotal, fees_subtotal, tax_total, total, notes, created_at, quote_date, expires_at, customers(name, contact_name, email, phone), job_sites(name, city, county, state, address), users(full_name, email), quote_items(quantity, unit, load_count, material_unit_price, material_subtotal, trucking_subtotal, fees_subtotal, line_total, materials(name, tier), supplier_plants(name))",
     )
     .eq("organization_id", user.organization_id)
     .eq("id", quoteId)
@@ -488,7 +487,6 @@ function renderQuoteHtml(
       ?.map((item) => {
         const material = relationOne(item.materials);
         const supplier = relationOne(item.supplier_plants);
-        const vehicle = relationOne(item.vehicle_types);
 
         return `<tr>
           <td>
@@ -496,7 +494,7 @@ function renderQuoteHtml(
             <span>${escapeHtml(supplier?.name ?? "Unknown supplier")} - ${escapeHtml(material?.tier ?? "")}</span>
           </td>
           <td>${Number(item.quantity).toLocaleString()} ${escapeHtml(item.unit)}</td>
-          <td>${Number(item.load_count).toFixed(0)}${vehicle?.name ? ` via ${escapeHtml(vehicle.name)}` : ""}</td>
+          <td>${Number(item.load_count).toFixed(0)}</td>
           <td class="right">${formatCurrency(Number(item.line_total))}</td>
         </tr>`;
       })

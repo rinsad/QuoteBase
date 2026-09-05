@@ -45,7 +45,6 @@ type RevisionQuoteItemRecord = {
   markup_pct: number;
   material_unit_price: number;
   material_subtotal: number;
-  vehicle_type_id: string | null;
   load_count: number;
   trucking_rate_per_unit: number;
   trucking_subtotal: number;
@@ -116,7 +115,7 @@ export async function createQuoteRevision({
   const { data: quoteItems, error: itemsError } = await supabase
     .from("quote_items")
     .select(
-      "supplier_id, material_id, quantity, unit, unit_cost, markup_per_unit, markup_pct, material_unit_price, material_subtotal, vehicle_type_id, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total",
+      "supplier_id, material_id, quantity, unit, unit_cost, markup_per_unit, markup_pct, material_unit_price, material_subtotal, load_count, trucking_rate_per_unit, trucking_subtotal, fees_subtotal, line_total",
     )
     .eq("organization_id", user.organization_id)
     .eq("quote_id", quote.id)
@@ -175,7 +174,6 @@ export async function createQuoteRevision({
         markup_pct: Number(item.markup_pct),
         material_unit_price: Number(item.material_unit_price),
         material_subtotal: Number(item.material_subtotal),
-        vehicle_type_id: item.vehicle_type_id,
         load_count: Number(item.load_count),
         trucking_rate_per_unit: Number(item.trucking_rate_per_unit),
         trucking_subtotal: Number(item.trucking_subtotal),
