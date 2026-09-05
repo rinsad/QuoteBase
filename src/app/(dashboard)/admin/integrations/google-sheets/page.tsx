@@ -225,16 +225,6 @@ export default async function GoogleSheetsIntegrationPage({
             >
               Link sheet and synchronize
             </Button>
-            {integration?.is_enabled ? (
-              <Button
-                formAction={runGoogleSheetsSyncNow}
-                variant="outline"
-                className="h-11 rounded-full"
-              >
-                <RefreshCw className="size-4" />
-                Sync now
-              </Button>
-            ) : null}
           </div>
           {config.lastSyncAt ? (
             <p className="mt-4 text-sm text-muted-foreground">
@@ -247,6 +237,15 @@ export default async function GoogleSheetsIntegrationPage({
             <SyncReport summary={config.lastSyncSummary} />
           ) : null}
         </form>
+
+        {integration?.is_enabled ? (
+          <form action={runGoogleSheetsSyncNow} className="mt-3 flex justify-end">
+            <Button type="submit" variant="outline" className="h-11 rounded-full">
+              <RefreshCw className="size-4" />
+              Sync now
+            </Button>
+          </form>
+        ) : null}
 
         {config.syncLog?.length ? (
           <section className="mt-6 glass-panel p-5 sm:p-6">
