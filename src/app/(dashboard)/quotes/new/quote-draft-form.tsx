@@ -1909,12 +1909,8 @@ function SupplierSourcingTable({
                     value={formatCurrency(option.material.cost_per_unit)}
                   />
                   <OptionMetric
-                    label="Recommended trucking"
-                    value={
-                      option.calculation.truckingRecommendation
-                        ? `${formatCurrency(option.calculation.truckingRecommendation.ratePerCapacityUnit)}/${option.calculation.quoteQuantityBasis === "cy" ? "CY" : "ton"}`
-                        : formatCurrency(option.calculation.truckingSubtotal)
-                    }
+                    label="Recommended trucking total"
+                    value={formatCurrency(option.calculation.truckingSubtotal)}
                     strong
                   />
                 </div>
