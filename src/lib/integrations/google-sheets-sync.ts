@@ -452,7 +452,7 @@ function parseSpreadsheet({
   const materials: SheetMaterial[] = [];
   const warnings: string[] = [];
   let skippedRows = 0;
-  const indexes = Object.fromEntries(
+  const configuredIndexes = Object.fromEntries(
     Object.entries(config.columns).map(([key, column]) => [
       key,
       columnToIndex(column),
@@ -467,6 +467,11 @@ function parseSpreadsheet({
       .some((row) => row.some((value) => cellValue(value) !== ""));
     if (!supplierName || !hasContent) continue;
     suppliers.push({ name: supplierName, key: supplierKey });
+    const indexes = resolveColumnIndexes({
+      values: tab.values,
+      headerRow: config.headerRow,
+      configuredIndexes,
+    });
     let currentAddress: ParsedAddress | null = null;
     let currentPlantLabel: string | null = null;
 
@@ -702,6 +707,52 @@ function columnToIndex(column: string): number {
         0,
       ) - 1
   );
+}
+
+function resolveColumnIndexes({
+  values,
+  headerRow,
+  configuredIndexes,
+}: {
+  values: unknown[][];
+  headerRow: number;
+  configuredIndexes: Record<
+    keyof ReturnType<typeof normalizeGoogleSheetsConfig>["columns"],
+    number
+  >;
+}): typeof configuredIndexes {
+  const header = values[headerRow - 1] ?? [];
+  const normalizedHeaders = header.map((value) => normalizeHeader(cellValue(value)));
+  const aliases: Record<keyof typeof configuredIndexes, string[]> = {
+    address: ["plant address", "address", "plant location"],
+    material: ["material", "material name", "product", "product name"],
+    price: ["price", "unit price", "material price", "cost"],
+    unit: ["unit", "uom", "unit of measure", "per unit"],
+    lastUpdated: ["last updated", "updated", "price updated", "effective date"],
+    inventory: ["inventory", "inventory in stock", "in stock", "available"],
+    hours: ["hours", "business hours", "operating hours"],
+  };
+
+  const indexFor = (key: keyof typeof configuredIndexes): number => {
+    const detectedIndex = normalizedHeaders.findIndex((headerValue) =>
+      aliases[key].includes(headerValue),
+    );
+    return detectedIndex >= 0 ? detectedIndex : configuredIndexes[key];
+  };
+
+  return {
+    address: indexFor("address"),
+    material: indexFor("material"),
+    price: indexFor("price"),
+    unit: indexFor("unit"),
+    lastUpdated: indexFor("lastUpdated"),
+    inventory: indexFor("inventory"),
+    hours: indexFor("hours"),
+  };
+}
+
+function normalizeHeader(value: string): string {
+  return normalize(value).replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function cell(row: unknown[], index: number): string {
