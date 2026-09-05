@@ -27,6 +27,7 @@ export type AdminMaterialPrice = {
 export type MaterialTruckingProfileOption = {
   id: string;
   name: string;
+  isDefault: boolean;
 };
 
 export type MaterialPriceHistoryEntry = {
@@ -109,7 +110,7 @@ export async function getAdminMaterialPrices(organizationId: string): Promise<{
         .limit(12),
       supabase
         .from("trucking_profiles")
-        .select("id, name")
+        .select("id, name, is_default")
         .eq("organization_id", organizationId)
         .eq("is_active", true)
         .order("name"),
@@ -121,7 +122,11 @@ export async function getAdminMaterialPrices(organizationId: string): Promise<{
         .eq("is_active", true),
     ]);
 
-  const truckingProfiles = profilesResult.data ?? [];
+  const truckingProfiles = (profilesResult.data ?? []).map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    isDefault: Boolean(profile.is_default),
+  }));
   const profileNames = new Map(
     truckingProfiles.map((profile) => [profile.id, profile.name]),
   );

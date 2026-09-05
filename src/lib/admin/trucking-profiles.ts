@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export type AdminTruckingProfile = TruckingProfile & {
   isActive: boolean;
+  isDefault: boolean;
 };
 
 export async function getAdminTruckingProfiles(
@@ -17,7 +18,7 @@ export async function getAdminTruckingProfiles(
   const { data } = await supabase
     .from("trucking_profiles")
     .select(
-      "id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, is_active",
+      "id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, is_active, is_default",
     )
     .eq("organization_id", organizationId)
     .order("name");
@@ -26,6 +27,7 @@ export async function getAdminTruckingProfiles(
     profiles: (data ?? []).map((record) => ({
       ...normalizeTruckingProfile(record),
       isActive: Boolean(record.is_active),
+      isDefault: Boolean(record.is_default),
     })),
   };
 }

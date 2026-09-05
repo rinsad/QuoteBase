@@ -76,6 +76,16 @@ type TruckingProfileAssignment = {
   material_id: string;
 };
 
+type TruckingProfileRecord = {
+  id: string;
+  name: string;
+  average_speed_mph: number;
+  hourly_rate: number;
+  round_trip_factor: number;
+  loading_unloading_hours: number;
+  is_default: boolean;
+};
+
 
 export async function selectBestPlantForQuote({
   supabase,
@@ -159,7 +169,7 @@ export async function selectBestPlantForQuote({
     }),
     supabase
       .from("trucking_profiles")
-      .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours")
+      .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, is_default")
       .eq("organization_id", organizationId)
       .eq("is_active", true),
     supabase
@@ -177,6 +187,12 @@ export async function selectBestPlantForQuote({
       normalizeTruckingProfile(profile),
     ]),
   );
+  const defaultTruckingProfileRecord = (
+    (truckingProfilesResult.data ?? []) as TruckingProfileRecord[]
+  ).find((profile) => profile.is_default);
+  const defaultTruckingProfile = defaultTruckingProfileRecord
+    ? normalizeTruckingProfile(defaultTruckingProfileRecord)
+    : null;
 
   const candidates = multiPitComparisonEnabled && materialsResult.data?.length
     ? materialsResult.data
@@ -205,6 +221,7 @@ export async function selectBestPlantForQuote({
           materialId: material.id,
           profiles: truckingProfiles,
           assignments: truckingAssignmentsResult.data ?? [],
+          defaultProfile: defaultTruckingProfile,
         }),
       }),
     ),
@@ -433,16 +450,20 @@ function resolveTruckingProfile({
   materialId,
   profiles,
   assignments,
+  defaultProfile,
 }: {
   materialId: string;
   profiles: Map<string, TruckingProfile>;
   assignments: TruckingProfileAssignment[];
+  defaultProfile: TruckingProfile | null;
 }): TruckingProfile | null {
   const assignment = assignments.find(
     (candidate) => candidate.material_id === materialId,
   );
 
-  return assignment ? profiles.get(assignment.trucking_profile_id) ?? null : null;
+  return assignment
+    ? profiles.get(assignment.trucking_profile_id) ?? defaultProfile
+    : defaultProfile;
 }
 
 async function getNearestYardDistance({

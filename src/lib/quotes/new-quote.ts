@@ -136,6 +136,7 @@ type TruckingProfileRecord = {
   hourly_rate: number;
   round_trip_factor: number;
   loading_unloading_hours: number;
+  is_default: boolean;
 };
 
 type TruckingProfileAssignmentRecord = {
@@ -260,7 +261,7 @@ export async function getNewQuoteContext(
       .returns<Array<{ provider: CrmProvider }>>(),
     supabase
       .from("trucking_profiles")
-      .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours")
+      .select("id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, is_default")
       .eq("organization_id", user.organization_id)
       .eq("is_active", true)
       .returns<TruckingProfileRecord[]>(),
@@ -300,6 +301,12 @@ export async function getNewQuoteContext(
       normalizeTruckingProfile(profile),
     ]),
   );
+  const defaultTruckingProfileRecord = (truckingProfilesResult.data ?? []).find(
+    (profile) => profile.is_default,
+  );
+  const defaultTruckingProfile = defaultTruckingProfileRecord
+    ? normalizeTruckingProfile(defaultTruckingProfileRecord)
+    : null;
   const firstMaterial = materialsResult.data?.[0];
   const firstTaxRate = taxRatesResult.data?.[0];
   const sampleCalculation =
@@ -373,6 +380,7 @@ export async function getNewQuoteContext(
             materialId: material.id,
             profiles: truckingProfiles,
             assignments: truckingAssignmentsResult.data ?? [],
+            defaultProfile: defaultTruckingProfile,
           }),
         };
       }) ?? [],
@@ -396,16 +404,20 @@ function resolveMaterialTruckingProfile({
   materialId,
   profiles,
   assignments,
+  defaultProfile,
 }: {
   materialId: string;
   profiles: Map<string, TruckingProfile>;
   assignments: TruckingProfileAssignmentRecord[];
+  defaultProfile: TruckingProfile | null;
 }): TruckingProfile | null {
   const assignment = assignments.find(
     (candidate) => candidate.material_id === materialId,
   );
 
-  return assignment ? profiles.get(assignment.trucking_profile_id) ?? null : null;
+  return assignment
+    ? profiles.get(assignment.trucking_profile_id) ?? defaultProfile
+    : defaultProfile;
 }
 
 async function getQuotePricingConfig(

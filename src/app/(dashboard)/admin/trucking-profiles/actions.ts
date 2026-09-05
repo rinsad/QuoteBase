@@ -23,6 +23,7 @@ export async function saveTruckingProfile(formData: FormData): Promise<void> {
   }
 
   const profileId = optionalUuid(formData, "profile_id");
+  const isDefault = formData.get("is_default") === "on";
   const payload = {
     organization_id: user.organization_id,
     name: requiredText(formData, "name"),
@@ -35,6 +36,7 @@ export async function saveTruckingProfile(formData: FormData): Promise<void> {
       24,
     ),
     is_active: true,
+    is_default: isDefault,
   };
 
   const { data: before } = profileId
@@ -46,6 +48,40 @@ export async function saveTruckingProfile(formData: FormData): Promise<void> {
         .maybeSingle<Record<string, unknown>>()
     : { data: null };
 
+  if (!isDefault && before?.is_default === true) {
+    throw new Error("Choose another default profile before removing this default.");
+  }
+
+  const { data: previousDefaults, error: defaultsReadError } = isDefault
+    ? await supabase
+        .from("trucking_profiles")
+        .select("id, name, is_default")
+        .eq("organization_id", user.organization_id)
+        .eq("is_default", true)
+        .eq("is_active", true)
+    : { data: [], error: null };
+
+  if (defaultsReadError) {
+    throw new Error(defaultsReadError.message);
+  }
+
+  if (isDefault) {
+    let clearDefaultsQuery = supabase
+      .from("trucking_profiles")
+      .update({ is_default: false })
+      .eq("organization_id", user.organization_id)
+      .eq("is_default", true);
+
+    if (profileId) {
+      clearDefaultsQuery = clearDefaultsQuery.neq("id", profileId);
+    }
+
+    const { error: clearDefaultsError } = await clearDefaultsQuery;
+    if (clearDefaultsError) {
+      throw new Error(clearDefaultsError.message);
+    }
+  }
+
   const profileQuery = profileId
     ? supabase
         .from("trucking_profiles")
@@ -56,7 +92,7 @@ export async function saveTruckingProfile(formData: FormData): Promise<void> {
 
   const { data: profile, error } = await profileQuery
     .select(
-      "id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, is_active",
+      "id, name, average_speed_mph, hourly_rate, round_trip_factor, loading_unloading_hours, is_active, is_default",
     )
     .single<Record<string, unknown>>();
 
@@ -69,7 +105,7 @@ export async function saveTruckingProfile(formData: FormData): Promise<void> {
     action: profileId ? "trucking_profile.updated" : "trucking_profile.created",
     targetTable: "trucking_profiles",
     targetId: profile.id,
-    before,
+    before: { profile: before, previous_defaults: previousDefaults ?? [] },
     after: profile,
     supabase,
   });

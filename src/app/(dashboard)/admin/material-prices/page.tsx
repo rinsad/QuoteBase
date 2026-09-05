@@ -346,7 +346,12 @@ export default async function AdminMaterialPricesPage({
                           className="soft-control min-w-0 flex-1 py-2 text-xs"
                           aria-label={`Trucking profile for ${material.name}`}
                         >
-                          <option value="">Not assigned</option>
+                          <option value="">
+                            Use default
+                            {data.truckingProfiles.find((profile) => profile.isDefault)
+                              ? ` (${data.truckingProfiles.find((profile) => profile.isDefault)?.name})`
+                              : ""}
+                          </option>
                           {data.truckingProfiles.map((profile) => (
                             <option key={profile.id} value={profile.id}>
                               {profile.name}
@@ -364,7 +369,8 @@ export default async function AdminMaterialPricesPage({
                       </form>
                     ) : (
                       <span className="truncate text-sm text-muted-foreground">
-                        {material.trucking_profile_name ?? "Not assigned"}
+                        {material.trucking_profile_name ??
+                          `Default (${data.truckingProfiles.find((profile) => profile.isDefault)?.name ?? "legacy pricing"})`}
                       </span>
                     )}
                     <Link

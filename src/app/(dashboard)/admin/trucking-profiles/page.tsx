@@ -71,7 +71,7 @@ export default async function TruckingProfilesPage({
             {data.profiles.map((profile) => (
               <Link key={profile.id} href={`/admin/trucking-profiles?edit=${profile.id}`}
                 className="grid gap-2 px-4 py-4 hover:bg-secondary/70 lg:grid-cols-[1.4fr_1fr_1fr_90px] lg:items-center lg:gap-4">
-                <div><p className="text-sm font-semibold">{profile.name}</p><p className="text-xs text-muted-foreground">Round trip × {profile.roundTripFactor}</p></div>
+                <div><p className="text-sm font-semibold">{profile.name}{profile.isDefault ? <span className="ml-2 rounded-full bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700">Default</span> : null}</p><p className="text-xs text-muted-foreground">Round trip × {profile.roundTripFactor}</p></div>
                 <p className="font-mono text-sm">{profile.averageSpeedMph} MPH</p>
                 <p className="font-mono text-sm">{formatCurrency(profile.hourlyRate)}/hr</p>
                 <span className="mac-link h-9 justify-center px-3 text-xs">Edit</span>
@@ -111,6 +111,10 @@ function ProfileEditor({ profile, open }: {
           <NumberField name="hourly_rate" label="Hourly trucking rate" value={profile?.hourlyRate ?? 95} max={10000} />
           <NumberField name="round_trip_factor" label="Round-trip factor" value={profile?.roundTripFactor ?? 2} max={10} />
           <NumberField name="loading_unloading_hours" label="Loading/unloading hours per round trip" value={profile?.loadingUnloadingHours ?? 0} max={24} allowZero />
+          <label className="flex items-start gap-3 rounded-[16px] border border-border bg-card/70 p-4">
+            <input name="is_default" type="checkbox" defaultChecked={profile?.isDefault ?? false} className="mt-1 size-4" />
+            <span><span className="block text-sm font-semibold">Use as organization default</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">Automatically applies when a material has no specific trucking profile.</span></span>
+          </label>
           <p className="-mt-2 text-xs leading-5 text-muted-foreground">
             Combined plant loading and job-site unloading time added once to every load.
           </p>
