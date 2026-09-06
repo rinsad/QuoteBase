@@ -6,7 +6,6 @@ import {
   ArrowUpDown,
   Plus,
   Save,
-  ShieldCheck,
   X,
 } from "lucide-react";
 
@@ -61,12 +60,34 @@ export default async function AdminPlantsPage({
     searchParams,
     getAdminPlantsSummary(user.organization_id),
   ]);
-  const selectedSupplier =
-    summary.suppliers.find((supplier) => supplier.id === params.plant) ?? null;
   const showNewPlant = params.new === "1";
   const sortKey = parsePlantSortKey(params.sort);
   const sortDirection = params.dir === "desc" ? "desc" : "asc";
-  const sortedSuppliers = sortPlants(summary.suppliers, sortKey, sortDirection);
+  const selectedParentSupplierId = summary.parentSuppliers.some(
+    (supplier) => supplier.id === params.supplier,
+  )
+    ? params.supplier
+    : undefined;
+  const filteredPlants = selectedParentSupplierId
+    ? summary.suppliers.filter(
+        (plant) => plant.supplier_id === selectedParentSupplierId,
+      )
+    : summary.suppliers;
+  const selectedPlant =
+    filteredPlants.find((plant) => plant.id === params.plant) ?? null;
+  const sortedPlants = sortPlants(filteredPlants, sortKey, sortDirection);
+  const listParams = new URLSearchParams({
+    sort: sortKey,
+    dir: sortDirection,
+  });
+  if (selectedParentSupplierId) {
+    listParams.set("supplier", selectedParentSupplierId);
+  }
+  const plantsListHref = `/admin/plants?${listParams.toString()}`;
+  const newPlantParams = new URLSearchParams({ new: "1" });
+  if (selectedParentSupplierId) {
+    newPlantParams.set("supplier", selectedParentSupplierId);
+  }
 
   return (
     <main className="app-background">
@@ -119,21 +140,50 @@ export default async function AdminPlantsPage({
                 Plant locations
               </p>
               <h2 className="accent-title text-2xl font-semibold tracking-normal">
-                {summary.suppliers.length} plants
+                {filteredPlants.length} plant
+                {filteredPlants.length === 1 ? "" : "s"}
               </h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
-                <ShieldCheck className="size-4" />
-                Admin and account manager
-              </div>
-              <Link href="/admin/plants?new=1" className="mac-button-primary h-10 px-4">
+              <Link
+                href={`/admin/plants?${newPlantParams.toString()}`}
+                className="mac-button-primary h-10 px-4"
+              >
                 <Plus className="size-4" />
                 New plant
               </Link>
             </div>
             </div>
           </div>
+
+          <form
+            action="/admin/plants"
+            method="get"
+            className="flex flex-col gap-3 border-t border-border px-5 py-4 sm:flex-row sm:items-end"
+          >
+            <input type="hidden" name="sort" value={sortKey} />
+            <input type="hidden" name="dir" value={sortDirection} />
+            <label className="block w-full max-w-sm">
+              <span className="text-sm font-medium text-muted-foreground">
+                Supplier
+              </span>
+              <select
+                name="supplier"
+                defaultValue={selectedParentSupplierId ?? ""}
+                className="soft-control mt-2 w-full"
+              >
+                <option value="">All suppliers</option>
+                {summary.parentSuppliers.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button type="submit" variant="outline" className="h-10 px-5">
+              Filter plants
+            </Button>
+          </form>
 
           <div className="master-table-head lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.8fr)_minmax(220px,1fr)_160px_120px_100px] lg:gap-4">
             <SortableHeader
@@ -142,6 +192,7 @@ export default async function AdminPlantsPage({
               activeSortKey={sortKey}
               direction={sortDirection}
               selectedPlantId={params.plant}
+              selectedSupplierId={selectedParentSupplierId}
             />
             <SortableHeader
               label="Supplier"
@@ -149,6 +200,7 @@ export default async function AdminPlantsPage({
               activeSortKey={sortKey}
               direction={sortDirection}
               selectedPlantId={params.plant}
+              selectedSupplierId={selectedParentSupplierId}
             />
             <SortableHeader
               label="Location"
@@ -156,6 +208,7 @@ export default async function AdminPlantsPage({
               activeSortKey={sortKey}
               direction={sortDirection}
               selectedPlantId={params.plant}
+              selectedSupplierId={selectedParentSupplierId}
             />
             <span>Coordinates</span>
             <SortableHeader
@@ -164,6 +217,7 @@ export default async function AdminPlantsPage({
               activeSortKey={sortKey}
               direction={sortDirection}
               selectedPlantId={params.plant}
+              selectedSupplierId={selectedParentSupplierId}
             />
             <SortableHeader
               label="Status"
@@ -171,16 +225,22 @@ export default async function AdminPlantsPage({
               activeSortKey={sortKey}
               direction={sortDirection}
               selectedPlantId={params.plant}
+              selectedSupplierId={selectedParentSupplierId}
             />
           </div>
 
           <div className="divide-y divide-border">
-            {sortedSuppliers.map((supplier) => (
+            {sortedPlants.map((supplier) => (
               <Link
                 key={supplier.id}
-                href={`/admin/plants?plant=${supplier.id}`}
+                href={plantDetailsHref({
+                  plantId: supplier.id,
+                  supplierId: selectedParentSupplierId,
+                  sortKey,
+                  sortDirection,
+                })}
                 className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.8fr)_minmax(220px,1fr)_160px_120px_100px] lg:items-center lg:gap-4 ${
-                  selectedSupplier?.id === supplier.id ? "bg-secondary" : ""
+                  selectedPlant?.id === supplier.id ? "bg-secondary" : ""
                 }`}
               >
                 <div className="min-w-0">
@@ -217,13 +277,22 @@ export default async function AdminPlantsPage({
                 </span>
               </Link>
             ))}
+            {!sortedPlants.length ? (
+              <p className="px-5 py-8 text-sm text-muted-foreground">
+                No plants found for this supplier.
+              </p>
+            ) : null}
           </div>
         </section>
-        <PlantSlideOver supplier={selectedSupplier} />
+        <PlantSlideOver
+          supplier={selectedPlant}
+          returnHref={plantsListHref}
+        />
         <NewPlantSlideOver
           open={showNewPlant}
           suppliers={summary.parentSuppliers}
           selectedSupplierId={params.supplier ?? ""}
+          returnHref={plantsListHref}
         />
       </div>
     </main>
@@ -288,18 +357,42 @@ function getPlantSortValue(plant: AdminSupplier, sortKey: PlantSortKey): string 
   return plant.name;
 }
 
+function plantDetailsHref({
+  plantId,
+  supplierId,
+  sortKey,
+  sortDirection,
+}: {
+  plantId: string;
+  supplierId?: string;
+  sortKey: PlantSortKey;
+  sortDirection: SortDirection;
+}): string {
+  const params = new URLSearchParams({
+    plant: plantId,
+    sort: sortKey,
+    dir: sortDirection,
+  });
+  if (supplierId) {
+    params.set("supplier", supplierId);
+  }
+  return `/admin/plants?${params.toString()}`;
+}
+
 function SortableHeader({
   label,
   sortKey,
   activeSortKey,
   direction,
   selectedPlantId,
+  selectedSupplierId,
 }: {
   label: string;
   sortKey: PlantSortKey;
   activeSortKey: PlantSortKey;
   direction: SortDirection;
   selectedPlantId?: string;
+  selectedSupplierId?: string;
 }) {
   const isActive = activeSortKey === sortKey;
   const nextDirection = isActive && direction === "asc" ? "desc" : "asc";
@@ -310,6 +403,10 @@ function SortableHeader({
 
   if (selectedPlantId) {
     params.set("plant", selectedPlantId);
+  }
+
+  if (selectedSupplierId) {
+    params.set("supplier", selectedSupplierId);
   }
 
   const SortIcon = isActive
@@ -335,10 +432,12 @@ function NewPlantSlideOver({
   open,
   suppliers,
   selectedSupplierId,
+  returnHref,
 }: {
   open: boolean;
   suppliers: { id: string; name: string }[];
   selectedSupplierId: string;
+  returnHref: string;
 }) {
   if (!open) {
     return null;
@@ -347,7 +446,7 @@ function NewPlantSlideOver({
   return (
     <aside className="customer-slide-over" aria-label="New plant">
       <Link
-        href="/admin/plants"
+        href={returnHref}
         className="customer-slide-backdrop"
         aria-label="Close new plant form"
       />
@@ -366,7 +465,7 @@ function NewPlantSlideOver({
               </p>
             </div>
             <Link
-              href="/admin/plants"
+              href={returnHref}
               className="mac-link size-9 shrink-0 px-0"
               aria-label="Close new plant form"
             >
@@ -473,7 +572,13 @@ function plantFormErrorMessage(code: string): string {
   return messages[code] ?? "Could not save the plant. Check the required fields and try again.";
 }
 
-function PlantSlideOver({ supplier }: { supplier: AdminSupplier | null }) {
+function PlantSlideOver({
+  supplier,
+  returnHref,
+}: {
+  supplier: AdminSupplier | null;
+  returnHref: string;
+}) {
   if (!supplier) {
     return null;
   }
@@ -481,7 +586,7 @@ function PlantSlideOver({ supplier }: { supplier: AdminSupplier | null }) {
   return (
     <aside className="customer-slide-over" aria-label="Plant details">
       <Link
-        href="/admin/plants"
+        href={returnHref}
         className="customer-slide-backdrop"
         aria-label="Close plant details"
       />
@@ -510,7 +615,7 @@ function PlantSlideOver({ supplier }: { supplier: AdminSupplier | null }) {
                 {supplier.is_active ? "Active" : "Inactive"}
               </span>
               <Link
-                href="/admin/plants"
+                href={returnHref}
                 className="mac-link size-9 px-0"
                 aria-label="Close plant details"
               >

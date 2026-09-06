@@ -83,10 +83,6 @@ export default async function AdminStripeIntegrationPage({
                 Stripe Checkout connection
               </h2>
             </div>
-            <div className="inline-flex items-center gap-2 rounded-md bg-secondary px-3 py-2 text-xs font-semibold text-primary ring-1 ring-border">
-              <ShieldCheck className="size-4" />
-              Secrets encrypted
-            </div>
           </div>
 
           <div className="mt-5 grid gap-5">

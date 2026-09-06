@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Save, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
+import { Save, UserPlus, UsersRound } from "lucide-react";
 
 import { saveUserInvite, updateAppUser } from "@/app/(dashboard)/admin/users/actions";
 import { AdminNav } from "@/components/app-nav";
@@ -97,10 +97,6 @@ export default async function AdminUsersPage({
                 <h2 className="accent-title text-2xl font-semibold tracking-normal">
                   {data.users.length} active profiles
                 </h2>
-              </div>
-              <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
-                <ShieldCheck className="size-4" />
-                Tenant scoped
               </div>
             </div>
 

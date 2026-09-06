@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { ClipboardList, ShieldCheck } from "lucide-react";
+import { ClipboardList } from "lucide-react";
 
 import { AdminNav } from "@/components/app-nav";
 import { getAdminAuditLog } from "@/lib/admin/audit-log";
@@ -55,10 +55,6 @@ export default async function AdminAuditLogPage() {
                   Last {entries.length} audit entries
                 </h2>
               </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
-              <ShieldCheck className="size-4" />
-              Read only
             </div>
           </div>
 

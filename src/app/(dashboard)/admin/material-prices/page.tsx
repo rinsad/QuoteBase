@@ -7,7 +7,6 @@ import {
   ChevronUp,
   Clock3,
   FileUp,
-  PackageOpen,
   Save,
   X,
 } from "lucide-react";
@@ -16,6 +15,7 @@ import {
   updateMaterialPrice,
   updateMaterialTruckingProfile,
 } from "@/app/(dashboard)/admin/material-prices/actions";
+import { MaterialPriceFilters } from "@/app/(dashboard)/admin/material-prices/material-price-filters";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -73,24 +73,21 @@ export default async function AdminMaterialPricesPage({
   const sortKey = parseSortKey(params.sort);
   const sortDir: SortDir = params.dir === "desc" ? "desc" : "asc";
   const supplierFilter = params.supplier ?? "";
-  const plantFilter = params.plant ?? "";
+  const requestedPlantFilter = params.plant ?? "";
   const supplierOptions = uniqueOptions(
     data.materials.map((material) => ({
       id: material.supplier_parent_id,
       name: material.supplier_parent_name,
     })),
   );
-  const plantOptions = uniqueOptions(
-    data.materials
-      .filter(
-        (material) =>
-          !supplierFilter || material.supplier_parent_id === supplierFilter,
-      )
-      .map((material) => ({
-        id: material.supplier_id,
-        name: material.plant_name,
-      })),
-  );
+  const plantOptions = uniquePlantOptions(data.materials);
+  const plantFilter = plantOptions.some(
+    (plant) =>
+      plant.id === requestedPlantFilter &&
+      (!supplierFilter || plant.supplierId === supplierFilter),
+  )
+    ? requestedPlantFilter
+    : "";
   const filteredMaterials = data.materials.filter(
     (material) =>
       (!supplierFilter || material.supplier_parent_id === supplierFilter) &&
@@ -181,65 +178,17 @@ export default async function AdminMaterialPricesPage({
                       : `${filteredMaterials.length} of ${data.materials.length} active materials`}
                   </h2>
                 </div>
-                <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
-                  <PackageOpen className="size-4" />
-                  Quote source
-                </div>
               </div>
             </div>
 
-            <form
-              method="get"
-              className="grid gap-3 border-t border-border bg-card/50 px-4 py-4 sm:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_auto_auto] sm:items-end"
-            >
-              <input type="hidden" name="sort" value={sortKey} />
-              <input type="hidden" name="dir" value={sortDir} />
-              <label className="grid gap-1.5">
-                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Supplier
-                </span>
-                <select
-                  name="supplier"
-                  defaultValue={supplierFilter}
-                  className="soft-control w-full py-2 text-sm"
-                >
-                  <option value="">All suppliers</option>
-                  {supplierOptions.map((supplier) => (
-                    <option key={supplier.id} value={supplier.id}>
-                      {supplier.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1.5">
-                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Plant
-                </span>
-                <select
-                  name="plant"
-                  defaultValue={plantFilter}
-                  className="soft-control w-full py-2 text-sm"
-                >
-                  <option value="">All plants</option>
-                  {plantOptions.map((plant) => (
-                    <option key={plant.id} value={plant.id}>
-                      {plant.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <Button type="submit" className="h-10 rounded-md px-5">
-                Apply filters
-              </Button>
-              {supplierFilter || plantFilter ? (
-                <Link
-                  href="/admin/material-prices"
-                  className="mac-link h-10 justify-center px-4"
-                >
-                  Clear
-                </Link>
-              ) : null}
-            </form>
+            <MaterialPriceFilters
+              supplierOptions={supplierOptions}
+              plantOptions={plantOptions}
+              initialSupplierId={supplierFilter}
+              initialPlantId={plantFilter}
+              sortKey={sortKey}
+              sortDir={sortDir}
+            />
 
             <div className="master-table-head lg:grid-cols-[minmax(200px,1.1fr)_minmax(160px,0.8fr)_minmax(210px,0.9fr)_135px_minmax(190px,1fr)_130px_90px] lg:gap-4">
               <SortableHeader
@@ -655,6 +604,25 @@ function uniqueOptions(options: Array<{ id: string; name: string }>) {
       options
         .filter((option) => option.id)
         .map((option) => [option.id, option]),
+    ).values(),
+  ).sort((a, b) => compareText(a.name, b.name));
+}
+
+function uniquePlantOptions(materials: AdminMaterialPrice[]) {
+  return Array.from(
+    new Map(
+      materials
+        .filter(
+          (material) => material.supplier_id && material.supplier_parent_id,
+        )
+        .map((material) => [
+          material.supplier_id,
+          {
+            id: material.supplier_id,
+            name: material.plant_name,
+            supplierId: material.supplier_parent_id,
+          },
+        ]),
     ).values(),
   ).sort((a, b) => compareText(a.name, b.name));
 }

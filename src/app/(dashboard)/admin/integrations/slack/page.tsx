@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { BellRing, ShieldCheck } from "lucide-react";
+import { BellRing } from "lucide-react";
 
 import { saveSlackIntegration } from "@/app/(dashboard)/admin/integrations/slack/actions";
 import { AdminNav } from "@/components/app-nav";
@@ -78,10 +78,6 @@ export default async function AdminSlackIntegrationPage({
                   Slack quote approvals
                 </h2>
               </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
-              <ShieldCheck className="size-4" />
-              Secrets encrypted
             </div>
           </div>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">

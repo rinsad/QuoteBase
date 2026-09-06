@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CalendarDays, MapPinned, Save, X } from "lucide-react";
+import { CalendarDays, Save, X } from "lucide-react";
 
 import { saveTaxRate } from "@/app/(dashboard)/admin/tax-rates/actions";
 import { AdminNav } from "@/components/app-nav";
@@ -74,10 +74,6 @@ export default async function AdminTaxRatesPage({
                 <h2 className="accent-title text-2xl font-semibold tracking-normal">
                   {taxRates.length} tax areas
                 </h2>
-              </div>
-              <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
-                <MapPinned className="size-4" />
-                Tenant scoped
               </div>
               <Link href="/admin/tax-rates?edit=new" className="mac-button-primary h-10 px-4">
                 New tax rate

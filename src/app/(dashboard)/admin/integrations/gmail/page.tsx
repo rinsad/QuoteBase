@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { KeyRound, Mail, ShieldCheck, Unplug } from "lucide-react";
+import { KeyRound, Mail, Unplug } from "lucide-react";
 
 import {
   disconnectGmailIntegration,
@@ -88,10 +88,6 @@ export default async function AdminGmailIntegrationPage({
                   Gmail quote sending
                 </h2>
               </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-100">
-              <ShieldCheck className="size-4" />
-              OAuth tokens encrypted
             </div>
           </div>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">
