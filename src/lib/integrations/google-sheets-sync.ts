@@ -49,6 +49,7 @@ export type GoogleSheetsSyncSummary = {
 
 const LEGACY_IMPORTED_MATERIAL_TIER = "R1";
 const MAX_WARNINGS = 50;
+const MAX_POSTGREST_IN_FILTER_VALUES = 100;
 
 export async function runGoogleSheetsSync({
   supabase,
@@ -224,23 +225,11 @@ export async function runGoogleSheetsSync({
   );
   const materialRows = uniqueBy(parsed.materials, (row) => row.materialKey);
   const materialKeys = materialRows.map((row) => row.materialKey);
-  const { data: existingMaterials, error: existingMaterialError } =
-    await supabase
-      .from("materials")
-      .select("id, google_sheet_sync_key, cost_per_unit")
-      .eq("organization_id", integration.organization_id)
-      .in("google_sheet_sync_key", materialKeys)
-      .returns<
-        Array<{
-          id: string;
-          google_sheet_sync_key: string | null;
-          cost_per_unit: number;
-        }>
-      >();
-
-  if (existingMaterialError) {
-    throw new Error(existingMaterialError.message);
-  }
+  const existingMaterials = await loadExistingMaterials({
+    supabase,
+    organizationId: integration.organization_id,
+    materialKeys,
+  });
 
   const materialPayloads = materialRows.map((row) => {
     const plantId = plantIdByKey.get(row.plantKey);
@@ -641,6 +630,56 @@ function logSyncStage(
     stage,
     rows,
   }));
+}
+
+async function loadExistingMaterials({
+  supabase,
+  organizationId,
+  materialKeys,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  materialKeys: string[];
+}): Promise<
+  Array<{
+    id: string;
+    google_sheet_sync_key: string | null;
+    cost_per_unit: number;
+  }>
+> {
+  const keyBatches = chunkValues(
+    materialKeys,
+    MAX_POSTGREST_IN_FILTER_VALUES,
+  );
+  const responses = await Promise.all(
+    keyBatches.map((keys) =>
+      supabase
+        .from("materials")
+        .select("id, google_sheet_sync_key, cost_per_unit")
+        .eq("organization_id", organizationId)
+        .in("google_sheet_sync_key", keys)
+        .returns<
+          Array<{
+            id: string;
+            google_sheet_sync_key: string | null;
+            cost_per_unit: number;
+          }>
+        >(),
+    ),
+  );
+
+  return responses.flatMap(({ data, error }) => {
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+}
+
+function chunkValues<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 async function deactivateMissing({
