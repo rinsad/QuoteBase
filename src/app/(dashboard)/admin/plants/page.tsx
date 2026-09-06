@@ -676,13 +676,36 @@ function PlantSlideOver({
             <h3 className="text-xs font-semibold uppercase text-muted-foreground">
               Location
             </h3>
-            <p className="mt-2 text-sm font-medium">
-              {formatAddress(supplier.address)}
-            </p>
-            <p className="mt-2 font-mono text-xs text-muted-foreground">
-              {supplier.latitude ?? "lat pending"},{" "}
-              {supplier.longitude ?? "lng pending"}
-            </p>
+            <div className="mt-3 grid gap-3 text-sm">
+              <DetailRow
+                label="Street"
+                value={addressValue(supplier.address, "street")}
+              />
+              <DetailRow
+                label="City"
+                value={addressValue(supplier.address, "city")}
+              />
+              <DetailRow
+                label="County"
+                value={addressValue(supplier.address, "county")}
+              />
+              <DetailRow
+                label="State"
+                value={addressValue(supplier.address, "state")}
+              />
+              <DetailRow
+                label="ZIP"
+                value={addressValue(supplier.address, "postal_code")}
+              />
+              <DetailRow
+                label="Latitude"
+                value={supplier.latitude?.toString() ?? null}
+              />
+              <DetailRow
+                label="Longitude"
+                value={supplier.longitude?.toString() ?? null}
+              />
+            </div>
           </section>
 
           <section className="soft-row p-4">
@@ -902,6 +925,14 @@ function formatAddress(address: Record<string, unknown>) {
   const state = typeof address.state === "string" ? address.state : "";
 
   return [city, state].filter(Boolean).join(", ") || "Address pending";
+}
+
+function addressValue(
+  address: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = address[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function formatDate(value: string | null) {

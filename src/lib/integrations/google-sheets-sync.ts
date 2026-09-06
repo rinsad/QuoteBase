@@ -14,6 +14,7 @@ import { getMapboxIntegration } from "@/lib/integrations/mapbox";
 type ParsedAddress = {
   street: string;
   city: string;
+  county: string | null;
   state: string;
   postal_code: string | null;
   formatted: string;
@@ -173,6 +174,7 @@ export async function runGoogleSheetsSync({
       const coordinates = await geocodeJobSiteAddress({
         line1: row.address.street,
         city: row.address.city,
+        county: row.address.county,
         state: row.address.state,
         apiKey:
           mapbox?.isEnabled && mapbox.publicAccessToken
@@ -189,6 +191,7 @@ export async function runGoogleSheetsSync({
       return {
         row,
         coordinates: resolvedCoordinates,
+        normalizedAddress: coordinates?.address ?? null,
         usedFallback: !coordinates && !existing?.latitude && Boolean(fallbackCoordinates),
       };
     },
@@ -206,7 +209,8 @@ export async function runGoogleSheetsSync({
       );
     }
   }
-  const plantPayloads = geocodedPlants.map(({ row, coordinates }) => {
+  const plantPayloads = geocodedPlants.map(
+    ({ row, coordinates, normalizedAddress }) => {
     const supplierId = supplierIdByKey.get(row.supplierKey);
 
     if (!supplierId) {
@@ -217,15 +221,26 @@ export async function runGoogleSheetsSync({
       organization_id: integration.organization_id,
       supplier_id: supplierId,
       name: row.plantName,
-      address: row.address,
+      address: normalizedAddress
+        ? {
+            street: normalizedAddress.street ?? row.address.street,
+            city: normalizedAddress.city ?? row.address.city,
+            county: normalizedAddress.county ?? row.address.county,
+            state: normalizedAddress.state ?? row.address.state,
+            postal_code:
+              normalizedAddress.postalCode ?? row.address.postal_code,
+            formatted: normalizedAddress.formatted ?? row.address.formatted,
+          }
+        : row.address,
       latitude: coordinates?.latitude ?? null,
       longitude: coordinates?.longitude ?? null,
       hours: row.hours,
       is_active: true,
       google_sheet_sync_key: row.plantKey,
       google_sheet_synced_at: syncedAt,
-    };
-  });
+      };
+    },
+  );
   logSyncStage(integration.organization_id, "plants", plantPayloads.length);
   const { data: plants, error: plantError } = await supabase
     .from("supplier_plants")
@@ -597,6 +612,7 @@ function parseAddress(value: string): ParsedAddress | null {
   return {
     street,
     city,
+    county: null,
     state: statePostal[1].toUpperCase(),
     postal_code: statePostal[2] ?? null,
     formatted: normalized,
@@ -614,6 +630,7 @@ function parseLooseAddress(value: string): ParsedAddress | null {
   return {
     street: street.trim(),
     city: city.trim(),
+    county: null,
     state: state.toUpperCase(),
     postal_code: postalCode ?? null,
     formatted: [street.trim(), city.trim(), state.toUpperCase(), postalCode]

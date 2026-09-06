@@ -9,6 +9,39 @@ export type GeocodeAddressInput = {
 export type GeocodedCoordinate = {
   latitude: number;
   longitude: number;
+  address?: GeocodedAddress;
+};
+
+export type GeocodedAddress = {
+  street: string | null;
+  city: string | null;
+  county: string | null;
+  state: string | null;
+  postalCode: string | null;
+  formatted: string | null;
+};
+
+type MapboxContextValue = {
+  name?: unknown;
+  region_code?: unknown;
+};
+
+type MapboxFeatureProperties = {
+  name?: unknown;
+  full_address?: unknown;
+  coordinates?: {
+    latitude?: unknown;
+    longitude?: unknown;
+  };
+  context?: {
+    address?: MapboxContextValue;
+    street?: MapboxContextValue;
+    place?: MapboxContextValue;
+    locality?: MapboxContextValue;
+    district?: MapboxContextValue;
+    region?: MapboxContextValue;
+    postcode?: MapboxContextValue;
+  };
 };
 
 type MapboxGeocodeResponse = {
@@ -16,12 +49,7 @@ type MapboxGeocodeResponse = {
     geometry?: {
       coordinates?: unknown;
     };
-    properties?: {
-      coordinates?: {
-        latitude?: unknown;
-        longitude?: unknown;
-      };
-    };
+    properties?: MapboxFeatureProperties;
   }>;
 };
 
@@ -111,7 +139,33 @@ function parseMapboxGeocodeResponse(
   return {
     latitude: roundCoordinate(latitude),
     longitude: roundCoordinate(longitude),
+    address: parseMapboxAddress(feature?.properties),
   };
+}
+
+function parseMapboxAddress(
+  properties: MapboxFeatureProperties | undefined,
+): GeocodedAddress | undefined {
+  if (!properties) return undefined;
+
+  const context = properties.context;
+  const street = textValue(context?.address?.name ?? properties.name);
+  const city = textValue(context?.place?.name ?? context?.locality?.name);
+  const county = textValue(context?.district?.name);
+  const regionCode = textValue(context?.region?.region_code);
+  const state = regionCode?.includes("-")
+    ? (regionCode.split("-").at(-1) ?? null)
+    : regionCode;
+  const postalCode = textValue(context?.postcode?.name);
+  const formatted = textValue(properties.full_address);
+
+  return street || city || county || state || postalCode || formatted
+    ? { street, city, county, state, postalCode, formatted }
+    : undefined;
+}
+
+function textValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function roundCoordinate(value: number): number {
