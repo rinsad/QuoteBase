@@ -14,6 +14,10 @@ const tenantSettingsSchema = z.object({
   jobs_starting_soon_days: z.coerce.number().int().min(1).max(120),
   default_followup_max_attempts: z.coerce.number().int().min(1).max(5),
   quote_recommendation_count: z.coerce.number().int().min(3).max(5),
+  default_trucking_profile_id: z.preprocess(
+    (value) => value ?? "",
+    z.union([z.literal(""), z.string().uuid()]),
+  ),
 });
 
 export async function updateTenantSettings(formData: FormData): Promise<void> {
@@ -35,11 +39,14 @@ export async function updateTenantSettings(formData: FormData): Promise<void> {
       "default_followup_max_attempts",
     ),
     quote_recommendation_count: formData.get("quote_recommendation_count"),
+    default_trucking_profile_id: formData.get(
+      "default_trucking_profile_id",
+    ),
   });
 
   if (!parsed.success) {
     throw new Error(
-      "Enter a positive quote threshold, a window from 1 to 120 days, and 1 to 5 follow-up attempts.",
+      "Enter valid tenant settings and select an active default trucking profile.",
     );
   }
 
@@ -48,6 +55,33 @@ export async function updateTenantSettings(formData: FormData): Promise<void> {
   if (!supabase) {
     throw new Error("Supabase is not configured for this workspace.");
   }
+
+  const { data: truckingProfiles, error: truckingProfilesError } = await supabase
+    .from("trucking_profiles")
+    .select("id, name, is_default")
+    .eq("organization_id", user.organization_id)
+    .eq("is_active", true);
+
+  if (truckingProfilesError) {
+    throw new Error(truckingProfilesError.message);
+  }
+
+  const selectedTruckingProfile = parsed.data.default_trucking_profile_id
+    ? truckingProfiles?.find(
+        (profile) => profile.id === parsed.data.default_trucking_profile_id,
+      )
+    : null;
+
+  if (parsed.data.default_trucking_profile_id && !selectedTruckingProfile) {
+    throw new Error(
+      "The selected trucking profile is not available to this organization.",
+    );
+  }
+
+  const {
+    default_trucking_profile_id: defaultTruckingProfileId,
+    ...pricingSettings
+  } = parsed.data;
 
   const { data: before, error: beforeError } = await supabase
     .from("pricing_config")
@@ -64,7 +98,7 @@ export async function updateTenantSettings(formData: FormData): Promise<void> {
   const { data: after, error } = await supabase
     .from("pricing_config")
     .update({
-      ...parsed.data,
+      ...pricingSettings,
       updated_at: new Date().toISOString(),
     })
     .eq("organization_id", user.organization_id)
@@ -86,6 +120,51 @@ export async function updateTenantSettings(formData: FormData): Promise<void> {
     after: { settings: after },
     supabase,
   });
+
+  const previousDefaultProfiles = (truckingProfiles ?? []).filter(
+    (profile) => profile.is_default,
+  );
+  const defaultProfileChanged =
+    Boolean(defaultTruckingProfileId) &&
+    (previousDefaultProfiles.length !== 1 ||
+      previousDefaultProfiles[0]?.id !== defaultTruckingProfileId);
+
+  if (defaultProfileChanged) {
+    const { error: clearDefaultError } = await supabase
+      .from("trucking_profiles")
+      .update({ is_default: false })
+      .eq("organization_id", user.organization_id)
+      .eq("is_default", true);
+
+    if (clearDefaultError) {
+      throw new Error(clearDefaultError.message);
+    }
+
+    const { data: newDefaultProfile, error: setDefaultError } = await supabase
+      .from("trucking_profiles")
+      .update({ is_default: true })
+      .eq("organization_id", user.organization_id)
+      .eq("id", defaultTruckingProfileId)
+      .eq("is_active", true)
+      .select("id, name, is_default")
+      .single<Record<string, unknown>>();
+
+    if (setDefaultError || !newDefaultProfile) {
+      throw new Error(
+        setDefaultError?.message ?? "Could not update the default trucking profile.",
+      );
+    }
+
+    await logAction({
+      user,
+      action: "trucking_profile.default_updated",
+      targetTable: "trucking_profiles",
+      targetId: defaultTruckingProfileId,
+      before: { default_profiles: previousDefaultProfiles },
+      after: { default_profile: newDefaultProfile },
+      supabase,
+    });
+  }
 
   revalidatePath("/admin/settings");
   revalidatePath("/admin/pricing");

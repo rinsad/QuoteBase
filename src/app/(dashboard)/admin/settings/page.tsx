@@ -6,6 +6,7 @@ import { updateTenantSettings } from "@/app/(dashboard)/admin/settings/actions";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { getAdminPricingConfig } from "@/lib/admin/pricing";
+import { getAdminTruckingProfiles } from "@/lib/admin/trucking-profiles";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
 export default async function AdminSettingsPage({
@@ -23,14 +24,22 @@ export default async function AdminSettingsPage({
     redirect("/dashboard");
   }
 
-  const [params, settings] = await Promise.all([
+  const [params, settings, truckingProfileData] = await Promise.all([
     searchParams,
     getAdminPricingConfig(user.organization_id),
+    getAdminTruckingProfiles(user.organization_id),
   ]);
 
   if (!settings) {
     throw new Error("Tenant configuration is missing.");
   }
+
+  const activeTruckingProfiles = truckingProfileData.profiles.filter(
+    (profile) => profile.isActive,
+  );
+  const defaultTruckingProfile = activeTruckingProfiles.find(
+    (profile) => profile.isDefault,
+  );
 
   return (
     <main className="app-background">
@@ -156,20 +165,49 @@ export default async function AdminSettingsPage({
             </label>
           </section>
           <section className="mt-6 border-t border-border pt-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="flex items-center gap-2 text-lg font-semibold">
                   <Truck className="size-5 text-primary" />
                   Trucking configuration
                 </h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Trucking profiles are assigned directly to individual materials.
+                  Choose the fallback profile used when a material has no specific trucking profile.
                 </p>
               </div>
               <Link href="/admin/trucking-profiles" className="mac-link h-10 px-4">
                 Manage trucking profiles
               </Link>
             </div>
+            {activeTruckingProfiles.length ? (
+              <label className="soft-row mt-4 block max-w-sm p-5">
+                <span className="text-sm font-semibold">
+                  Default trucking profile
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                  Automatically applies to materials without their own profile.
+                </span>
+                <select
+                  name="default_trucking_profile_id"
+                  defaultValue={defaultTruckingProfile?.id ?? ""}
+                  className="soft-control mt-4 w-full"
+                  required
+                >
+                  <option value="" disabled>
+                    Select a trucking profile
+                  </option>
+                  {activeTruckingProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <p className="mt-4 max-w-sm rounded-[16px] border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
+                Create an active trucking profile before choosing a default.
+              </p>
+            )}
           </section>
           <div className="mt-6 flex justify-end">
             <Button type="submit" className="h-11 rounded-full px-6">
