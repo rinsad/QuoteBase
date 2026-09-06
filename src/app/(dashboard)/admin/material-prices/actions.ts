@@ -117,7 +117,9 @@ export async function updateMaterialPrice(formData: FormData) {
   redirect("/admin/material-prices?saved=1");
 }
 
-export async function updateMaterialTruckingProfile(formData: FormData): Promise<void> {
+export async function updateMaterialTruckingProfile(
+  formData: FormData,
+): Promise<{ status: "saved" | "unchanged" }> {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -252,7 +254,7 @@ export async function updateMaterialTruckingProfile(formData: FormData): Promise
   revalidatePath("/admin/material-prices");
   revalidatePath("/admin/trucking-profiles");
   revalidatePath("/quotes/new");
-  redirect("/admin/material-prices?saved=1&profile_saved=1");
+  return { status: alreadyAssigned ? "unchanged" : "saved" };
 }
 
 export async function uploadMaterialPriceCsv(formData: FormData) {

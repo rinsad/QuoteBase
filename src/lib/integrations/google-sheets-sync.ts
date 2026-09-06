@@ -36,6 +36,15 @@ type SheetMaterial = {
 
 type SheetSupplier = { name: string; key: string };
 
+type SheetPlant = {
+  supplierName: string;
+  supplierKey: string;
+  plantName: string;
+  plantKey: string;
+  address: ParsedAddress;
+  hours: string | null;
+};
+
 export type GoogleSheetsSyncSummary = {
   suppliers: number;
   plants: number;
@@ -117,7 +126,7 @@ export async function runGoogleSheetsSync({
       supplier.id,
     ]),
   );
-  const plantsToSync = uniqueBy(parsed.materials, (row) => row.plantKey);
+  const plantsToSync = uniqueBy(parsed.plants, (row) => row.plantKey);
   const { data: existingPlants, error: existingPlantError } = await supabase
     .from("supplier_plants")
     .select("google_sheet_sync_key, latitude, longitude")
@@ -433,11 +442,13 @@ function parseSpreadsheet({
   unitAliases: Map<string, string>;
 }): {
   suppliers: SheetSupplier[];
+  plants: SheetPlant[];
   materials: SheetMaterial[];
   skippedRows: number;
   warnings: string[];
 } {
   const suppliers: SheetSupplier[] = [];
+  const plants: SheetPlant[] = [];
   const materials: SheetMaterial[] = [];
   const warnings: string[] = [];
   let skippedRows = 0;
@@ -494,6 +505,18 @@ function parseSpreadsheet({
             `${tab.title} row ${index + 1}: address differs from the first address in this single-plant supplier tab; using ${currentAddress.formatted}.`,
           );
         }
+
+        if (currentAddress) {
+          const plantName = currentPlantLabel?.trim() || supplierName;
+          plants.push({
+            supplierName,
+            supplierKey,
+            plantName,
+            plantKey: syncKey(`${supplierKey}|${plantName}`),
+            address: currentAddress,
+            hours: cell(row, indexes.hours) || null,
+          });
+        }
       }
       if (!materialName && !priceText) continue;
 
@@ -539,6 +562,7 @@ function parseSpreadsheet({
 
   return {
     suppliers: uniqueBy(suppliers, (row) => row.key),
+    plants: uniqueBy(plants, (row) => row.plantKey),
     materials,
     skippedRows,
     warnings,

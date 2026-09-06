@@ -11,11 +11,9 @@ import {
   X,
 } from "lucide-react";
 
-import {
-  updateMaterialPrice,
-  updateMaterialTruckingProfile,
-} from "@/app/(dashboard)/admin/material-prices/actions";
+import { updateMaterialPrice } from "@/app/(dashboard)/admin/material-prices/actions";
 import { MaterialPriceFilters } from "@/app/(dashboard)/admin/material-prices/material-price-filters";
+import { TruckingProfileSelect } from "@/app/(dashboard)/admin/material-prices/trucking-profile-select";
 import { AdminNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -28,9 +26,9 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 const SORT_KEYS = [
   "material",
   "supplier",
+  "plant",
   "trucking_profile",
   "unit_price",
-  "supplier_pdf_info",
   "last_update",
 ] as const;
 
@@ -48,7 +46,6 @@ export default async function AdminMaterialPricesPage({
     saved?: string;
     sort?: string;
     unchanged?: string;
-    profile_saved?: string;
     catalog_imported?: string;
   }>;
 }) {
@@ -124,9 +121,7 @@ export default async function AdminMaterialPricesPage({
           <div className="mt-6 rounded-[20px] border border-emerald-100 bg-emerald-50/80 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm">
             {params.catalog_imported
               ? `${params.catalog_imported} supplier catalog rows imported.`
-              : params.profile_saved
-                ? "Trucking profile updated."
-                : params.unchanged
+              : params.unchanged
                   ? "No material price change was needed."
                   : "Material price updated."}
           </div>
@@ -190,7 +185,7 @@ export default async function AdminMaterialPricesPage({
               sortDir={sortDir}
             />
 
-            <div className="master-table-head lg:grid-cols-[minmax(200px,1.1fr)_minmax(160px,0.8fr)_minmax(210px,0.9fr)_135px_minmax(190px,1fr)_130px_90px] lg:gap-4">
+            <div className="master-table-head lg:grid-cols-[minmax(190px,1.2fr)_minmax(140px,0.8fr)_minmax(150px,0.9fr)_minmax(210px,1fr)_135px_130px] lg:gap-4">
               <SortableHeader
                 label="Material"
                 sortKey="material"
@@ -203,6 +198,15 @@ export default async function AdminMaterialPricesPage({
               <SortableHeader
                 label="Supplier"
                 sortKey="supplier"
+                activeSort={sortKey}
+                sortDir={sortDir}
+                selectedMaterialId={selected?.id ?? null}
+                supplierFilter={supplierFilter}
+                plantFilter={plantFilter}
+              />
+              <SortableHeader
+                label="Plant"
+                sortKey="plant"
                 activeSort={sortKey}
                 sortDir={sortDir}
                 selectedMaterialId={selected?.id ?? null}
@@ -228,15 +232,6 @@ export default async function AdminMaterialPricesPage({
                 plantFilter={plantFilter}
               />
               <SortableHeader
-                label="Supplier PDF Info"
-                sortKey="supplier_pdf_info"
-                activeSort={sortKey}
-                sortDir={sortDir}
-                selectedMaterialId={selected?.id ?? null}
-                supplierFilter={supplierFilter}
-                plantFilter={plantFilter}
-              />
-              <SortableHeader
                 label="Last update"
                 sortKey="last_update"
                 activeSort={sortKey}
@@ -245,7 +240,6 @@ export default async function AdminMaterialPricesPage({
                 supplierFilter={supplierFilter}
                 plantFilter={plantFilter}
               />
-              <span>Action</span>
             </div>
 
             <div className="divide-y divide-border">
@@ -261,7 +255,7 @@ export default async function AdminMaterialPricesPage({
                 return (
                   <div
                     key={material.id}
-                    className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[minmax(200px,1.1fr)_minmax(160px,0.8fr)_minmax(210px,0.9fr)_135px_minmax(190px,1fr)_130px_90px] lg:items-center lg:gap-4 ${
+                    className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[minmax(190px,1.2fr)_minmax(140px,0.8fr)_minmax(150px,0.9fr)_minmax(210px,1fr)_135px_130px] lg:items-center lg:gap-4 ${
                       selected?.id === material.id ? "bg-secondary" : ""
                     }`}
                   >
@@ -270,52 +264,28 @@ export default async function AdminMaterialPricesPage({
                         {material.name}
                       </h3>
                       <p className="mt-1 text-xs text-muted-foreground lg:hidden">
-                        {material.supplier_name}
+                        {material.supplier_parent_name} · {material.plant_name}
                       </p>
                     </Link>
                     <Link
                       href={materialHref}
                       className="hidden min-w-0 truncate text-sm text-muted-foreground lg:block"
                     >
-                      {material.supplier_name}
+                      {material.supplier_parent_name}
+                    </Link>
+                    <Link
+                      href={materialHref}
+                      className="hidden min-w-0 truncate text-sm text-muted-foreground lg:block"
+                    >
+                      {material.plant_name}
                     </Link>
                     {user.role === "admin" ? (
-                      <form
-                        action={updateMaterialTruckingProfile}
-                        className="flex min-w-0 items-center gap-2"
-                      >
-                        <input
-                          type="hidden"
-                          name="material_id"
-                          value={material.id}
-                        />
-                        <select
-                          name="trucking_profile_id"
-                          defaultValue={material.trucking_profile_id ?? ""}
-                          className="soft-control min-w-0 flex-1 py-2 text-xs"
-                          aria-label={`Trucking profile for ${material.name}`}
-                        >
-                          <option value="">
-                            Use default
-                            {data.truckingProfiles.find((profile) => profile.isDefault)
-                              ? ` (${data.truckingProfiles.find((profile) => profile.isDefault)?.name})`
-                              : ""}
-                          </option>
-                          {data.truckingProfiles.map((profile) => (
-                            <option key={profile.id} value={profile.id}>
-                              {profile.name}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="submit"
-                          className="mac-link size-9 shrink-0 px-0"
-                          aria-label={`Save trucking profile for ${material.name}`}
-                          title="Save trucking profile"
-                        >
-                          <Save className="size-3.5" />
-                        </button>
-                      </form>
+                      <TruckingProfileSelect
+                        materialId={material.id}
+                        materialName={material.name}
+                        initialProfileId={material.trucking_profile_id}
+                        profiles={data.truckingProfiles}
+                      />
                     ) : (
                       <span className="truncate text-sm text-muted-foreground">
                         {material.trucking_profile_name ??
@@ -330,31 +300,9 @@ export default async function AdminMaterialPricesPage({
                     </Link>
                     <Link
                       href={materialHref}
-                      className="min-w-0 text-xs leading-5 text-muted-foreground"
-                    >
-                      <p className="truncate">
-                        {material.catalog_source_plant ?? "Plant not mapped"}
-                      </p>
-                      <p className="truncate">
-                        {material.catalog_surcharge_per_load === null
-                          ? "No surcharge mapped"
-                          : `${formatCurrency(material.catalog_surcharge_per_load)}/load`}
-                        {material.catalog_quote_number
-                          ? ` - ${material.catalog_quote_number}`
-                          : ""}
-                      </p>
-                    </Link>
-                    <Link
-                      href={materialHref}
                       className="text-sm text-muted-foreground"
                     >
                       {formatDate(material.last_price_update)}
-                    </Link>
-                    <Link
-                      href={materialHref}
-                      className="mac-link h-9 justify-center px-3 text-xs"
-                    >
-                      Update
                     </Link>
                   </div>
                 );
@@ -651,7 +599,11 @@ function compareMaterials(
 
   switch (sortKey) {
     case "supplier":
-      return compareText(a.supplier_name, b.supplier_name) * direction;
+      return (
+        compareText(a.supplier_parent_name, b.supplier_parent_name) * direction
+      );
+    case "plant":
+      return compareText(a.plant_name, b.plant_name) * direction;
     case "trucking_profile":
       return (
         compareText(
@@ -661,18 +613,6 @@ function compareMaterials(
       );
     case "unit_price":
       return (a.cost_per_unit - b.cost_per_unit) * direction;
-    case "supplier_pdf_info":
-      return (
-        (compareText(
-          a.catalog_source_plant ?? "",
-          b.catalog_source_plant ?? "",
-        ) ||
-          compareText(
-            a.catalog_quote_number ?? "",
-            b.catalog_quote_number ?? "",
-          ) ||
-          compareText(a.name, b.name)) * direction
-      );
     case "last_update":
       return compareNullableDate(
         a.last_price_update,
