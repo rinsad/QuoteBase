@@ -119,7 +119,9 @@ export async function getAdminPlantsSummary(
           latitude: supplier.latitude === null ? null : Number(supplier.latitude),
           longitude:
             supplier.longitude === null ? null : Number(supplier.longitude),
-          materials: supplier.materials ?? [],
+          materials: (supplier.materials ?? []).filter(
+            (material) => material.is_active,
+          ),
         };
       }) ?? [],
     parentSuppliers: parentSuppliersResult.data ?? [],

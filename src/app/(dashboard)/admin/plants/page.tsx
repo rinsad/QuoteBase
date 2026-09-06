@@ -35,6 +35,7 @@ export default async function AdminPlantsPage({
     new?: string;
     saved?: string;
     sort?: string;
+    status?: string;
   }>;
 }) {
   const user = await getCurrentUser();
@@ -68,11 +69,14 @@ export default async function AdminPlantsPage({
   )
     ? params.supplier
     : undefined;
-  const filteredPlants = selectedParentSupplierId
-    ? summary.suppliers.filter(
-        (plant) => plant.supplier_id === selectedParentSupplierId,
-      )
-    : summary.suppliers;
+  const statusFilter = parsePlantStatusFilter(params.status);
+  const filteredPlants = summary.suppliers.filter(
+    (plant) =>
+      (!selectedParentSupplierId ||
+        plant.supplier_id === selectedParentSupplierId) &&
+      (statusFilter === "all" ||
+        (statusFilter === "active" ? plant.is_active : !plant.is_active)),
+  );
   const selectedPlant =
     filteredPlants.find((plant) => plant.id === params.plant) ?? null;
   const sortedPlants = sortPlants(filteredPlants, sortKey, sortDirection);
@@ -83,10 +87,16 @@ export default async function AdminPlantsPage({
   if (selectedParentSupplierId) {
     listParams.set("supplier", selectedParentSupplierId);
   }
+  if (statusFilter !== "active") {
+    listParams.set("status", statusFilter);
+  }
   const plantsListHref = `/admin/plants?${listParams.toString()}`;
   const newPlantParams = new URLSearchParams({ new: "1" });
   if (selectedParentSupplierId) {
     newPlantParams.set("supplier", selectedParentSupplierId);
+  }
+  if (statusFilter !== "active") {
+    newPlantParams.set("status", statusFilter);
   }
 
   return (
@@ -159,7 +169,7 @@ export default async function AdminPlantsPage({
           <form
             action="/admin/plants"
             method="get"
-            className="flex flex-col gap-3 border-t border-border px-5 py-4 sm:flex-row sm:items-end"
+            className="grid gap-3 border-t border-border px-5 py-4 sm:grid-cols-[minmax(180px,1fr)_minmax(150px,220px)_auto] sm:items-end"
           >
             <input type="hidden" name="sort" value={sortKey} />
             <input type="hidden" name="dir" value={sortDirection} />
@@ -180,6 +190,20 @@ export default async function AdminPlantsPage({
                 ))}
               </select>
             </label>
+            <label className="block">
+              <span className="text-sm font-medium text-muted-foreground">
+                Status
+              </span>
+              <select
+                name="status"
+                defaultValue={statusFilter}
+                className="soft-control mt-2 w-full"
+              >
+                <option value="active">Active plants</option>
+                <option value="inactive">Inactive plants</option>
+                <option value="all">All plants</option>
+              </select>
+            </label>
             <Button type="submit" variant="outline" className="h-10 px-5">
               Filter plants
             </Button>
@@ -193,6 +217,7 @@ export default async function AdminPlantsPage({
               direction={sortDirection}
               selectedPlantId={params.plant}
               selectedSupplierId={selectedParentSupplierId}
+              selectedStatus={statusFilter}
             />
             <SortableHeader
               label="Supplier"
@@ -201,6 +226,7 @@ export default async function AdminPlantsPage({
               direction={sortDirection}
               selectedPlantId={params.plant}
               selectedSupplierId={selectedParentSupplierId}
+              selectedStatus={statusFilter}
             />
             <SortableHeader
               label="Location"
@@ -209,6 +235,7 @@ export default async function AdminPlantsPage({
               direction={sortDirection}
               selectedPlantId={params.plant}
               selectedSupplierId={selectedParentSupplierId}
+              selectedStatus={statusFilter}
             />
             <span>Coordinates</span>
             <SortableHeader
@@ -218,6 +245,7 @@ export default async function AdminPlantsPage({
               direction={sortDirection}
               selectedPlantId={params.plant}
               selectedSupplierId={selectedParentSupplierId}
+              selectedStatus={statusFilter}
             />
             <SortableHeader
               label="Status"
@@ -226,6 +254,7 @@ export default async function AdminPlantsPage({
               direction={sortDirection}
               selectedPlantId={params.plant}
               selectedSupplierId={selectedParentSupplierId}
+              selectedStatus={statusFilter}
             />
           </div>
 
@@ -238,6 +267,7 @@ export default async function AdminPlantsPage({
                   supplierId: selectedParentSupplierId,
                   sortKey,
                   sortDirection,
+                  statusFilter,
                 })}
                 className={`grid gap-3 px-4 py-4 transition hover:bg-secondary/70 lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.8fr)_minmax(220px,1fr)_160px_120px_100px] lg:items-center lg:gap-4 ${
                   selectedPlant?.id === supplier.id ? "bg-secondary" : ""
@@ -302,6 +332,11 @@ export default async function AdminPlantsPage({
 type PlantSortKey = "plant" | "supplier" | "location" | "materials" | "status";
 
 type SortDirection = "asc" | "desc";
+type PlantStatusFilter = "active" | "inactive" | "all";
+
+function parsePlantStatusFilter(value: string | undefined): PlantStatusFilter {
+  return value === "inactive" || value === "all" ? value : "active";
+}
 
 function parsePlantSortKey(value: string | undefined): PlantSortKey {
   const allowed: PlantSortKey[] = [
@@ -362,11 +397,13 @@ function plantDetailsHref({
   supplierId,
   sortKey,
   sortDirection,
+  statusFilter,
 }: {
   plantId: string;
   supplierId?: string;
   sortKey: PlantSortKey;
   sortDirection: SortDirection;
+  statusFilter: PlantStatusFilter;
 }): string {
   const params = new URLSearchParams({
     plant: plantId,
@@ -375,6 +412,9 @@ function plantDetailsHref({
   });
   if (supplierId) {
     params.set("supplier", supplierId);
+  }
+  if (statusFilter !== "active") {
+    params.set("status", statusFilter);
   }
   return `/admin/plants?${params.toString()}`;
 }
@@ -386,6 +426,7 @@ function SortableHeader({
   direction,
   selectedPlantId,
   selectedSupplierId,
+  selectedStatus,
 }: {
   label: string;
   sortKey: PlantSortKey;
@@ -393,6 +434,7 @@ function SortableHeader({
   direction: SortDirection;
   selectedPlantId?: string;
   selectedSupplierId?: string;
+  selectedStatus: PlantStatusFilter;
 }) {
   const isActive = activeSortKey === sortKey;
   const nextDirection = isActive && direction === "asc" ? "desc" : "asc";
@@ -407,6 +449,10 @@ function SortableHeader({
 
   if (selectedSupplierId) {
     params.set("supplier", selectedSupplierId);
+  }
+
+  if (selectedStatus !== "active") {
+    params.set("status", selectedStatus);
   }
 
   const SortIcon = isActive

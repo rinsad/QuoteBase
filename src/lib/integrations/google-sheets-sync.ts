@@ -95,6 +95,11 @@ export async function runGoogleSheetsSync({
     supabase,
     organizationId: integration.organization_id,
   });
+  const fallbackCoordinates = await loadFallbackYardCoordinates({
+    supabase,
+    organizationId: integration.organization_id,
+    yardId: config.geocodeFallbackYardId,
+  });
   const supplierRows = parsed.suppliers;
   logSyncStage(integration.organization_id, "suppliers", supplierRows.length);
   const { data: suppliers, error: supplierError } = await supabase
@@ -174,11 +179,27 @@ export async function runGoogleSheetsSync({
             ? mapbox.publicAccessToken
             : null,
       });
-      return { row, coordinates };
+      const existing = existingCoordinates.get(row.plantKey);
+      const resolvedCoordinates =
+        coordinates ??
+        (existing?.latitude !== null && existing?.longitude !== null
+          ? existing
+          : null) ??
+        fallbackCoordinates;
+      return {
+        row,
+        coordinates: resolvedCoordinates,
+        usedFallback: !coordinates && !existing?.latitude && Boolean(fallbackCoordinates),
+      };
     },
   );
-  for (const { row, coordinates } of geocodedPlants) {
-    if (!coordinates && !existingCoordinates.get(row.plantKey)?.latitude) {
+  for (const { row, coordinates, usedFallback } of geocodedPlants) {
+    if (usedFallback) {
+      addWarning(
+        parsed.warnings,
+        `${row.supplierName}: Mapbox could not geocode ${row.address.formatted}; using the configured fallback yard coordinates.`,
+      );
+    } else if (!coordinates) {
       addWarning(
         parsed.warnings,
         `${row.supplierName}: plant address could not be geocoded (${row.address.formatted}).`,
@@ -197,14 +218,8 @@ export async function runGoogleSheetsSync({
       supplier_id: supplierId,
       name: row.plantName,
       address: row.address,
-      latitude:
-        coordinates?.latitude ??
-        existingCoordinates.get(row.plantKey)?.latitude ??
-        null,
-      longitude:
-        coordinates?.longitude ??
-        existingCoordinates.get(row.plantKey)?.longitude ??
-        null,
+      latitude: coordinates?.latitude ?? null,
+      longitude: coordinates?.longitude ?? null,
       hours: row.hours,
       is_active: true,
       google_sheet_sync_key: row.plantKey,
@@ -572,7 +587,7 @@ function parseSpreadsheet({
 function parseAddress(value: string): ParsedAddress | null {
   const normalized = value.replace(/\s+/g, " ").trim();
   const parts = normalized.split(",").map((part) => part.trim());
-  if (parts.length < 3) return null;
+  if (parts.length < 3) return parseLooseAddress(normalized);
 
   const street = parts[0];
   const city = parts[1];
@@ -585,6 +600,53 @@ function parseAddress(value: string): ParsedAddress | null {
     state: statePostal[1].toUpperCase(),
     postal_code: statePostal[2] ?? null,
     formatted: normalized,
+  };
+}
+
+function parseLooseAddress(value: string): ParsedAddress | null {
+  const match = value.match(
+    /^(.+?\b(?:st|street|ave|avenue|rd|road|blvd|boulevard|hwy|highway|dr|drive|ln|lane|ct|court|way|pkwy|parkway)\.?)\s+(.+?)\s+([a-z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/i,
+  );
+
+  if (!match) return null;
+
+  const [, street, city, state, postalCode] = match;
+  return {
+    street: street.trim(),
+    city: city.trim(),
+    state: state.toUpperCase(),
+    postal_code: postalCode ?? null,
+    formatted: [street.trim(), city.trim(), state.toUpperCase(), postalCode]
+      .filter(Boolean)
+      .join(", "),
+  };
+}
+
+async function loadFallbackYardCoordinates({
+  supabase,
+  organizationId,
+  yardId,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  yardId: string | undefined;
+}): Promise<{ latitude: number; longitude: number } | null> {
+  if (!yardId) return null;
+
+  const { data, error } = await supabase
+    .from("yards")
+    .select("latitude, longitude")
+    .eq("organization_id", organizationId)
+    .eq("id", yardId)
+    .eq("is_active", true)
+    .maybeSingle<{ latitude: number | null; longitude: number | null }>();
+
+  if (error) throw new Error(error.message);
+  if (data?.latitude === null || data?.longitude === null || !data) return null;
+
+  return {
+    latitude: Number(data.latitude),
+    longitude: Number(data.longitude),
   };
 }
 

@@ -21,6 +21,7 @@ export type GoogleSheetsConfig = {
   spreadsheetId: string;
   spreadsheetUrl: string;
   spreadsheetTitle?: string;
+  geocodeFallbackYardId?: string;
   headerRow: number;
   columns: {
     address: string;
@@ -114,6 +115,8 @@ export function normalizeGoogleSheetsConfig(
     spreadsheetId: stringValue(config?.spreadsheetId) ?? "",
     spreadsheetUrl: stringValue(config?.spreadsheetUrl) ?? "",
     spreadsheetTitle: stringValue(config?.spreadsheetTitle) ?? undefined,
+    geocodeFallbackYardId:
+      uuidValue(config?.geocodeFallbackYardId) ?? undefined,
     headerRow: numberValue(config?.headerRow, 1),
     columns: {
       address: columnValue(columns?.address, defaults.columns.address),
@@ -546,6 +549,13 @@ function numberValue(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value)
     ? value
     : fallback;
+}
+
+function uuidValue(value: unknown): string | null {
+  const parsed = stringValue(value);
+  return parsed && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed)
+    ? parsed
+    : null;
 }
 
 function columnValue(value: unknown, fallback: string): string {
